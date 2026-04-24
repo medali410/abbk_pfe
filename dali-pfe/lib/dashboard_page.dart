@@ -843,7 +843,7 @@ class _DashboardPageState extends State<DashboardPage> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => MachineDetailPage(
+            builder: (context) => MachineDetailAiPage(
               machineId: id,
               machineName: name,
               viewerRole: 'conception',

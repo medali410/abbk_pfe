@@ -438,23 +438,47 @@ function parseChatRoom(roomId = '') {
     return { type: 'other' };
 }
 
-// Connexion MongoDB
-mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/dali_pfe')
-    .then(async () => {
-        console.log('[OK] MongoDB connecte');
+// Connexion MongoDB avec repli local
+async function connectToMongo() {
+    const atlasUri = process.env.MONGO_URI;
+    const localUri = 'mongodb://127.0.0.1:27017/dali_pfe';
+    
+    if (atlasUri) {
+        console.log('⏳ Tentative de connexion à MongoDB Atlas...');
         try {
-            await Conception.syncIndexes();
-            const db = mongoose.connection.db;
-            const names = (await db.listCollections().toArray()).map((c) => c.name);
-            if (!names.includes('conceptions')) {
-                await Conception.createCollection();
-                console.log('[OK] Collection conceptions creee (documents CAO).');
-            }
-        } catch (e) {
-            console.warn('[WARN] Init conceptions:', e.message);
+            await mongoose.connect(atlasUri, { serverSelectionTimeoutMS: 5000 });
+            console.log('✅ MongoDB Atlas connecté');
+            return true;
+        } catch (err) {
+            console.error('❌ Échec MongoDB Atlas:', err.message);
         }
-    })
-    .catch((err) => console.error('[ERR] MongoDB:', err.message));
+    }
+
+    console.log('⏳ Tentative de connexion à MongoDB Local...');
+    try {
+        await mongoose.connect(localUri, { serverSelectionTimeoutMS: 5000 });
+        console.log('✅ MongoDB Local connecté (Repli)');
+        return true;
+    } catch (err) {
+        console.error('❌ Échec MongoDB Local:', err.message);
+        return false;
+    }
+}
+
+connectToMongo().then(async (success) => {
+    if (!success) return;
+    try {
+        await Conception.syncIndexes();
+        const db = mongoose.connection.db;
+        const names = (await db.listCollections().toArray()).map((c) => c.name);
+        if (!names.includes('conceptions')) {
+            await Conception.createCollection();
+            console.log('[OK] Collection conceptions créée.');
+        }
+    } catch (e) {
+        console.warn('[WARN] Init conceptions:', e.message);
+    }
+});
 
 app.use(
     cors({
@@ -612,6 +636,7 @@ mqttClient.on('message', async (topic, message) => {
     const statusMatch = topic.match(/^machines\/(.+)\/status$/);
     if (statusMatch) {
         try {
+            if (mongoose.connection.readyState !== 1) return;
             const statusData = JSON.parse(message.toString());
             const statusMachineId = statusMatch[1] || statusData.machineId;
             const newStatus = String(statusData.status || '').toUpperCase();
@@ -640,11 +665,16 @@ mqttClient.on('message', async (topic, message) => {
         const mId = telemetryMatch ? telemetryMatch[1] : (payload.machineId || payload.id || 'MAC_UNKNOWN');
         const machineId = String(mId);
 
-        // Accept any machine that exists in MongoDB (created via dashboard or auto-register)
+        // Accept any machine that exists in MongoDB
         if (!_knownMachineCache.has(machineId)) {
-            const existsInDb = await Machine.exists({ _id: machineId });
-            if (!existsInDb) return;
-            _knownMachineCache.add(machineId);
+            if (mongoose.connection.readyState === 1) {
+                const existsInDb = await Machine.exists({ _id: machineId });
+                if (!existsInDb) return;
+                _knownMachineCache.add(machineId);
+            } else {
+                // If DB is down, we allow the machine for real-time relay anyway
+                _knownMachineCache.add(machineId);
+            }
         }
         
         // --- Layer 1: Rule-based scenario detection ---
@@ -709,6 +739,10 @@ mqttClient.on('message', async (topic, message) => {
 
         // Sauvegarder en base
         try {
+            if (mongoose.connection.readyState !== 1) {
+                console.warn(`⚠️ [${mId}] DB déconnectée, skip sauvegarde télémétrie`);
+                return;
+            }
             const telemetry = new Telemetry({
                 machineId: mId,
                 temperature: prediction.temperature,

@@ -201,7 +201,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => MachineDetailPage(
+                    builder: (_) => MachineDetailAiPage(
                       machineId: machineId,
                       viewerRole: 'technician',
                       viewerName: _chatSenderName,

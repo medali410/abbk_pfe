@@ -379,7 +379,7 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (_) => MachineDetailPage(
+                                    builder: (_) => MachineDetailAiPage(
                                       machineId: machineId,
                                       machineName: machineName,
                                       viewerRole: 'maintenance',

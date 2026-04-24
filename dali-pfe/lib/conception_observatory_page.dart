@@ -508,7 +508,7 @@ class _ConceptionObservatoryPageState extends State<ConceptionObservatoryPage> w
     Navigator.push<void>(
       context,
       MaterialPageRoute<void>(
-        builder: (_) => MachineDetailPage(
+        builder: (_) => MachineDetailAiPage(
           machineId: id,
           machineName: (_machineRow?['name'] ?? '').toString(),
           viewerRole: 'conception',

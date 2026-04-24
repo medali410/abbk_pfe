@@ -1827,7 +1827,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               _actionBtn(Icons.arrow_forward, _secondary, () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => MachineDetailPage(
+                  builder: (context) => MachineDetailAiPage(
                     machineId: machineRealtimeId,
                     machineName: m['name']?.toString(),
                     viewerRole: 'client',
