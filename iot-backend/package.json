@@ -1,0 +1,46 @@
+{
+  "name": "iot-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "seed:demo": "node seed_demo_logins.js",
+    "migrate:concepteurs": "node migrate_users_conception_to_concepteurs.js",
+    "seed:dev-admin": "node ensure_dev_admin.js",
+    "seed:dev-concepteur": "node ensure_dev_concepteur.js",
+    "seed:expresse": "node ensure_client_expresse.js",
+    "test:mqtt:dzli": "node test_demo_panne.js MAC-1775750118162",
+    "demo:dzli-mqtt": "node test_demo_panne.js MAC-1775750118162 2500",
+    "test:mqtt": "node test_demo_panne.js",
+    "seed:dzli": "node ensure_machine_dzli_expresse.js",
+    "test:mqtt:listen": "node mqtt_listen_test.js",
+    "test:mqtt:listen:all": "node mqtt_listen_test.js all 60000",
+    "test:mqtt:self": "node mqtt_self_test.js",
+    "ml:train-tabular": "python ../modele_moteur_ia_inspect/train_tabular.py --csv ./ai4i2020.csv",
+    "ml:pick-examples": "python ../modele_moteur_ia_inspect/pick_predict_examples.py",
+    "ml:tabular-rebuild": "python ../modele_moteur_ia_inspect/train_tabular.py --csv ./ai4i2020.csv && python ../modele_moteur_ia_inspect/pick_predict_examples.py"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "axios": "^1.13.6",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.2.4",
+    "mqtt": "^5.15.0",
+    "socket.io": "^4.8.3",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  }
+}

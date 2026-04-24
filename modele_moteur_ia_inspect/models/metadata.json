@@ -1,0 +1,39 @@
+{
+  "version": "1.0",
+  "n_types": 10,
+  "n_scenarios": 10,
+  "types_moteurs": [
+    "CO_L",
+    "DI_L",
+    "DI_M",
+    "DI_S",
+    "EL_L",
+    "EL_M",
+    "EL_S",
+    "HY_L",
+    "PO_L",
+    "TURBOFAN"
+  ],
+  "scenarios": [
+    "CAVITATION",
+    "DEGRADATION_HPC",
+    "ELECTRIQUE",
+    "FUITE",
+    "NORMAL",
+    "PRESSION_HUILE",
+    "ROULEMENT",
+    "SURCHARGE",
+    "SURCHAUFFE",
+    "USURE_GENERALE"
+  ],
+  "capteurs": [
+    "temperature",
+    "pression",
+    "puissance",
+    "vibration",
+    "presence",
+    "magnetique",
+    "infrarouge"
+  ],
+  "rul_max": 498.0
+}

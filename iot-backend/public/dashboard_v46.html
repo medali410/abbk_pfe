@@ -1,0 +1,1824 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ABBKA Dashboard v4.6 (WebSocket via Backend)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #0a0e27;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1a1f4e, #2d1b69);
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #4a3f8a;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .header h1 {
+            font-size: 22px;
+            color: #00d4ff;
+        }
+
+        .header-sub {
+            font-size: 11px;
+            color: #8888aa;
+        }
+
+        .header-stats {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .stat-box {
+            background: #1e2250;
+            padding: 5px 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            border: 1px solid #3a3f7a;
+        }
+
+        .stat-label {
+            color: #8888aa;
+        }
+
+        .stat-value {
+            color: #00d4ff;
+            font-weight: bold;
+        }
+
+        .mqtt-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+
+        .dot-green {
+            background: #00c853;
+        }
+
+        .dot-red {
+            background: #ff1744;
+            animation: blink 1s infinite;
+        }
+
+        .dot-orange {
+            background: #ff6d00;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        @keyframes flashUpdate {
+            0% {
+                background: #12163a;
+            }
+
+            30% {
+                background: #1a3a2e;
+            }
+
+            100% {
+                background: #12163a;
+            }
+        }
+
+        /* DEBUG PANEL */
+        .debug-panel {
+            margin: 10px 15px;
+            background: #1a0a0a;
+            border: 2px solid #5d52ff;
+            border-radius: 10px;
+            padding: 15px;
+        }
+
+        .debug-title {
+            color: #5d52ff;
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .debug-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            border-bottom: 1px solid #2a1515;
+            font-size: 12px;
+        }
+
+        .debug-ok {
+            color: #69f0ae;
+        }
+
+        .debug-fail {
+            color: #ff5252;
+        }
+
+        .debug-wait {
+            color: #ffd740;
+        }
+
+        .debug-raw {
+            background: #0a0a0a;
+            padding: 8px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 10px;
+            color: #888;
+            max-height: 150px;
+            overflow-y: auto;
+            margin-top: 8px;
+            word-break: break-all;
+        }
+
+        /* MACHINES */
+        .machines-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+            gap: 15px;
+            padding: 15px;
+        }
+
+        .machine-card {
+            background: #12163a;
+            border-radius: 10px;
+            border: 1px solid #2a2f5a;
+            overflow: hidden;
+            transition: all 0.5s;
+        }
+
+        .machine-card.updated {
+            animation: flashUpdate 1s ease;
+            border-color: #00d4ff;
+        }
+
+        .machine-header {
+            padding: 10px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #2a2f5a;
+        }
+
+        .machine-title {
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .machine-id {
+            font-size: 11px;
+            color: #8888aa;
+        }
+
+        .state-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+
+        .state-NORMAL {
+            background: #00c853;
+            color: #000;
+        }
+
+        .state-AVERTISSEMENT {
+            background: #ffab00;
+            color: #000;
+        }
+
+        .state-ATTENTION {
+            background: #ff6d00;
+            color: #fff;
+        }
+
+        .state-CRITIQUE {
+            background: #ff1744;
+            color: #fff;
+            animation: blink 0.5s infinite;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            padding: 10px;
+        }
+
+        .metric-box {
+            background: #1a1f4e;
+            border-radius: 6px;
+            padding: 8px;
+            text-align: center;
+            border: 1px solid #2a2f6a;
+            transition: all 0.3s;
+        }
+
+        .metric-box.alert {
+            border-color: #ff1744;
+            background: #2a1020;
+        }
+
+        .metric-box.value-changed {
+            animation: flashUpdate 1s ease;
+        }
+
+        .metric-label {
+            font-size: 9px;
+            color: #8888bb;
+            text-transform: uppercase;
+        }
+
+        .metric-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #00d4ff;
+        }
+
+        .metric-value.danger {
+            color: #ff1744;
+        }
+
+        .metric-unit {
+            font-size: 10px;
+            color: #6666aa;
+        }
+
+        .progress-section {
+            padding: 0 10px 8px;
+        }
+
+        .progress-bar-container {
+            margin-bottom: 4px;
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #8888aa;
+            margin-bottom: 2px;
+        }
+
+        .progress-bar {
+            height: 5px;
+            background: #1a1f4e;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.5s ease;
+        }
+
+        .fill-ok {
+            background: linear-gradient(90deg, #00c853, #69f0ae);
+        }
+
+        .fill-warn {
+            background: linear-gradient(90deg, #ffab00, #ffd740);
+        }
+
+        .fill-danger {
+            background: linear-gradient(90deg, #ff1744, #ff5252);
+        }
+
+        .alarms-section {
+            padding: 6px 10px;
+            border-top: 1px solid #2a2f5a;
+            font-size: 11px;
+        }
+
+        .alarm-tag {
+            display: inline-block;
+            background: #ff1744;
+            color: #fff;
+            padding: 2px 8px;
+            border-radius: 8px;
+            margin: 2px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+
+        .alarm-none {
+            background: #00c853;
+            color: #000;
+        }
+
+        .type-badge {
+            font-size: 9px;
+            padding: 2px 6px;
+            border-radius: 6px;
+            margin-left: 5px;
+        }
+
+        .type-phy {
+            background: #00c853;
+            color: #000;
+        }
+
+        .type-hyb {
+            background: #ff6d00;
+            color: #fff;
+        }
+
+        .type-sim {
+            background: #ff1744;
+            color: #fff;
+        }
+
+        .log-section {
+            margin: 0 15px 15px;
+            background: #0d1030;
+            border-radius: 8px;
+            padding: 10px;
+            border: 1px solid #2a2f5a;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+
+        .log-title {
+            font-size: 13px;
+            color: #00d4ff;
+            margin-bottom: 6px;
+        }
+
+        .log-entry {
+            font-family: monospace;
+            font-size: 10px;
+            color: #8888aa;
+            padding: 1px 0;
+        }
+
+        .log-rapid {
+            color: #40c4ff;
+        }
+
+        .log-complete {
+            color: #69f0ae;
+        }
+
+        .log-alarm {
+            color: #ff5252;
+            font-weight: bold;
+        }
+
+        .log-status {
+            color: #ffd740;
+        }
+
+        .log-error {
+            color: #ff5252;
+        }
+
+        .log-info {
+            color: #b0b0b0;
+        }
+
+        /* ========= AI PREDICTION - PREMIUM DESIGN ========= */
+        .ai-section {
+            padding: 10px;
+            background: linear-gradient(160deg, #06091f, #0d1240);
+            border-top: 2px solid #1e2a6a;
+        }
+
+        .ai-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .ai-title {
+            font-size: 10px;
+            color: #7eb8e8;
+            font-weight: bold;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .ai-btn {
+            background: linear-gradient(90deg, #0062ff, #7c4dff);
+            color: #fff;
+            border: none;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            box-shadow: 0 0 8px #7c4dff88;
+            transition: all 0.2s;
+        }
+
+        .ai-btn:hover {
+            box-shadow: 0 0 14px #7c4dffcc;
+        }
+
+        .ai-btn:disabled {
+            opacity: 0.4;
+            cursor: wait;
+        }
+
+        /* --- RISK LEVELS LADDER --- */
+        .risk-ladder {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 8px;
+        }
+
+        .risk-step {
+            flex: 1;
+            border-radius: 4px;
+            padding: 3px 2px;
+            text-align: center;
+            font-size: 8px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            opacity: 0.25;
+            transition: all 0.4s ease;
+            border: 1px solid transparent;
+        }
+
+        .risk-step.active {
+            opacity: 1;
+            transform: scaleY(1.1);
+            border-color: rgba(255, 255, 255, 0.35);
+        }
+
+        .risk-step[data-lvl="minimal"] {
+            background: #004d25;
+            color: #69f0ae;
+        }
+
+        .risk-step[data-lvl="faible"] {
+            background: #1b5e20;
+            color: #b9f6ca;
+        }
+
+        .risk-step[data-lvl="moyen"] {
+            background: #7c5000;
+            color: #ffd740;
+        }
+
+        .risk-step[data-lvl="eleve"] {
+            background: #8b2500;
+            color: #ff9d4d;
+        }
+
+        .risk-step[data-lvl="critique"] {
+            background: #7f0019;
+            color: #ff8083;
+        }
+
+        .risk-step[data-lvl="minimal"].active {
+            background: #00c853;
+            color: #000;
+        }
+
+        .risk-step[data-lvl="faible"].active {
+            background: #69f0ae;
+            color: #000;
+        }
+
+        .risk-step[data-lvl="moyen"].active {
+            background: #ffd740;
+            color: #000;
+        }
+
+        .risk-step[data-lvl="eleve"].active {
+            background: #ff6d00;
+            color: #fff;
+        }
+
+        .risk-step[data-lvl="critique"].active {
+            background: #ff1744;
+            color: #fff;
+            animation: blink 0.7s infinite;
+        }
+
+        /* --- GAUGE ROW --- */
+        .ai-gauge-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+
+        .ai-pct-block {
+            text-align: center;
+            min-width: 56px;
+        }
+
+        .ai-pct {
+            font-size: 34px;
+            font-weight: 900;
+            line-height: 1;
+        }
+
+        .ai-pct-label {
+            font-size: 8px;
+            color: #6070a0;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .ai-gauge-right {
+            flex: 1;
+        }
+
+        .ai-gauge-bar {
+            height: 6px;
+            background: #111740;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 5px;
+        }
+
+        .ai-gauge-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.9s cubic-bezier(.4, 0, .2, 1);
+        }
+
+        .ai-type-badge {
+            font-size: 9px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            border: 1px solid #2a3580;
+            background: #0d163a;
+            display: inline-block;
+            color: #ffd740;
+            font-weight: bold;
+        }
+
+        /* --- TEXT ZONE --- */
+        .ai-reasoning {
+            font-size: 9px;
+            color: #8090b8;
+            line-height: 1.4;
+            border-top: 1px solid #151e50;
+            padding-top: 5px;
+            margin-top: 5px;
+        }
+
+        .ai-action {
+            font-size: 9px;
+            color: #00bfff;
+            margin-top: 4px;
+            font-weight: bold;
+        }
+
+        .ai-idle {
+            color: #2a3570;
+            font-size: 10px;
+            text-align: center;
+            padding: 10px 0;
+        }
+
+        /* FILL COLORS */
+        .fill-minimal {
+            background: linear-gradient(90deg, #00c853, #69f0ae);
+        }
+
+        .fill-faible {
+            background: linear-gradient(90deg, #00c853, #b9f6ca);
+        }
+
+        .fill-moyen {
+            background: linear-gradient(90deg, #e65100, #ffd740);
+        }
+
+        .fill-eleve {
+            background: linear-gradient(90deg, #bf360c, #ff6d00);
+        }
+
+        .fill-critique {
+            background: linear-gradient(90deg, #b71c1c, #ff1744);
+        }
+
+        /* PERCENT COLORS */
+        .pct-minimal {
+            color: #69f0ae;
+        }
+
+        .pct-faible {
+            color: #b9f6ca;
+        }
+
+        .pct-moyen {
+            color: #ffd740;
+        }
+
+        .pct-eleve {
+            color: #ff6d00;
+        }
+
+        .pct-critique {
+            color: #ff1744;
+            text-shadow: 0 0 10px #ff174499;
+        }
+
+        /* legacy compat */
+        .risk-minimal {
+            color: #69f0ae;
+        }
+
+        .risk-faible {
+            color: #00c853;
+        }
+
+        .risk-moyen {
+            color: #ffd740;
+        }
+
+        .risk-eleve {
+            color: #ff6d00;
+        }
+
+        .risk-critique {
+            color: #ff1744;
+            font-weight: bold;
+        }
+
+
+        .ai-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .ai-title {
+            font-size: 11px;
+            color: #00d4ff;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .ai-btn {
+            background: linear-gradient(90deg, #00d4ff, #7c4dff);
+            color: #000;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: opacity 0.2s;
+        }
+
+        .ai-btn:hover {
+            opacity: 0.8;
+        }
+
+        .ai-btn:disabled {
+            opacity: 0.4;
+            cursor: wait;
+        }
+
+        /* RISK GAUGE */
+        .ai-gauge-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+
+        .ai-pct {
+            font-size: 32px;
+            font-weight: bold;
+            min-width: 58px;
+            text-align: center;
+            line-height: 1;
+        }
+
+        .ai-gauge-right {
+            flex: 1;
+        }
+
+        .ai-risk-badge {
+            font-size: 11px;
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 8px;
+            display: inline-block;
+            margin-bottom: 4px;
+        }
+
+        .ai-gauge-bar {
+            height: 8px;
+            background: #1e2250;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .ai-gauge-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.8s ease;
+        }
+
+        .ai-type-badge {
+            display: inline-block;
+            margin-top: 5px;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 6px;
+            background: #1e2250;
+            border: 1px solid #3a3f7a;
+            color: #ffd740;
+        }
+
+        .ai-reasoning {
+            font-size: 10px;
+            color: #aaaacc;
+            line-height: 1.3;
+            margin-top: 5px;
+            border-top: 1px solid #1e2250;
+            padding-top: 4px;
+        }
+
+        .ai-action {
+            font-size: 10px;
+            color: #00d4ff;
+            margin-top: 3px;
+            font-style: italic;
+        }
+
+        .ai-idle {
+            color: #444880;
+            font-size: 10px;
+            text-align: center;
+            padding: 12px 0;
+        }
+
+        /* Couleurs risque */
+        .risk-color-minimal {
+            color: #69f0ae;
+        }
+
+        .risk-color-faible {
+            color: #00c853;
+        }
+
+        .risk-color-moyen {
+            color: #ffd740;
+        }
+
+        .risk-color-eleve {
+            color: #ff6d00;
+        }
+
+        .risk-color-critique {
+            color: #ff1744;
+        }
+
+        .fill-minimal {
+            background: linear-gradient(90deg, #00c853, #69f0ae);
+        }
+
+        .fill-faible {
+            background: linear-gradient(90deg, #00c853, #b9f6ca);
+        }
+
+        .fill-moyen {
+            background: linear-gradient(90deg, #ff6d00, #ffd740);
+        }
+
+        .fill-eleve {
+            background: linear-gradient(90deg, #ff3d00, #ff6d00);
+        }
+
+        .fill-critique {
+            background: linear-gradient(90deg, #b71c1c, #ff1744);
+            animation: blink 0.6s infinite;
+        }
+
+        .badge-minimal {
+            background: #00c853;
+            color: #000;
+        }
+
+        .badge-faible {
+            background: #69f0ae;
+            color: #000;
+        }
+
+        .badge-moyen {
+            background: #ffd740;
+            color: #000;
+        }
+
+        .badge-eleve {
+            background: #ff6d00;
+            color: #fff;
+        }
+
+        .badge-critique {
+            background: #ff1744;
+            color: #fff;
+        }
+
+        .risk-minimal {
+            color: #69f0ae;
+        }
+
+        .risk-faible {
+            color: #00c853;
+        }
+
+        .risk-moyen {
+            color: #ffd740;
+        }
+
+        .risk-eleve {
+            color: #ff6d00;
+        }
+
+        .risk-critique {
+            color: #ff1744;
+            font-weight: bold;
+        }
+
+        .risk-eleve {
+            color: #ff6d00;
+        }
+
+        .risk-critique {
+            color: #ff1744;
+            font-weight: bold;
+        }
+
+        .footer {
+            padding: 8px;
+            text-align: center;
+            color: #555;
+            font-size: 11px;
+        }
+
+        /* --- AI CONTROLS PANEL --- */
+        .ai-main-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            background: #0f1330;
+            padding: 6px 15px;
+            border-radius: 8px;
+            border: 1px solid #3a3f7a;
+        }
+
+        .ai-control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .ai-control-label {
+            font-size: 10px;
+            color: #8888aa;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        /* Toggle Switch */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 34px;
+            height: 18px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #2a2f5a;
+            transition: .4s;
+            border-radius: 18px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 12px;
+            width: 12px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: #00d4ff;
+            box-shadow: 0 0 8px #00d4ff;
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(16px);
+        }
+
+        /* Radios */
+        .radio-group {
+            display: flex;
+            border: 1px solid #3a3f7a;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .radio-group input {
+            display: none;
+        }
+
+        .radio-group label {
+            padding: 4px 10px;
+            font-size: 10px;
+            cursor: pointer;
+            background: #1e2250;
+            color: #88a;
+            transition: 0.3s;
+        }
+
+        .radio-group input:checked+label {
+            background: #00d4ff;
+            color: #000;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- HEADER -->
+    <div class="header">
+        <div>
+            <h1>ABBKA - Dashboard v4.6</h1>
+            <div class="header-sub">4 Machines | Mode IA Étendu</div>
+        </div>
+
+        <div class="ai-main-controls">
+            <div class="ai-control-group">
+                <span class="ai-control-label">Moteur IA :</span>
+                <div class="radio-group">
+                    <input type="radio" id="engineLocal" name="aiEngine" value="3002" checked>
+                    <label for="engineLocal">⚡ Local (RF)</label>
+                    <input type="radio" id="engineGemini" name="aiEngine" value="3001">
+                    <label for="engineGemini">🧠 Gemini</label>
+                </div>
+            </div>
+            <div class="ai-control-group" style="border-left: 1px solid #3a3f7a; padding-left: 15px;">
+                <span class="ai-control-label">Auto-Analyse (60s)</span>
+                <label class="switch">
+                    <input type="checkbox" id="autoAnalyzeToggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="ai-control-group" style="border-left: 1px solid #3a3f7a; padding-left: 15px;">
+                <button class="ai-btn" onclick="viewHistory()" style="padding: 5px 15px;">📊 HISTORIQUE</button>
+            </div>
+        </div>
+        <div class="header-stats">
+            <div class="stat-box">
+                <span class="mqtt-dot dot-red" id="wsDot"></span>
+                <span id="wsLabel">WS DÉCONNECTÉ</span>
+            </div>
+            <div class="stat-box">
+                <span class="stat-label">Cycle:</span>
+                <span class="stat-value" id="cycleVal">--</span>
+            </div>
+            <div class="stat-box">
+                <span class="stat-label">Rapid:</span>
+                <span class="stat-value" id="rapidVal">0</span>
+            </div>
+            <div class="stat-box">
+                <span class="stat-label">Complet:</span>
+                <span class="stat-value" id="completVal">0</span>
+            </div>
+            <div class="stat-box">
+                <span class="stat-label">Alarmes:</span>
+                <span class="stat-value" id="alarmVal" style="color:#ff5252">0</span>
+            </div>
+            <div class="stat-box">
+                <span class="stat-label">RSSI:</span>
+                <span class="stat-value" id="rssiVal">--</span>
+            </div>
+            <div class="stat-box">
+                <span class="stat-label">MAJ:</span>
+                <span class="stat-value" id="lastUpdateVal">jamais</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- PANNEAU DEBUG -->
+    <div class="debug-panel" id="debugPanel">
+        <div class="debug-title">DIAGNOSTIC CONNEXION WEBSOCKET (BACKEND)</div>
+        <div class="debug-item">
+            <span>Serveur Backend</span>
+            <span id="dbBroker" class="debug-wait">En attente...</span>
+        </div>
+        <div class="debug-item">
+            <span>Connexion WS</span>
+            <span id="dbConnect" class="debug-wait">En attente...</span>
+        </div>
+        <div class="debug-item">
+            <span>Données Initiales</span>
+            <span id="dbSubscribe" class="debug-wait">En attente...</span>
+        </div>
+        <div class="debug-item">
+            <span>Topic RAPID recu</span>
+            <span id="dbRapid" class="debug-wait">En attente...</span>
+        </div>
+        <div class="debug-item">
+            <span>Topic COMPLET recu</span>
+            <span id="dbComplete" class="debug-wait">En attente...</span>
+        </div>
+        <div class="debug-item">
+            <span>Topic ALARME recu</span>
+            <span id="dbAlarm" class="debug-wait">En attente...</span>
+        </div>
+        <div class="debug-item">
+            <span>Topic STATUS recu</span>
+            <span id="dbStatus" class="debug-wait">En attente...</span>
+        </div>
+        <div class="debug-item">
+            <span>Dernier message brut</span>
+            <span id="dbLastMsg" class="debug-wait">Aucun</span>
+        </div>
+        <div class="debug-raw" id="dbRawData">En attente du premier message...</div>
+    </div>
+
+    <!-- HISTORY MODAL -->
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: #0f1330;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #3a3f7a;
+            border-radius: 10px;
+            width: 80%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .close-modal {
+            color: #88a;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close-modal:hover {
+            color: #fff;
+        }
+
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 11px;
+        }
+
+        .history-table th,
+        .history-table td {
+            padding: 8px;
+            border-bottom: 1px solid #2a2f5a;
+            text-align: left;
+        }
+
+        .history-table th {
+            color: #00d4ff;
+        }
+    </style>
+    <div id="historyModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal"
+                onclick="document.getElementById('historyModal').style.display='none'">&times;</span>
+            <h2 style="color:#00d4ff; margin-bottom: 10px;">📊 Historique des Prédictions IA</h2>
+            <select id="historyMachineSelect" onchange="loadHistory()"
+                style="background:#1e2250; color:#fff; padding:5px; border:1px solid #3a3f7a; border-radius:4px; margin-bottom:15px;">
+                <option value="MAC_A01">Presse Hydraulique A01</option>
+                <option value="MAC_A02">Tour CNC A02</option>
+                <option value="MAC_A03">Fraiseuse A03</option>
+                <option value="MAC_A04">Robot Soudure A04</option>
+            </select>
+            <div id="historyContent">
+                <div style="color:#88a">Chargement...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HISTORY MODAL -->
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: #0f1330;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #3a3f7a;
+            border-radius: 10px;
+            width: 80%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .close-modal {
+            color: #88a;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close-modal:hover {
+            color: #fff;
+        }
+
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 11px;
+        }
+
+        .history-table th,
+        .history-table td {
+            padding: 8px;
+            border-bottom: 1px solid #2a2f5a;
+            text-align: left;
+        }
+
+        .history-table th {
+            color: #00d4ff;
+        }
+    </style>
+    <div id="historyModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal"
+                onclick="document.getElementById('historyModal').style.display='none'">&times;</span>
+            <h2 style="color:#00d4ff; margin-bottom: 10px;">📊 Historique des Prédictions IA</h2>
+            <select id="historyMachineSelect" onchange="loadHistory()"
+                style="background:#1e2250; color:#fff; padding:5px; border:1px solid #3a3f7a; border-radius:4px; margin-bottom:15px;">
+                <option value="MAC_HYB_01">Robot Hybride 01</option>
+                <option value="MAC_PHY_01">Presse Physique 01</option>
+                <option value="MAC_SIM_02">Soudure Virtuelle 02</option>
+                <option value="asus01_9f3a">ESP32 Asus01</option>
+            </select>
+            <div id="historyContent">
+                <div style="color:#88a">Chargement...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MACHINES -->
+    <div class="machines-grid" id="machinesGrid">
+        <div style="text-align:center; padding:40px; color:#555; grid-column:1/-1;">
+            En attente de donnees du serveur ABBKA...<br>
+            Lancez npm start sur le backend.
+        </div>
+    </div>
+
+    <!-- LOG -->
+    <div class="log-section">
+        <div class="log-title">Journal WebSocket</div>
+        <div id="logContainer">
+            <div class="log-entry log-info">Dashboard demarre...</div>
+        </div>
+    </div>
+
+    <div class="footer" id="footer">ABBKA v4.6</div>
+
+    <script>
+        // ==================== CONFIG ====================
+        // On suppose que le backend tourne sur le même domaine, port 3000
+        var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var WS_URL = 'ws://localhost:3000'; // ou protocol + '//' + window.location.hostname + ':3000'
+
+        var SEUILS = {
+            tempMax: 40.0,
+            pressionMax: 8.0,
+            distanceMin: 30.0,
+            puissanceMax: 80.0
+        };
+
+        var counts = { rapid: 0, complete: 0, alarm: 0, status: 0, total: 0 };
+        var lastUpdate = null;
+        var machineData = {};
+        var previousValues = {};
+
+        // ==================== LOG ====================
+        function addLog(msg, type) {
+            var c = document.getElementById('logContainer');
+            var e = document.createElement('div');
+            e.className = 'log-entry log-' + (type || 'info');
+            var time = new Date().toLocaleTimeString();
+            e.textContent = '[' + time + '] ' + msg;
+            c.insertBefore(e, c.firstChild);
+            while (c.children.length > 100) c.removeChild(c.lastChild);
+        }
+
+        function setDebug(id, text, status) {
+            var el = document.getElementById(id);
+            if (el) {
+                el.textContent = text;
+                el.className = 'debug-' + status;
+            }
+        }
+
+        // ==================== WEBSOCKET ====================
+        var ws;
+
+        function connectWS() {
+            setDebug('dbBroker', WS_URL, 'wait');
+            setDebug('dbConnect', 'Connexion en cours...', 'wait');
+            document.getElementById('wsDot').className = 'mqtt-dot dot-orange';
+            document.getElementById('wsLabel').textContent = 'CONNEXION...';
+
+            addLog('Connexion à ' + WS_URL, 'info');
+            ws = new WebSocket(WS_URL);
+
+            ws.onopen = function () {
+                document.getElementById('wsDot').className = 'mqtt-dot dot-green';
+                document.getElementById('wsLabel').textContent = 'CONNECTE';
+                setDebug('dbConnect', 'CONNECTE !', 'ok');
+                addLog('WebSocket Connecté au backend !', 'complete');
+            };
+
+            ws.onclose = function () {
+                document.getElementById('wsDot').className = 'mqtt-dot dot-red';
+                document.getElementById('wsLabel').textContent = 'DECONNECTE';
+                setDebug('dbConnect', 'DECONNECTE', 'fail');
+                addLog('WebSocket deconnecté... reconnexion dans 3s', 'error');
+                setTimeout(connectWS, 3000);
+            };
+
+            ws.onerror = function (err) {
+                document.getElementById('wsDot').className = 'mqtt-dot dot-red';
+                document.getElementById('wsLabel').textContent = 'ERREUR';
+            };
+
+            ws.onmessage = function (event) {
+                counts.total++;
+                lastUpdate = new Date();
+
+                var msgStr = event.data;
+                var shortMsg = msgStr.length > 100 ? msgStr.substring(0, 100) + '...' : msgStr;
+                setDebug('dbLastMsg', shortMsg, 'ok');
+                document.getElementById('dbRawData').textContent = msgStr;
+                document.getElementById('lastUpdateVal').textContent = 'maintenant';
+
+                try {
+                    var wsPayload = JSON.parse(msgStr);
+                    var type = wsPayload.type;
+                    var msgType = wsPayload.messageType || type;
+                    var data = wsPayload.rawData || {};
+
+                    // Si c'est INITIAL DATA ou ALL_MACHINES_UPDATE
+                    if (type === 'INITIAL_DATA' || type === 'ALL_MACHINES_UPDATE') {
+                        counts.complete++;
+                        if (type === 'INITIAL_DATA') setDebug('dbSubscribe', 'Reçu', 'ok');
+
+                        document.getElementById('completVal').textContent = counts.complete;
+
+                        if (wsPayload.factory) {
+                            document.getElementById('cycleVal').textContent = wsPayload.factory.cycle || '--';
+                            document.getElementById('rssiVal').textContent = (wsPayload.factory.wifiRssi || '--') + ' dBm';
+                        }
+
+                        setDebug('dbComplete', 'OK - ' + type + ' (' + msgStr.length + 'B)', 'ok');
+
+                        if (wsPayload.machines) {
+                            wsPayload.machines.forEach(function (m) {
+                                machineData[m.machineId] = {
+                                    id: m.machineId,
+                                    name: m.nom || `Machine ${m.index + 1}`,
+                                    type: m.type || (m.status === 'SIMULATED' ? 'FULL_SIMULATED' : 'FULL_PHYSICAL'),
+                                    temp: m.metrics?.thermal || 0,
+                                    hum: m.metrics?.humidity || 0,
+                                    pres: m.metrics?.pressure || 0,
+                                    pow: m.metrics?.power || 0,
+                                    dist: m.metrics?.ultrasonic || 0,
+                                    pir: m.metrics?.presence || 0,
+                                    mag: m.metrics?.magnetic || 0,
+                                    infrared: m.metrics?.infrared || 0,
+                                    state: m.security?.state || m.status,
+                                    alarms: m.security?.alarms || 'AUCUNE',
+                                    changed: true
+                                };
+                            });
+                            updateDashboard();
+                        }
+
+                        if (counts.complete % 5 === 0) {
+                            addLog('Complet #' + counts.complete + ' Cycle:' + (wsPayload.factory?.cycle || '?'), 'complete');
+                        }
+                    }
+
+                    // RAPID UPDATE
+                    else if (type === 'RAPID_UPDATE') {
+                        counts.rapid++;
+                        document.getElementById('rapidVal').textContent = counts.rapid;
+                        setDebug('dbRapid', 'OK - #' + counts.rapid + ' (' + msgStr.length + 'B)', 'ok');
+
+                        if (wsPayload.machines) {
+                            wsPayload.machines.forEach(function (m) {
+                                machineData[m.machineId] = {
+                                    id: m.machineId,
+                                    name: m.nom || m.machineName || `Machine ${m.index + 1}`,
+                                    type: m.type || (m.status === 'SIMULATED' ? 'FULL_SIMULATED' : 'FULL_PHYSICAL'),
+                                    temp: m.metrics?.thermal || 0,
+                                    hum: m.metrics?.humidity || 0,
+                                    pres: m.metrics?.pressure || 0,
+                                    pow: m.metrics?.power || 0,
+                                    dist: m.metrics?.ultrasonic || 0,
+                                    pir: m.metrics?.presence || 0,
+                                    mag: m.metrics?.magnetic || 0,
+                                    infrared: m.metrics?.infrared || 0,
+                                    state: m.security?.state || m.status,
+                                    alarms: m.security?.alarms || 'AUCUNE',
+                                    changed: true
+                                };
+                            });
+                            updateDashboard();
+                        }
+                    }
+
+                    // ALARM UPDATE
+                    else if (type === 'ALARM_UPDATE') {
+                        counts.alarm++;
+                        document.getElementById('alarmVal').textContent = counts.alarm;
+                        setDebug('dbAlarm', 'OK - ' + data.machineId + ': ' + data.state, 'fail');
+
+                        addLog('ALARME ' + data.machineId + ': ' + data.state + ' -> ' + data.alarms, 'alarm');
+
+                        if (machineData[data.machineId]) {
+                            machineData[data.machineId].state = data.state;
+                            machineData[data.machineId].alarms = data.alarms;
+                            machineData[data.machineId].changed = true;
+                            updateDashboard();
+                        }
+                    }
+
+                    // STATUS UPDATE
+                    else if (type === 'STATUS_UPDATE') {
+                        counts.status++;
+                        setDebug('dbStatus', 'OK - Uptime:' + (data.uptime_s || '?') + 's', 'ok');
+                        addLog('Status: Up ' + (data.uptime_s || '?') + 's Heap:' + (data.free_heap || '?') + 'B', 'status');
+                    }
+                    else if (type === 'NEW_ALERT') {
+                        addLog('⚠️ NOUVELLE PANNE: ' + wsPayload.message + ' (Risque:' + wsPayload.risk + '%)', 'error');
+                    }
+
+                } catch (e) {
+                    addLog('Erreur JSON (WS): ' + e.message, 'error');
+                    console.error(e);
+                }
+            };
+        }
+
+        // Démarrer la connexion WS au lancement
+        connectWS();
+
+        // ==================== MISE A JOUR DASHBOARD ====================
+        function updateDashboard() {
+            var grid = document.getElementById('machinesGrid');
+            grid.innerHTML = '';
+
+            var ids = Object.keys(machineData).sort();
+
+            if (ids.length === 0) {
+                grid.innerHTML = '<div style="text-align:center;padding:40px;color:#555;grid-column:1/-1;">' +
+                    'Donnees recues mais aucune machine detectee</div>';
+                return;
+            }
+
+            // Cacher le panneau debug apres reception
+            var debugPanel = document.getElementById('debugPanel');
+            debugPanel.style.borderColor = '#00c853';
+
+            ids.forEach(function (id) {
+                var m = machineData[id];
+                var card = document.createElement('div');
+                card.className = 'machine-card' + (m.changed ? ' updated' : '');
+                card.id = 'card-' + id;
+
+                var tempAlert = m.temp > SEUILS.tempMax;
+                var presAlert = m.pres > SEUILS.pressionMax;
+                var powAlert = m.pow > SEUILS.puissanceMax;
+                var distAlert = m.dist < SEUILS.distanceMin;
+
+                var typeClass = 'type-phy';
+                var typeText = 'PHYSIQUE';
+                if (m.type === 'HYBRID') { typeClass = 'type-hyb'; typeText = 'HYBRIDE'; }
+                else if (m.type === 'FULL_SIMULATED') { typeClass = 'type-sim'; typeText = 'SIMULEE'; }
+                var typeBadge = '<span class="type-badge ' + typeClass + '">' + typeText + '</span>';
+
+                var stateBg = 'rgba(0,200,83,0.08)';
+                if (m.state === 'CRITIQUE') stateBg = 'rgba(255,23,68,0.15)';
+                else if (m.state === 'ATTENTION') stateBg = 'rgba(255,109,0,0.15)';
+                else if (m.state === 'AVERTISSEMENT') stateBg = 'rgba(255,171,0,0.15)';
+
+                card.innerHTML =
+                    '<div class="machine-header" style="background:' + stateBg + '">' +
+                    '<div>' +
+                    '<div class="machine-title">' + (m.name || m.id) + ' ' + typeBadge + '</div>' +
+                    '<div class="machine-id">' + m.id + '</div>' +
+                    '</div>' +
+                    '<div class="state-badge state-' + m.state + '">' + m.state + '</div>' +
+                    '</div>' +
+                    '<div class="metrics-grid">' +
+                    metricBox('Temp', m.temp, 1, 'C', tempAlert, prevChanged(id, 'temp', m.temp)) +
+                    metricBox('Pression', m.pres, 2, 'bar', presAlert, prevChanged(id, 'pres', m.pres)) +
+                    metricBox('Puissance', m.pow, 1, 'kW', powAlert, prevChanged(id, 'pow', m.pow)) +
+                    metricBox('Distance', m.dist, 1, 'cm', distAlert, prevChanged(id, 'dist', m.dist)) +
+                    metricBox('Humidite', m.hum, 1, '%', false, prevChanged(id, 'hum', m.hum)) +
+                    metricBox('Infrarouge', m.infrared, 1, 'C', false, false) +
+                    metricBoxBool('Presence', m.pir, m.pir ? 'OUI' : 'NON', m.pir) +
+                    metricBoxBool('Capot', !m.mag, m.mag ? 'FERME' : 'OUVERT', !m.mag) +
+                    '</div>' +
+                    '<div class="progress-section">' +
+                    progressBar('Temp', m.temp, SEUILS.tempMax, 60) +
+                    progressBar('Pression', m.pres, SEUILS.pressionMax, 10) +
+                    progressBar('Puissance', m.pow, SEUILS.puissanceMax, 100) +
+                    '</div>' +
+                    '<div class="alarms-section">Alarmes: ' + formatAlarms(m.alarms) + '</div>' +
+                    '<div class="health-section" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a2f5a;">' +
+                    '  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 5px;">' +
+                    '    <span style="color:#00d4ff; font-weight:bold; font-size:12px;">💙 SANTÉ MACHINE (RUL)</span>' +
+                    '    <span id="rul-val-' + id + '" style="color:#fff; font-size:12px; font-weight:bold;">Calcul en cours...</span>' +
+                    '  </div>' +
+                    '  <div class="progress-bar">' +
+                    '    <div class="progress-fill fill-ok" style="width:100%; transition: width 1s, background-color 1s;" id="rul-fill-' + id + '"></div>' +
+                    '  </div>' +
+                    '</div>' +
+                    '<div class="ai-section">' +
+                    '  <div class="ai-header">' +
+                    '    <div class="ai-title">🤖 MAINTENANCE PRÉDICTIVE</div>' +
+                    '    <button class="ai-btn" id="ai-btn-' + id + '" onclick="askAiPrediction(\'' + id + '\')">ANALYSER</button>' +
+                    '  </div>' +
+                    '  <div id="ai-pred-' + id + '">' +
+                    '    <div class="ai-idle">🔍 Cliquez sur ANALYSER pour démarrer la prédiction IA...</div>' +
+                    '  </div>' +
+                    '</div>';
+
+                grid.appendChild(card);
+
+                // Sauvegarder pour detecter changements
+                if (!previousValues[id]) previousValues[id] = {};
+                previousValues[id].temp = m.temp;
+                previousValues[id].pres = m.pres;
+                previousValues[id].pow = m.pow;
+                previousValues[id].dist = m.dist;
+                previousValues[id].hum = m.hum;
+
+                // Retirer animation apres 1s
+                if (m.changed) {
+                    setTimeout(function () {
+                        var c = document.getElementById('card-' + id);
+                        if (c) c.classList.remove('updated');
+                    }, 1000);
+                }
+
+                // Démarrer la mise à jour de santé asynchrone pour cette machine
+                updateMachineHealth(id);
+            });
+        }
+
+        // ==================== NASA C-MAPSS RUL (HEALTH) ====================
+        async function updateMachineHealth(id) {
+            const m = machineData[id];
+            if (!m) return;
+
+            try {
+                const response = await fetch('http://localhost:3002/api/predict_rul', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        uptime_s: m.uptime || 5000,
+                        thermal: m.temp,
+                        pressure: m.pres,
+                        ultrasonic: m.dist
+                    })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    const healthPct = data.health_score_pct;
+                    const cycles = data.rul_cycles_remaining;
+
+                    const valSpan = document.getElementById('rul-val-' + id);
+                    const fillBar = document.getElementById('rul-fill-' + id);
+
+                    if (valSpan && fillBar) {
+                        valSpan.textContent = cycles + " Cycles restants (" + healthPct + "%)";
+                        fillBar.style.width = healthPct + '%';
+
+                        if (healthPct > 70) {
+                            fillBar.style.backgroundColor = '#00c853'; // Vert
+                        } else if (healthPct > 30) {
+                            fillBar.style.backgroundColor = '#ffd600'; // Jaune
+                        } else {
+                            fillBar.style.backgroundColor = '#ff1744'; // Rouge
+                        }
+                    }
+                }
+            } catch (err) {
+                const valSpan = document.getElementById('rul-val-' + id);
+                if (valSpan) valSpan.textContent = "API RUL Indisponible";
+            }
+        }
+
+        function prevChanged(id, key, newVal) {
+            if (!previousValues[id]) return false;
+            var old = previousValues[id][key];
+            if (old === undefined) return false;
+            return Math.abs(newVal - old) > 0.1;
+        }
+
+        function metricBox(label, value, decimals, unit, alert, changed) {
+            var cls = 'metric-box';
+            if (alert) cls += ' alert';
+            if (changed) cls += ' value-changed';
+            var valCls = alert ? 'metric-value danger' : 'metric-value';
+            return '<div class="' + cls + '">' +
+                '<div class="metric-label">' + label + '</div>' +
+                '<div class="' + valCls + '">' + value.toFixed(decimals) + '</div>' +
+                '<div class="metric-unit">' + unit + '</div></div>';
+        }
+
+        function metricBoxBool(label, isAlert, text, danger) {
+            var cls = 'metric-box' + (isAlert ? ' alert' : '');
+            var color = danger ? '#ff5252' : '#69f0ae';
+            return '<div class="' + cls + '">' +
+                '<div class="metric-label">' + label + '</div>' +
+                '<div class="metric-value" style="color:' + color + '">' + text + '</div>' +
+                '<div class="metric-unit">&nbsp;</div></div>';
+        }
+
+        function progressBar(label, value, threshold, max) {
+            var pct = Math.min((value / max) * 100, 100);
+            var ratio = value / threshold;
+            var cls = 'fill-ok';
+            if (ratio > 1.0) cls = 'fill-danger';
+            else if (ratio > 0.8) cls = 'fill-warn';
+            return '<div class="progress-bar-container">' +
+                '<div class="progress-label"><span>' + label + '</span>' +
+                '<span>' + value.toFixed(1) + ' / ' + threshold + '</span></div>' +
+                '<div class="progress-bar">' +
+                '<div class="progress-fill ' + cls + '" style="width:' + pct + '%"></div>' +
+                '</div></div>';
+        }
+
+        function formatAlarms(str) {
+            if (!str || str === 'AUCUNE')
+                return '<span class="alarm-tag alarm-none">AUCUNE</span>';
+            return str.split(',').map(function (a) {
+                return '<span class="alarm-tag">' + a.trim() + '</span>';
+            }).join('');
+        }
+
+        // ==================== GEMINI AI INTEGRATION ====================
+        async function askAiPrediction(machineId) {
+            const m = machineData[machineId];
+            if (!m) return;
+
+            const box = document.getElementById('ai-pred-' + machineId);
+            const btn = document.getElementById('ai-btn-' + machineId);
+            if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+
+            const enginePort = document.querySelector('input[name="aiEngine"]:checked').value;
+            const engineName = enginePort === '3002' ? 'Local Random Forest' : 'Gemini 1.5';
+            box.innerHTML = `<div class="ai-idle">🤖 ${engineName} analyse vos données...</div>`;
+
+            try {
+                // If Local API (was 3002, now using the new 5000 server.py), call port 5000
+                const targetPort = enginePort === '3002' ? '5000' : enginePort;
+                const endpoint = '/api/predict';
+
+                const response = await fetch(`http://localhost:${targetPort}${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        machineId: m.id,
+                        rpm: m.pow ? m.pow * 2 : 1500, // Wokwi pow -> rpm approximation
+                        torque: m.pres ? m.pres * 10 : 40, // Wokwi pres -> torque approx
+                        tool_wear: m.temp || 50,
+                        thermal: m.temp,
+                        humidity: m.hum,
+                        pressure: m.pres,
+                        power: m.pow,
+                        ultrasonic: m.dist,
+                        presence: m.pir,
+                        infrared: m.infrared
+                    })
+                });
+
+                const result = await response.json();
+                // Support pour le nouveau format (server.py) ou l'ancien (Gemini)
+                if (result.success !== false) { // Le nouveau server.py ne renvoie pas 'success'
+                    const isNewFormat = result.prob_panne !== undefined;
+
+                    const pLevel = isNewFormat ? result.niveau : (result.prediction?.risk_level || 'MINIMAL');
+                    const lvl = pLevel.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace('é', 'e').replace('è', 'e');
+
+                    const pctNum = isNewFormat ? result.prob_panne : (result.prediction?.failure_probability || 0);
+                    const pct = Math.min(100, Math.max(0, parseInt(pctNum) || 0));
+
+                    const levels = ['minimal', 'faible', 'moyen', 'eleve', 'critique', 'normal'];
+                    const labels = { minimal: 'MINIMAL', normal: 'NORMAL', faible: 'FAIBLE', moyen: 'MOYEN', eleve: 'ÉLEVÉ', critique: 'CRITIQUE' };
+
+                    const ladderLevel = lvl === 'normal' ? 'minimal' : lvl; // Mapper 'normal' vers le bas de l'echelle visuelle
+
+                    const ladder = ['minimal', 'faible', 'moyen', 'eleve', 'critique'].map(l =>
+                        `<div class="risk-step${l === ladderLevel ? ' active' : ''}" data-lvl="${l}">${labels[l]}</div>`
+                    ).join('');
+
+                    const failureType = isNewFormat ? result.panne_type : (result.prediction?.predicted_failure_type || 'Type inconnu');
+                    const reasoning = isNewFormat ? (result.anomalies && result.anomalies.length > 0 ? result.anomalies.join(' | ') : 'Analyse nominale, aucune trace d\'usure ou de surchauffe.') : (result.prediction?.reasoning || '');
+                    const action = isNewFormat ? (result.actions && result.actions.length > 0 ? result.actions.join(' | ') : 'Aucune action requise') : (result.prediction?.recommended_action || 'Aucune action requise');
+
+                    box.innerHTML = `
+                        <div class="risk-ladder">${ladder}</div>
+                        <div class="ai-gauge-wrapper">
+                            <div class="ai-pct-block">
+                                <div class="ai-pct pct-${ladderLevel}">${pct}%</div>
+                                <div class="ai-pct-label">RISQUE</div>
+                            </div>
+                            <div class="ai-gauge-right">
+                                <div class="ai-gauge-bar">
+                                    <div class="ai-gauge-fill fill-${ladderLevel}" style="width:0%"
+                                         id="gfill-${machineId}"></div>
+                                </div>
+                                <span class="ai-type-badge">⚠️ ${failureType}</span>
+                                <span class="ai-type-badge" style="color:#00d4ff; border-color:#00d4ff; margin-left: 5px;">${enginePort === '3002' ? '⚡ ML Local (port 5000)' : '🧠 Gemini'}</span>
+                            </div>
+                        </div>
+                        <div class="ai-reasoning">${reasoning}</div>
+                        <div class="ai-action">🛠️ ${action}</div>
+                    `;
+                    setTimeout(() => {
+                        const fill = document.getElementById('gfill-' + machineId);
+                        if (fill) fill.style.width = pct + '%';
+                    }, 50);
+
+                    // ALERTE VISUELLE GLOBALE SI CRITIQUE ET AUTO
+                    if (pct > 70 && document.getElementById('autoAnalyzeToggle').checked) {
+                        addLog('🚨 [AUTO-IA] Risque Critique détecté sur ' + (m.name || m.id) + ' (' + pct + '%)', 'alarm');
+                    }
+
+                } else {
+                    box.innerHTML = '<div class="ai-idle" style="color:#ff5252">❌ Erreur API: ' + result.error + '</div>';
+                }
+            } catch (err) {
+                box.innerHTML = `<div class="ai-idle" style="color:#ff5252">⚠️ Serveur IA non joignable (Port ${enginePort})</div>`;
+                addLog('Erreur IA: ' + err.message, 'error');
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'ANALYSER'; }
+            }
+        }
+
+        // ==================== AUTO ANALYZE LOGIC ====================
+        let autoAnalyzeInterval;
+        document.getElementById('autoAnalyzeToggle').addEventListener('change', function (e) {
+            if (this.checked) {
+                addLog('🤖 Mode Auto-Analyse Activé (toutes les 60s)', 'info');
+                runAutoAnalysis();
+                autoAnalyzeInterval = setInterval(runAutoAnalysis, 60000);
+            } else {
+                addLog('🤖 Mode Auto-Analyse Désactivé', 'info');
+                clearInterval(autoAnalyzeInterval);
+            }
+        });
+
+        function runAutoAnalysis() {
+            const ids = Object.keys(machineData);
+            ids.forEach((id, index) => {
+                setTimeout(() => askAiPrediction(id), index * 2000);
+            });
+        }
+
+        // ==================== HISTORY VIEWER ====================
+        window.viewHistory = function () {
+            document.getElementById('historyModal').style.display = 'flex';
+            loadHistory();
+        };
+
+        async function loadHistory() {
+            const box = document.getElementById('historyContent');
+            const targetId = document.getElementById('historyMachineSelect').value;
+            box.innerHTML = '<div style="color:#88a; padding: 20px;">Chargement de l\'historique depuis MongoDB...</div>';
+
+            try {
+                const response = await fetch(`http://localhost:3001/api/predict/history/${targetId}`);
+                const data = await response.json();
+
+                if (data.success && data.history.length > 0) {
+                    let html = '<table class="history-table"><tr><th>Date</th><th>Risque</th><th>Prob.</th><th>Cause Probable</th><th>Modèle</th></tr>';
+                    data.history.forEach(h => {
+                        const d = new Date(h.timestamp);
+                        const dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+                        const r = h.prediction.risk_level;
+                        const color = r === 'CRITIQUE' ? '#ff1744' : (r === 'ÉLEVÉ' ? '#ff6d00' : '#69f0ae');
+                        html += `<tr>
+                            <td>${dateStr}</td>
+                            <td style="color:${color}; font-weight:bold;">${r}</td>
+                            <td>${h.prediction.failure_probability}%</td>
+                            <td>${h.prediction.predicted_failure_type || '-'}</td>
+                            <td>${h.prediction.model_type || 'Gemini'}</td>
+                        </tr>`;
+                    });
+                    html += '</table>';
+                    box.innerHTML = html;
+                } else if (data.success) {
+                    box.innerHTML = '<div style="color:#88a; padding: 20px;">Aucun historique de prédiction pour cette machine.</div>';
+                } else {
+                    box.innerHTML = '<div style="color:#ff5252; padding: 20px;">' + data.error + '</div>';
+                }
+            } catch (err) {
+                box.innerHTML = '<div style="color:#ff5252; padding: 20px;">Erreur de connexion à l\'API MongoDB (Port 3001).</div>';
+            }
+        }
+        // Timer
+        setInterval(function () {
+            if (lastUpdate) {
+                var ago = Math.round((new Date() - lastUpdate) / 1000);
+                document.getElementById('lastUpdateVal').textContent = ago + 's';
+                document.getElementById('footer').textContent =
+                    'ABBKA v4.6 | MAJ: ' + ago + 's | Total msgs: ' + counts.total +
+                    ' (R:' + counts.rapid + ' C:' + counts.complete +
+                    ' A:' + counts.alarm + ' S:' + counts.status + ')';
+            }
+        }, 1000);
+    </script>
+</body>
+
+</html>

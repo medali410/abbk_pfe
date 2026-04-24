@@ -1,0 +1,38 @@
+[
+  {
+    "profile": "normal",
+    "machineId": "TEST_NORMAL",
+    "type_moteur": "EL_M",
+    "air_temperature": 298.3,
+    "process_temperature": 308.1,
+    "rpm": 1630.0,
+    "torque": 32.7,
+    "tool_wear": 83.0,
+    "presence": 1.0,
+    "magnetic": 0.6
+  },
+  {
+    "profile": "surveillance",
+    "machineId": "TEST_SURVEILLANCE",
+    "type_moteur": "EL_S",
+    "air_temperature": 299.7,
+    "process_temperature": 309.2,
+    "rpm": 1326.0,
+    "torque": 64.8,
+    "tool_wear": 71.0,
+    "presence": 1.0,
+    "magnetic": 0.6
+  },
+  {
+    "profile": "critique",
+    "machineId": "TEST_CRITIQUE",
+    "type_moteur": "EL_S",
+    "air_temperature": 302.3,
+    "process_temperature": 311.4,
+    "rpm": 1333.0,
+    "torque": 66.7,
+    "tool_wear": 205.0,
+    "presence": 1.0,
+    "magnetic": 0.6
+  }
+]

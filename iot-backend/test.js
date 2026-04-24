@@ -1,0 +1,1 @@
+const db = require('./src/models/Client'); const mongoose = require('mongoose'); mongoose.connect('mongodb://127.0.0.1:27017/iot-monitoring').then(async () => { console.log(await db.find()); process.exit(0); });

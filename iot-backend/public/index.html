@@ -1,0 +1,1643 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ABBKA - Système de Maintenance Prédictive</title>
+    <title>ABBKA - Système de Maintenance Prédictive</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #667eea;
+            --secondary: #764ba2;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark: #0f172a;
+            --card: #1e293b;
+            --border: #334155;
+            --text: #f1f5f9;
+            --muted: #94a3b8;
+            --sidebar-w: 240px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #0f172a;
+            color: var(--text);
+        }
+
+        /* ===== LOGIN ===== */
+        .login-page {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+        }
+
+        .login-box {
+            background: var(--card);
+            padding: 40px;
+            border-radius: 20px;
+            width: 400px;
+            border: 1px solid var(--border);
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .login-box h2 {
+            text-align: center;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 1.8em;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--muted);
+            font-size: .85em;
+            text-transform: uppercase;
+            letter-spacing: .05em;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px 14px;
+            background: #0f172a;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 1em;
+            transition: border .2s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            border-color: var(--primary);
+            outline: none;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: .9em;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all .2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            opacity: .9;
+            transform: translateY(-1px);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: #fff;
+        }
+
+        .btn-success:hover {
+            opacity: .9;
+        }
+
+        .btn-warning {
+            background: var(--warning);
+            color: #fff;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: #fff;
+        }
+
+        .btn-danger:hover {
+            opacity: .9;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        .btn-outline:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .btn-full {
+            width: 100%;
+            justify-content: center;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: .8em;
+        }
+
+        #loginError {
+            color: var(--danger);
+            text-align: center;
+            margin-top: 12px;
+        }
+
+        /* ===== LAYOUT ===== */
+        #mainApp {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: var(--sidebar-w);
+            background: var(--card);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            height: 100vh;
+            z-index: 100;
+        }
+
+        .sidebar-logo {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-logo h1 {
+            font-size: 1.1em;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .sidebar-logo p {
+            font-size: .75em;
+            color: var(--muted);
+            margin-top: 2px;
+        }
+
+        .sidebar-nav {
+            flex: 1;
+            padding: 12px 0;
+            overflow-y: auto;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: all .2s;
+            color: var(--muted);
+            font-size: .9em;
+            font-weight: 500;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-item:hover {
+            background: rgba(102, 126, 234, .1);
+            color: var(--text);
+        }
+
+        .nav-item.active {
+            background: rgba(102, 126, 234, .15);
+            color: var(--primary);
+            border-left-color: var(--primary);
+        }
+
+        .nav-item i {
+            width: 18px;
+            text-align: center;
+        }
+
+        .nav-badge {
+            margin-left: auto;
+            background: var(--danger);
+            color: #fff;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: .7em;
+            font-weight: 700;
+        }
+
+        .sidebar-footer {
+            padding: 16px 20px;
+            border-top: 1px solid var(--border);
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: .9em;
+        }
+
+        .user-name {
+            font-size: .85em;
+            font-weight: 600;
+        }
+
+        .user-role {
+            font-size: .72em;
+            color: var(--muted);
+        }
+
+        .logout-btn {
+            margin-left: auto;
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+        }
+
+        .logout-btn:hover {
+            color: var(--danger);
+        }
+
+        /* ===== MAIN ===== */
+        .main-content {
+            margin-left: var(--sidebar-w);
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .topbar {
+            background: var(--card);
+            border-bottom: 1px solid var(--border);
+            padding: 14px 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .topbar h2 {
+            font-size: 1.1em;
+            color: var(--text);
+        }
+
+        .topbar-right {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .mqtt-badge {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 6px 14px;
+            background: #0f172a;
+            border-radius: 20px;
+            font-size: .8em;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--muted);
+        }
+
+        .dot.on {
+            background: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: .4
+            }
+        }
+
+        .page {
+            display: none;
+            padding: 28px;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        /* ===== CARDS ===== */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .stat-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+            flex-shrink: 0;
+        }
+
+        .stat-icon.blue {
+            background: rgba(102, 126, 234, .2);
+            color: var(--primary);
+        }
+
+        .stat-icon.green {
+            background: rgba(34, 197, 94, .2);
+            color: var(--success);
+        }
+
+        .stat-icon.orange {
+            background: rgba(245, 158, 11, .2);
+            color: var(--warning);
+        }
+
+        .stat-icon.red {
+            background: rgba(239, 68, 68, .2);
+            color: var(--danger);
+        }
+
+        .stat-val {
+            font-size: 1.8em;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .stat-lbl {
+            font-size: .78em;
+            color: var(--muted);
+            margin-top: 3px;
+        }
+
+        /* ===== MACHINES ===== */
+        .machine-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 18px;
+        }
+
+        .machine-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 20px;
+            position: relative;
+            transition: border .2s;
+        }
+
+        .machine-card.running {
+            border-left: 4px solid var(--success);
+        }
+
+        .machine-card.stopped {
+            border-left: 4px solid var(--muted);
+        }
+
+        .machine-card.warning {
+            border-left: 4px solid var(--warning);
+        }
+
+        .machine-card.critique,
+        .machine-card.critical {
+            border-left: 4px solid var(--danger);
+        }
+
+        .machine-card.maintenance {
+            border-left: 4px solid var(--primary);
+        }
+
+        .machine-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .machine-name {
+            font-weight: 700;
+            font-size: 1.1em;
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: .75em;
+            font-weight: 600;
+        }
+
+        .status-badge.running {
+            background: rgba(34, 197, 94, .2);
+            color: var(--success);
+        }
+
+        .status-badge.stopped {
+            background: rgba(148, 163, 184, .2);
+            color: var(--muted);
+        }
+
+        .status-badge.warning {
+            background: rgba(245, 158, 11, .2);
+            color: var(--warning);
+        }
+
+        .status-badge.critique,
+        .status-badge.critical {
+            background: rgba(239, 68, 68, .2);
+            color: var(--danger);
+        }
+
+        .status-badge.maintenance {
+            background: rgba(102, 126, 234, .2);
+            color: var(--primary);
+        }
+
+        .live-dot {
+            position: absolute;
+            top: 14px;
+            right: 14px;
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .metric {
+            background: #0f172a;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .metric-val {
+            font-size: 1.1em;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .metric-lbl {
+            font-size: .7em;
+            color: var(--muted);
+            margin-top: 2px;
+        }
+
+        .machine-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            padding-top: 10px;
+            border-top: 1px solid var(--border);
+        }
+
+        /* ===== TABLE ===== */
+        .table-container {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .table-header {
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .table-header h3 {
+            font-size: .95em;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            padding: 12px 20px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+            font-size: .88em;
+        }
+
+        th {
+            color: var(--muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: .75em;
+            letter-spacing: .05em;
+            background: #0f172a;
+        }
+
+        tr:hover td {
+            background: rgba(102, 126, 234, .05);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .actions-cell {
+            display: flex;
+            gap: 6px;
+        }
+
+        /* ===== MODAL ===== */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, .6);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.open {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            width: 500px;
+            max-width: 95vw;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-hdr {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .modal-hdr h3 {
+            font-size: 1em;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--muted);
+            cursor: pointer;
+            font-size: 1.3em;
+        }
+
+        .modal-body {
+            padding: 24px;
+        }
+
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        /* ===== IA ===== */
+        .ia-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-width: 800px;
+        }
+
+        .ia-form {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 24px;
+        }
+
+        .ia-response {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 24px;
+            min-height: 120px;
+        }
+
+        .ia-response h3 {
+            color: var(--primary);
+            margin-bottom: 12px;
+            font-size: .9em;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+        }
+
+        .ia-thinking {
+            color: var(--muted);
+            font-style: italic;
+        }
+
+        .ia-text {
+            line-height: 1.7;
+            white-space: pre-wrap;
+        }
+
+        /* ===== MESSAGES ===== */
+        .msg-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .msg-item {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px;
+        }
+
+        .msg-item.unread {
+            border-color: var(--primary);
+        }
+
+        .msg-meta {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+
+        .msg-from {
+            font-weight: 600;
+            font-size: .85em;
+        }
+
+        .msg-date {
+            font-size: .78em;
+            color: var(--muted);
+        }
+
+        .msg-content {
+            font-size: .88em;
+            color: var(--muted);
+        }
+
+        /* ===== TOAST ===== */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .toast {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: .88em;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+            transform: translateX(120%);
+            transition: transform .3s;
+            min-width: 260px;
+        }
+
+        .toast.show {
+            transform: translateX(0);
+        }
+
+        .toast.success {
+            border-left: 3px solid var(--success);
+        }
+
+        .toast.error {
+            border-left: 3px solid var(--danger);
+        }
+
+        .toast.info {
+            border-left: 3px solid var(--primary);
+        }
+
+        .empty-state {
+            text-align: center;
+            color: var(--muted);
+            padding: 40px;
+        }
+
+        .section-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .section-actions h3 {
+            font-size: 1em;
+            font-weight: 600;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- LOGIN -->
+    <div id="loginPage" class="login-page">
+        <div class="login-box">
+            <h2><i class="fas fa-industry"></i> ABBKA Login</h2>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label>Nom d'utilisateur</label>
+                    <input type="text" id="username" value="admin" required autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label>Mot de passe</label>
+                    <input type="password" id="password" value="admin" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary btn-full" style="margin-top:6px;">
+                    <i class="fas fa-sign-in-alt"></i> Se connecter
+                </button>
+            </form>
+            <div id="loginError"></div>
+        </div>
+    </div>
+
+    <!-- MAIN APP -->
+    <div id="mainApp" style="display:none;">
+        <!-- SIDEBAR -->
+        <aside class="sidebar">
+            <div class="sidebar-logo">
+                <h1><i class="fas fa-industry"></i> ABBKA</h1>
+                <p>Maintenance Prédictive</p>
+            </div>
+            <nav class="sidebar-nav">
+                <div class="nav-item active" onclick="showPage('dashboard',this)"><i class="fas fa-chart-pie"></i>
+                    Tableau de bord</div>
+                <div class="nav-item" onclick="showPage('machines',this)"><i class="fas fa-cogs"></i> Machines</div>
+                <div class="nav-item" onclick="showPage('interventions',this)"><i class="fas fa-wrench"></i>
+                    Interventions <span class="nav-badge" id="badgePannes" style="display:none">0</span></div>
+                <div class="nav-item admin-only" onclick="showPage('techniciens',this)"><i class="fas fa-users"></i>
+                    Techniciens</div>
+                <div class="nav-item" onclick="showPage('ia',this)"><i class="fas fa-robot"></i> Intelligence IA</div>
+                <div class="nav-item" onclick="showPage('messages',this)"><i class="fas fa-envelope"></i> Messages <span
+                        class="nav-badge" id="badgeMsgs" style="display:none">0</span></div>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="user-avatar" id="userAvatar">A</div>
+                    <div>
+                        <div class="user-name" id="userName">–</div>
+                        <div class="user-role" id="userRole">–</div>
+                    </div>
+                    <button class="logout-btn" onclick="logout()" title="Déconnexion"><i
+                            class="fas fa-sign-out-alt"></i></button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- MAIN -->
+        <div class="main-content">
+            <div class="topbar">
+                <h2 id="pageTitle">Tableau de bord</h2>
+                <div class="topbar-right">
+                    <div class="mqtt-badge">
+                        <span class="dot" id="mqttDot"></span>
+                        <span id="mqttLabel">MQTT: –</span>
+                        <span style="color:var(--muted);font-size:.8em" id="mqttCount"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DASHBOARD -->
+            <div id="page-dashboard" class="page active">
+                <div class="stat-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon blue"><i class="fas fa-industry"></i></div>
+                        <div>
+                            <div class="stat-val" id="s-total">4</div>
+                            <div class="stat-lbl">Machines totales</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon green"><i class="fas fa-play-circle"></i></div>
+                        <div>
+                            <div class="stat-val" id="s-running">0</div>
+                            <div class="stat-lbl">En fonctionnement</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon orange"><i class="fas fa-exclamation-triangle"></i></div>
+                        <div>
+                            <div class="stat-val" id="s-warning">0</div>
+                            <div class="stat-lbl">En alerte</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon red"><i class="fas fa-fire"></i></div>
+                        <div>
+                            <div class="stat-val" id="s-critical">0</div>
+                            <div class="stat-lbl">Critiques</div>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-bottom:18px;">
+                    <h3 style="font-size:1em;color:var(--muted)">MACHINES EN TEMPS RÉEL</h3>
+                </div>
+                <div class="machine-grid" id="dashMachines"></div>
+            </div>
+
+            <!-- MACHINES -->
+            <div id="page-machines" class="page">
+                <div class="section-actions">
+                    <h3>Gestion des Machines</h3>
+                    <button class="btn btn-primary admin-only" onclick="openAddMachine()"><i class="fas fa-plus"></i>
+                        Ajouter</button>
+                </div>
+                <div class="machine-grid" id="allMachines"></div>
+            </div>
+
+            <!-- INTERVENTIONS -->
+            <div id="page-interventions" class="page">
+                <div class="section-actions">
+                    <h3>Interventions / Pannes</h3>
+                    <button class="btn btn-primary admin-only" onclick="openAddPanne()"><i class="fas fa-plus"></i>
+                        Créer</button>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Machine</th>
+                                <th>Type</th>
+                                <th>Description</th>
+                                <th>Sévérité</th>
+                                <th>Statut</th>
+                                <th>Technicien</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="panneTbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- TECHNICIENS -->
+            <div id="page-techniciens" class="page admin-only">
+                <div class="section-actions">
+                    <h3>Gestion des Techniciens</h3>
+                    <button class="btn btn-primary" onclick="openAddTech()"><i class="fas fa-user-plus"></i>
+                        Ajouter</button>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Nom</th>
+                                <th>Username</th>
+                                <th>Email</th>
+                                <th>Téléphone</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="techTbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- IA -->
+            <div id="page-ia" class="page">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:1100px;">
+                    <!-- Panel Analyse -->
+                    <div>
+                        <div class="ia-form">
+                            <h3 style="margin-bottom:16px;font-size:.95em;">🤖 Assistant IA Prédictive – Gemini +
+                                Dataset AI4I 2020</h3>
+                            <div class="form-group">
+                                <label>Machine à analyser</label>
+                                <select id="iaMachineSelect" onchange="onIAMachineChange()"></select>
+                            </div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;"
+                                id="iaLiveMetrics">
+                                <div class="metric">
+                                    <div class="metric-val" id="ia-prev-temp">–</div>
+                                    <div class="metric-lbl">Temp °C</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-val" id="ia-prev-press">–</div>
+                                    <div class="metric-lbl">Pression bar</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-val" id="ia-prev-pow">–</div>
+                                    <div class="metric-lbl">Puissance kW</div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Question supplémentaire (optionnel)</label>
+                                <textarea id="iaQuestion"
+                                    placeholder="Ex: Y a-t-il un risque thermique sur cette machine ?"></textarea>
+                            </div>
+                            <button class="btn btn-primary" onclick="askIAPredict()" id="iaBtnAnalyze">
+                                <i class="fas fa-brain"></i> Analyser avec l'IA
+                            </button>
+                            <button class="btn btn-outline" onclick="loadDatasetStats()" style="margin-left:8px;">
+                                <i class="fas fa-database"></i> Stats Dataset
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Panel Résultat -->
+                    <div class="ia-response" id="iaResponse">
+                        <h3>Résultat de l'analyse</h3>
+                        <p class="ia-thinking">Sélectionnez une machine et cliquez sur Analyser...</p>
+                    </div>
+                </div>
+
+                <!-- Dataset Stats Panel -->
+                <div id="iaDatasetPanel" style="display:none;margin-top:20px;max-width:1100px;">
+                    <div class="table-container">
+                        <div class="table-header">
+                            <h3>📊 Statistiques du Dataset AI4I 2020</h3>
+                        </div>
+                        <div style="padding:20px;" id="iaDatasetContent"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MESSAGES -->
+    <div id="page-messages" class="page">
+        <div class="section-actions">
+            <h3>Messages &amp; Notifications</h3>
+        </div>
+        <div class="msg-list" id="msgList">
+            <div class="empty-state"><i class="fas fa-inbox"
+                    style="font-size:2em;margin-bottom:12px;display:block"></i>Aucun message</div>
+        </div>
+    </div>
+    </div>
+    </div>
+
+    <!-- TOAST CONTAINER -->
+    <div class="toast-container" id="toasts"></div>
+
+    <!-- MODALS -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal" id="modalBox">
+            <div class="modal-hdr">
+                <h3 id="modalTitle">Modal</h3>
+                <button class="modal-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+            <div class="modal-footer" id="modalFooter"></div>
+        </div>
+    </div>
+
+    <script>
+        const API = '';
+        let token = '';
+        let currentUser = null;
+        let wsClient = null;
+        let mqttMsgCount = 0;
+
+        let protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        let WS_URL = 'ws://localhost:3000'; // fallback url, or typically: protocol + '//' + window.location.host;
+
+        let machineCache = {};
+        let allMachines = [];
+
+        function authHeader() { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }; }
+
+        // ========== LOGIN ==========
+        document.getElementById('loginForm').addEventListener('submit', async e => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            try {
+                const r = await fetch(API + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+                const d = await r.json();
+                if (d.success) {
+                    token = d.token; currentUser = d.user;
+                    document.getElementById('loginPage').style.display = 'none';
+                    document.getElementById('mainApp').style.display = 'flex';
+                    initApp();
+                } else {
+                    document.getElementById('loginError').textContent = d.error || d.message || 'Identifiants incorrects';
+                }
+            } catch (err) { document.getElementById('loginError').textContent = 'Erreur de connexion'; }
+        });
+
+        function logout() {
+            token = ''; currentUser = null;
+            if (wsClient) wsClient.close();
+            document.getElementById('loginPage').style.display = 'flex';
+            document.getElementById('mainApp').style.display = 'none';
+        }
+
+        // ========== INIT ==========
+        function initApp() {
+            const u = currentUser;
+            document.getElementById('userName').textContent = u.nom || u.username;
+            document.getElementById('userRole').textContent = u.role.toUpperCase();
+            document.getElementById('userAvatar').textContent = (u.nom || u.username).charAt(0).toUpperCase();
+
+            // Hide admin-only if technician
+            if (u.role !== 'admin') {
+                document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+            }
+
+            loadDashboard();
+            loadMachines();
+            connectMQTT();
+            loadBadges();
+            setInterval(loadBadges, 15000);
+        }
+
+        // ========== NAVIGATION ==========
+        function showPage(name, el) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById('page-' + name).classList.add('active');
+            if (el) el.classList.add('active');
+            const titles = { dashboard: 'Tableau de bord', machines: 'Machines', interventions: 'Interventions', techniciens: 'Techniciens', ia: 'Intelligence Artificielle', messages: 'Messages' };
+            document.getElementById('pageTitle').textContent = titles[name] || name;
+            if (name === 'machines') loadMachinesPage();
+            if (name === 'interventions') loadPannes();
+            if (name === 'techniciens') loadTechniciens();
+            if (name === 'ia') populateIASelect();
+            if (name === 'messages') loadMessages();
+        }
+
+        // ========== WEBSOCKET ==========
+        function connectMQTT() {
+            wsClient = new WebSocket(WS_URL);
+
+            wsClient.onopen = () => {
+                document.getElementById('mqttDot').className = 'dot on';
+                document.getElementById('mqttLabel').textContent = 'WS: Connecté';
+            };
+
+            wsClient.onclose = () => {
+                document.getElementById('mqttDot').className = 'dot';
+                document.getElementById('mqttLabel').textContent = 'WS: Déconnecté (Reconnexion...)';
+                setTimeout(connectMQTT, 3000);
+            };
+
+            wsClient.onerror = () => {
+                document.getElementById('mqttLabel').textContent = 'WS: Erreur';
+            };
+
+            wsClient.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+
+                    if (data.type === 'INITIAL_DATA' || data.type === 'ALL_MACHINES_UPDATE') {
+                        mqttMsgCount++;
+                        document.getElementById('mqttCount').textContent = mqttMsgCount + ' maj';
+
+                        // data.machines is an array from the backend
+                        if (data.machines && Array.isArray(data.machines)) {
+                            data.machines.forEach(m => {
+                                machineCache[m.machineId] = m;
+                                updateMachineCard(m.machineId);
+                            });
+                            updateStats();
+                        }
+                    }
+
+                    if (data.type === 'NEW_ALERT') {
+                        showToast(`🚨 ${data.message}`, 'error');
+                        loadBadges(); // Refresh pannes badge
+                        loadPannes(); // Refresh active pannes if on that page
+                    }
+
+                } catch (e) { }
+            };
+        }
+
+        function updateMachineCard(machineId) {
+            const m = machineCache[machineId];
+            if (!m || !m.metrics) return;
+            const prefix = 'live-' + machineId;
+            const set = (id, val, dec = 1) => {
+                const el = document.getElementById(id);
+                if (el && val != null) { el.textContent = parseFloat(val).toFixed(dec); el.classList.add('value-update'); setTimeout(() => el.classList.remove('value-update'), 500); }
+            };
+            const setStr = (id, val) => {
+                const el = document.getElementById(id);
+                if (el && val != null) { el.textContent = val; el.classList.add('value-update'); setTimeout(() => el.classList.remove('value-update'), 500); }
+            };
+            set(prefix + '-temp', m.metrics.thermal);
+            set(prefix + '-hum', m.metrics.humidity);
+            set(prefix + '-press', m.metrics.pressure);
+            set(prefix + '-pow', m.metrics.power);
+            set(prefix + '-dist', m.metrics.ultrasonic);
+            setStr(prefix + '-pres', m.metrics.presence ? 'OUI' : 'NON');
+
+            const dot = document.getElementById(prefix + '-dot');
+            if (dot) dot.style.display = 'block';
+            if (m.security && m.security.state) {
+                document.querySelectorAll('.badge-' + machineId).forEach(b => {
+                    b.className = 'status-badge ' + m.security.state.toLowerCase();
+                    b.textContent = m.security.state;
+                });
+                document.querySelectorAll('.card-' + machineId).forEach(c => {
+                    c.className = 'machine-card ' + m.security.state.toLowerCase();
+                });
+                if (m.security.state === 'CRITIQUE') showToast('🚨 Machine ' + machineId + ' CRITIQUE!', 'error');
+            }
+        }
+
+        function updateStats() {
+            const machines = Object.values(machineCache);
+            document.getElementById('s-running').textContent = machines.filter(m => m.security && m.security.state === 'NORMAL' || m.status === 'RUNNING').length;
+            document.getElementById('s-warning').textContent = machines.filter(m => m.security && m.security.state === 'ATTENTION').length;
+            document.getElementById('s-critical').textContent = machines.filter(m => m.security && m.security.state === 'CRITIQUE').length;
+        }
+
+        // ========== DASHBOARD ==========
+        async function loadDashboard() {
+            const r = await fetch(API + '/api/machines', { headers: authHeader() });
+            const machines = await r.json();
+            allMachines = machines;
+            document.getElementById('s-total').textContent = machines.length;
+            document.getElementById('dashMachines').innerHTML = machines.map(m => renderMachineCard(m, false)).join('');
+        }
+
+        function renderMachineCard(m, withActions) {
+            const cached = machineCache[m.machineId] || {};
+            const metrics = cached.metrics || m.metrics || {};
+            const sec = cached.security || {};
+            const state = (sec.state || m.status || 'stopped').toLowerCase();
+            const prefix = 'live-' + m.machineId;
+            const actBtns = withActions && currentUser.role === 'admin' ? `
+    <div class="machine-actions">
+      <button class="btn btn-sm btn-outline" onclick="openEditMachine('${m._id}')"><i class="fas fa-pen"></i> Modifier</button>
+      <button class="btn btn-sm btn-success" onclick="toggleMachine('${m._id}','${m.status}')"><i class="fas fa-${m.status === 'RUNNING' ? 'stop' : 'play'}"></i></button>
+      <button class="btn btn-sm btn-danger" onclick="deleteMachine('${m._id}')"><i class="fas fa-trash"></i></button>
+    </div>` : '';
+            return `
+  <div class="machine-card ${state} card-${m.machineId}" id="mcard-${m.machineId}">
+    <div class="live-dot" id="${prefix}-dot" style="display:${cached.metrics ? 'block' : 'none'}"></div>
+    <div class="machine-header">
+      <div class="machine-name">${m.nom || m.machineId}</div>
+      <span class="status-badge ${state} badge-${m.machineId}">${(sec.state || m.status || 'STOPPED').toUpperCase()}</span>
+    </div>
+    <div style="font-size:.78em;color:var(--muted);margin-bottom:12px;">${m.machineId}${m.localisation ? ' · ' + m.localisation : ''}</div>
+    <div class="metrics-grid">
+      <div class="metric"><div class="metric-val" id="${prefix}-temp">${metrics.thermal != null ? metrics.thermal.toFixed(1) : '-'}</div><div class="metric-lbl">Temp °C</div></div>
+      <div class="metric"><div class="metric-val" id="${prefix}-hum">${metrics.humidity != null ? metrics.humidity.toFixed(1) : '-'}</div><div class="metric-lbl">Humidité %</div></div>
+      <div class="metric"><div class="metric-val" id="${prefix}-press">${metrics.pressure != null ? metrics.pressure.toFixed(1) : '-'}</div><div class="metric-lbl">Pression bar</div></div>
+      <div class="metric"><div class="metric-val" id="${prefix}-pow">${metrics.power != null ? metrics.power.toFixed(1) : '-'}</div><div class="metric-lbl">Puissance kW</div></div>
+      <div class="metric"><div class="metric-val" id="${prefix}-dist">${metrics.ultrasonic != null ? metrics.ultrasonic.toFixed(1) : '-'}</div><div class="metric-lbl">Distance cm</div></div>
+      <div class="metric"><div class="metric-val" id="${prefix}-pres">${metrics.presence ? 'OUI' : 'NON'}</div><div class="metric-lbl">Présence</div></div>
+    </div>
+    ${actBtns}
+  </div>`;
+        }
+
+        // ========== MACHINES PAGE ==========
+        async function loadMachinesPage() {
+            const r = await fetch(API + '/api/machines', { headers: authHeader() });
+            allMachines = await r.json();
+            document.getElementById('allMachines').innerHTML = allMachines.map(m => renderMachineCard(m, true)).join('');
+        }
+
+        function openAddMachine() {
+            document.getElementById('modalTitle').textContent = 'Ajouter une Machine';
+            document.getElementById('modalBody').innerHTML = `
+    <div class="form-group"><label>ID Machine *</label><input id="f-mid" placeholder="MAC_A05"></div>
+    <div class="form-group"><label>Nom *</label><input id="f-mnom" placeholder="Machine 5"></div>
+    <div class="form-group"><label>Description</label><input id="f-mdesc"></div>
+    <div class="form-group"><label>Localisation</label><input id="f-mloc"></div>`;
+            document.getElementById('modalFooter').innerHTML = `<button class="btn btn-outline" onclick="closeModal()">Annuler</button><button class="btn btn-primary" onclick="addMachine()">Ajouter</button>`;
+            openModal();
+        }
+
+        async function addMachine() {
+            const body = { machineId: val('f-mid'), nom: val('f-mnom'), description: val('f-mdesc'), localisation: val('f-mloc') };
+            const r = await fetch(API + '/api/machines', { method: 'POST', headers: authHeader(), body: JSON.stringify(body) });
+            const d = await r.json();
+            if (r.ok) { closeModal(); showToast('Machine ajoutée', 'success'); loadMachinesPage(); loadDashboard(); }
+            else showToast(d.error || 'Erreur', 'error');
+        }
+
+        async function openEditMachine(id) {
+            const m = allMachines.find(x => x._id === id);
+            if (!m) return;
+            document.getElementById('modalTitle').textContent = 'Modifier ' + m.machineId;
+            document.getElementById('modalBody').innerHTML = `
+    <div class="form-group"><label>Nom</label><input id="e-mnom" value="${m.nom || ''}"></div>
+    <div class="form-group"><label>Description</label><input id="e-mdesc" value="${m.description || ''}"></div>
+    <div class="form-group"><label>Localisation</label><input id="e-mloc" value="${m.localisation || ''}"></div>`;
+            document.getElementById('modalFooter').innerHTML = `<button class="btn btn-outline" onclick="closeModal()">Annuler</button><button class="btn btn-primary" onclick="editMachine('${id}')">Enregistrer</button>`;
+            openModal();
+        }
+
+        async function editMachine(id) {
+            const body = { nom: val('e-mnom'), description: val('e-mdesc'), localisation: val('e-mloc') };
+            const r = await fetch(API + '/api/machines/' + id, { method: 'PUT', headers: authHeader(), body: JSON.stringify(body) });
+            if (r.ok) { closeModal(); showToast('Machine modifiée', 'success'); loadMachinesPage(); loadDashboard(); }
+            else showToast('Erreur', 'error');
+        }
+
+        async function deleteMachine(id) {
+            if (!confirm('Supprimer cette machine ?')) return;
+            const r = await fetch(API + '/api/machines/' + id, { method: 'DELETE', headers: authHeader() });
+            if (r.ok) { showToast('Machine supprimée', 'success'); loadMachinesPage(); loadDashboard(); }
+            else showToast('Erreur', 'error');
+        }
+
+        async function toggleMachine(id, status) {
+            const act = status === 'RUNNING' ? 'stop' : 'start';
+            await fetch(API + '/api/machines/' + id + '/' + act, { method: 'POST', headers: authHeader() });
+            loadMachinesPage(); loadDashboard();
+        }
+
+        // ========== INTERVENTIONS ==========
+        async function loadPannes() {
+            const r = await fetch(API + '/api/pannes', { headers: authHeader() });
+            const pannes = await r.json();
+            const tbody = document.getElementById('panneTbody');
+            if (!pannes.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Aucune intervention</td></tr>'; return; }
+            tbody.innerHTML = pannes.map(p => {
+                const sevClass = p.severity === 'CRITIQUE' ? 'danger' : p.severity === 'ELEVE' ? 'warning' : '';
+                const stBadge = `<span class="status-badge ${p.status.toLowerCase()}" style="font-size:.72em">${p.status}</span>`;
+                let actions = '';
+                if (currentUser.role === 'admin') {
+                    actions += `<button class="btn btn-sm btn-outline" onclick="assignPanne('${p._id}')"><i class="fas fa-user-check"></i></button> `;
+                    actions += `<button class="btn btn-sm btn-danger" onclick="deletePanne('${p._id}')"><i class="fas fa-trash"></i></button>`;
+                } else if (p.status === 'NOUVELLE') {
+                    actions = `<button class="btn btn-sm btn-success" onclick="acceptPanne('${p._id}')"><i class="fas fa-check"></i> Accepter</button>`;
+                } else if (p.status === 'EN_COURS' && (p.assignedTo === currentUser.id)) {
+                    actions = `<button class="btn btn-sm btn-primary" onclick="completePanne('${p._id}')"><i class="fas fa-flag-checkered"></i> Terminer</button>`;
+                }
+                return `<tr>
+      <td><strong>${p.machineId}</strong></td>
+      <td>${p.type || '–'}</td>
+      <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${p.description || ''}">${p.description || '–'}</td>
+      <td><span class="status-badge ${sevClass}" style="font-size:.72em">${p.severity || 'MOYEN'}</span></td>
+      <td>${stBadge}</td>
+      <td>${p.technicienNom || '–'}</td>
+      <td><div class="actions-cell">${actions}</div></td>
+    </tr>`;
+            }).join('');
+        }
+
+        function openAddPanne() {
+            const opts = allMachines.map(m => `<option value="${m.machineId}">${m.nom || m.machineId}</option>`).join('');
+            document.getElementById('modalTitle').textContent = 'Créer une Intervention';
+            document.getElementById('modalBody').innerHTML = `
+    <div class="form-group"><label>Machine *</label><select id="p-mid">${opts}</select></div>
+    <div class="form-group"><label>Type</label><input id="p-type" placeholder="Mécanique, Électrique..."></div>
+    <div class="form-group"><label>Description</label><textarea id="p-desc"></textarea></div>
+    <div class="form-group"><label>Sévérité</label><select id="p-sev"><option value="FAIBLE">Faible</option><option value="MOYEN" selected>Moyen</option><option value="ELEVE">Élevé</option><option value="CRITIQUE">Critique</option></select></div>`;
+            document.getElementById('modalFooter').innerHTML = `<button class="btn btn-outline" onclick="closeModal()">Annuler</button><button class="btn btn-primary" onclick="addPanne()">Créer</button>`;
+            openModal();
+        }
+
+        async function addPanne() {
+            const body = { machineId: val('p-mid'), type: val('p-type'), description: val('p-desc'), severity: val('p-sev') };
+            const r = await fetch(API + '/api/pannes', { method: 'POST', headers: authHeader(), body: JSON.stringify(body) });
+            if (r.ok) { closeModal(); showToast('Intervention créée', 'success'); loadPannes(); }
+            else showToast('Erreur', 'error');
+        }
+
+        async function deletePanne(id) {
+            if (!confirm('Supprimer cette intervention ?')) return;
+            // No delete endpoint – mark as note
+            showToast('Suppression non disponible', 'error');
+        }
+
+        async function assignPanne(id) {
+            const r2 = await fetch(API + '/api/techniciens', { headers: authHeader() });
+            const techs = await r2.json();
+            const opts = techs.map(t => `<option value="${t._id}">${t.nom || t.username}</option>`).join('');
+            document.getElementById('modalTitle').textContent = 'Assigner un Technicien';
+            document.getElementById('modalBody').innerHTML = `
+    <div class="form-group"><label>Technicien</label><select id="a-tech">${opts}</select></div>
+    <div class="form-group"><label>Message</label><textarea id="a-msg" placeholder="Instructions..."></textarea></div>`;
+            document.getElementById('modalFooter').innerHTML = `<button class="btn btn-outline" onclick="closeModal()">Annuler</button><button class="btn btn-primary" onclick="doAssign('${id}')">Assigner</button>`;
+            openModal();
+        }
+
+        async function doAssign(id) {
+            const body = { technicienId: val('a-tech'), message: val('a-msg') };
+            const r = await fetch(API + '/api/pannes/' + id + '/assign', { method: 'POST', headers: authHeader(), body: JSON.stringify(body) });
+            if (r.ok) { closeModal(); showToast('Technicien assigné', 'success'); loadPannes(); }
+            else showToast('Erreur', 'error');
+        }
+
+        async function acceptPanne(id) {
+            const r = await fetch(API + '/api/pannes/' + id + '/accept', { method: 'POST', headers: authHeader() });
+            if (r.ok) { showToast('Intervention acceptée', 'success'); loadPannes(); }
+        }
+
+        async function completePanne(id) {
+            document.getElementById('modalTitle').textContent = 'Soumettre le Rapport';
+            document.getElementById('modalBody').innerHTML = `<div class="form-group"><label>Rapport d'intervention</label><textarea id="final-report" placeholder="Décrivez les actions effectuées..."></textarea></div>`;
+            document.getElementById('modalFooter').innerHTML = `<button class="btn btn-outline" onclick="closeModal()">Annuler</button><button class="btn btn-primary" onclick="doComplete('${id}')">Soumettre</button>`;
+            openModal();
+        }
+
+        async function doComplete(id) {
+            const r = await fetch(API + '/api/pannes/' + id + '/complete', { method: 'POST', headers: authHeader(), body: JSON.stringify({ rapport: val('final-report') }) });
+            if (r.ok) { closeModal(); showToast('Intervention terminée ✅', 'success'); loadPannes(); }
+        }
+
+        // ========== TECHNICIENS ==========
+        async function loadTechniciens() {
+            const r = await fetch(API + '/api/techniciens', { headers: authHeader() });
+            const techs = await r.json();
+            const tbody = document.getElementById('techTbody');
+            if (!techs.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Aucun technicien</td></tr>'; return; }
+            tbody.innerHTML = techs.map(t => `<tr>
+    <td><strong>${t.nom || '–'}</strong></td><td>${t.username}</td><td>${t.email || '–'}</td><td>${t.telephone || '–'}</td>
+    <td><div class="actions-cell"><button class="btn btn-sm btn-danger" onclick="deleteTech('${t._id}')"><i class="fas fa-trash"></i></button></div></td>
+  </tr>`).join('');
+        }
+
+        function openAddTech() {
+            document.getElementById('modalTitle').textContent = 'Ajouter un Technicien';
+            document.getElementById('modalBody').innerHTML = `
+    <div class="form-group"><label>Nom complet *</label><input id="t-nom"></div>
+    <div class="form-group"><label>Username *</label><input id="t-user"></div>
+    <div class="form-group"><label>Mot de passe *</label><input type="password" id="t-pass"></div>
+    <div class="form-group"><label>Email</label><input type="email" id="t-email"></div>
+    <div class="form-group"><label>Téléphone</label><input id="t-tel"></div>`;
+            document.getElementById('modalFooter').innerHTML = `<button class="btn btn-outline" onclick="closeModal()">Annuler</button><button class="btn btn-primary" onclick="addTech()">Ajouter</button>`;
+            openModal();
+        }
+
+        async function addTech() {
+            const body = { nom: val('t-nom'), username: val('t-user'), password: val('t-pass'), email: val('t-email'), telephone: val('t-tel') };
+            const r = await fetch(API + '/api/techniciens', { method: 'POST', headers: authHeader(), body: JSON.stringify(body) });
+            if (r.ok) { closeModal(); showToast('Technicien ajouté', 'success'); loadTechniciens(); }
+            else { const d = await r.json(); showToast(d.error || 'Erreur', 'error'); }
+        }
+
+        async function deleteTech(id) {
+            if (!confirm('Supprimer ce technicien ?')) return;
+            const r = await fetch(API + '/api/techniciens/' + id, { method: 'DELETE', headers: authHeader() });
+            if (r.ok) { showToast('Technicien supprimé', 'success'); loadTechniciens(); }
+        }
+
+        // ========== IA ==========
+        async function populateIASelect() {
+            if (!allMachines.length) { const r = await fetch(API + '/api/machines', { headers: authHeader() }); allMachines = await r.json(); }
+            const sel = document.getElementById('iaMachineSelect');
+            sel.innerHTML = allMachines.map(m => `<option value="${m.machineId}">${m.nom || m.machineId}</option>`).join('');
+        }
+
+        function onIAMachineChange() {
+            const mid = document.getElementById('iaMachineSelect').value;
+            const c = machineCache[mid] || {};
+            const m = c.metrics || {};
+            document.getElementById('ia-prev-temp').textContent = m.thermal != null ? m.thermal.toFixed(1) : '–';
+            document.getElementById('ia-prev-press').textContent = m.pressure != null ? m.pressure.toFixed(1) : '–';
+            document.getElementById('ia-prev-pow').textContent = m.power != null ? m.power.toFixed(1) : '–';
+        }
+
+        async function askIAPredict() {
+            const machineId = document.getElementById('iaMachineSelect').value;
+            const question = document.getElementById('iaQuestion').value.trim();
+            if (!machineId) return showToast('Sélectionnez une machine', 'error');
+
+            const respEl = document.getElementById('iaResponse');
+            respEl.innerHTML = '<h3>Analyse en cours…</h3><p class="ia-thinking"><i class="fas fa-brain fa-spin"></i> Gemini analyse les données avec le dataset historique (10 000 échantillons)…</p>';
+            document.getElementById('iaBtnAnalyze').disabled = true;
+
+            try {
+                const cached = machineCache[machineId] || {};
+                const body = {
+                    machineId,
+                    question,
+                    ...((cached.metrics) || {}),
+                    thermal: cached.metrics?.thermal,
+                    humidity: cached.metrics?.humidity,
+                    pressure: cached.metrics?.pressure,
+                    power: cached.metrics?.power,
+                    ultrasonic: cached.metrics?.ultrasonic,
+                    infrared: cached.metrics?.infrared,
+                    presence: cached.metrics?.presence,
+                    magnetic: cached.metrics?.magnetic,
+                    security: cached.security || {}
+                };
+
+                const r = await fetch(API + '/api/predict', { method: 'POST', headers: authHeader(), body: JSON.stringify(body) });
+                const d = await r.json();
+
+                if (!d.success || !d.prediction) throw new Error(d.error || 'Réponse invalide');
+                const p = d.prediction;
+
+                const riskColors = { CRITIQUE: '#ef4444', ELEVE: '#f59e0b', MOYEN: '#fb923c', FAIBLE: '#22c55e', MINIMAL: '#22c55e' };
+                const riskColor = riskColors[p.risk_level] || '#94a3b8';
+                const probWidth = Math.min(p.failure_probability || 0, 100);
+
+                respEl.innerHTML = `
+                <h3>🤖 Analyse IA – ${machineId}</h3>
+                <div style="margin-bottom:16px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                        <span style="font-size:.85em;color:var(--muted)">Probabilité de panne</span>
+                        <strong style="color:${riskColor};font-size:1.1em">${p.failure_probability ?? '?'}%</strong>
+                    </div>
+                    <div style="height:8px;background:#1e293b;border-radius:4px;overflow:hidden;">
+                        <div style="height:100%;width:${probWidth}%;background:${riskColor};border-radius:4px;transition:width 1s"></div>
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+                    <div class="metric"><div class="metric-val" style="color:${riskColor}">${p.risk_level ?? '?'}</div><div class="metric-lbl">Niveau de risque</div></div>
+                    <div class="metric"><div class="metric-val">${p.confidence ?? '?'}%</div><div class="metric-lbl">Confiance IA</div></div>
+                    <div class="metric" style="grid-column:span 2"><div class="metric-val" style="font-size:.9em;color:var(--warning)">${p.predicted_failure_type || '–'}</div><div class="metric-lbl">Type de panne prédit</div></div>
+                </div>
+                <div style="background:#0f172a;border-radius:8px;padding:12px;margin-bottom:10px;">
+                    <div style="font-size:.75em;color:var(--muted);margin-bottom:6px;">⏱ Délai avant panne estimé</div>
+                    <div style="font-weight:600">${p.time_to_failure || '–'}</div>
+                </div>
+                <div style="background:#0f172a;border-radius:8px;padding:12px;margin-bottom:10px;">
+                    <div style="font-size:.75em;color:var(--muted);margin-bottom:6px;">✅ Action recommandée</div>
+                    <div style="font-weight:600;color:var(--primary)">${p.recommended_action || '–'}</div>
+                </div>
+                <div style="background:#0f172a;border-radius:8px;padding:12px;">
+                    <div style="font-size:.75em;color:var(--muted);margin-bottom:6px;">💭 Raisonnement IA</div>
+                    <div style="font-size:.88em;line-height:1.6">${p.reasoning || '–'}</div>
+                </div>
+                <div style="margin-top:12px;font-size:.72em;color:var(--muted);text-align:right">
+                    Modèle: ${p.model || '–'} | Dataset: ${p.dataset_samples || 0} échantillons | Cas similaires: ${p.similar_cases_found || 0}
+                </div>`;
+            } catch (err) {
+                respEl.innerHTML = `<h3>Analyse IA</h3><p style="color:var(--danger)">❌ Erreur: ${err.message}</p><p style="margin-top:10px;font-size:.85em;color:var(--muted)">Vérifiez que la clé API Gemini est configurée dans server.js.</p>`;
+            } finally {
+                document.getElementById('iaBtnAnalyze').disabled = false;
+            }
+        }
+
+
+        async function loadDatasetStats() {
+            const panel = document.getElementById('iaDatasetPanel');
+            const content = document.getElementById('iaDatasetContent');
+            panel.style.display = 'block';
+            content.innerHTML = '<p class="ia-thinking"><i class="fas fa-spinner fa-spin"></i> Chargement des statistiques...</p>';
+            try {
+                const r = await fetch(API + '/api/dataset/stats', { headers: authHeader() });
+                const d = await r.json();
+                const g = d.global || {};
+                const failPct = g.total ? ((g.failures / g.total) * 100).toFixed(1) : 0;
+                content.innerHTML = `
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
+                    <div class="stat-card"><div class="stat-icon blue"><i class="fas fa-database"></i></div><div><div class="stat-val">${(g.total || 0).toLocaleString()}</div><div class="stat-lbl">Total échantillons</div></div></div>
+                    <div class="stat-card"><div class="stat-icon red"><i class="fas fa-exclamation"></i></div><div><div class="stat-val">${(g.failures || 0).toLocaleString()}</div><div class="stat-lbl">Pannes (${failPct}%)</div></div></div>
+                    <div class="stat-card"><div class="stat-icon orange"><i class="fas fa-thermometer-half"></i></div><div><div class="stat-val">${(g.avgTemp || 0).toFixed(1)}°C</div><div class="stat-lbl">Temp. moy</div></div></div>
+                    <div class="stat-card"><div class="stat-icon green"><i class="fas fa-bolt"></i></div><div><div class="stat-val">${(g.avgPower || 0).toFixed(0)} kW</div><div class="stat-lbl">Puissance moy</div></div></div>
+                </div>
+                <h4 style="margin-bottom:12px;font-size:.85em;color:var(--muted)">RÉPARTITION PAR TYPE DE MACHINE</h4>
+                <table><thead><tr><th>Type</th><th>Échantillons</th><th>Taux de panne</th></tr></thead><tbody>
+                ${(d.byType || []).map(t => `<tr><td><strong>Type ${t._id}</strong></td><td>${t.count.toLocaleString()}</td><td><span class="status-badge ${t.failureRate > 0.05 ? 'critique' : t.failureRate > 0.03 ? 'warning' : ''}">${(t.failureRate * 100).toFixed(1)}%</span></td></tr>`).join('')}
+                </tbody></table>`;
+            } catch (err) {
+                content.innerHTML = `<p style="color:var(--danger)">Erreur: ${err.message}</p>`;
+            }
+        }
+
+
+        // ========== MESSAGES ==========
+        async function loadMessages() {
+            const r = await fetch(API + '/api/messages', { headers: authHeader() });
+            const msgs = await r.json();
+            const list = document.getElementById('msgList');
+            if (!msgs.length) { list.innerHTML = '<div class="empty-state"><i class="fas fa-inbox" style="font-size:2em;margin-bottom:12px;display:block"></i>Aucun message</div>'; return; }
+            list.innerHTML = msgs.map(m => `
+    <div class="msg-item ${m.isRead ? '' : 'unread'}">
+      <div class="msg-meta"><span class="msg-from">De: ${m.fromName || m.from}</span><span class="msg-date">${new Date(m.createdAt).toLocaleString('fr-FR')}</span></div>
+      <div class="msg-content">${m.content}</div>
+      ${!m.isRead ? `<button class="btn btn-sm btn-outline" style="margin-top:8px" onclick="readMsg('${m._id}',this)"><i class="fas fa-check"></i> Marquer lu</button>` : ''}
+    </div>`).join('');
+        }
+
+        async function readMsg(id, btn) {
+            await fetch(API + '/api/messages/' + id + '/read', { method: 'POST', headers: authHeader() });
+            btn.closest('.msg-item').classList.remove('unread');
+            btn.remove();
+            loadBadges();
+        }
+
+        // ========== BADGES ==========
+        async function loadBadges() {
+            try {
+                const r = await fetch(API + '/api/messages/unread/count', { headers: authHeader() });
+                const d = await r.json();
+                const b = document.getElementById('badgeMsgs');
+                if (d.count > 0) { b.textContent = d.count; b.style.display = 'flex'; }
+                else b.style.display = 'none';
+            } catch (e) { }
+
+            try {
+                const r = await fetch(API + '/api/pannes', { headers: authHeader() });
+                const pannes = await r.json();
+                const open = pannes.filter(p => p.status === 'NOUVELLE').length;
+                const b = document.getElementById('badgePannes');
+                if (open > 0) { b.textContent = open; b.style.display = 'flex'; }
+                else b.style.display = 'none';
+            } catch (e) { }
+        }
+
+        // ========== MODAL HELPERS ==========
+        function openModal() { document.getElementById('modalOverlay').classList.add('open'); }
+        function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+        document.getElementById('modalOverlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+
+        // ========== TOAST ==========
+        function showToast(msg, type = 'info') {
+            const c = document.getElementById('toasts');
+            const t = document.createElement('div');
+            const icons = { success: 'check-circle', error: 'exclamation-circle', info: 'info-circle' };
+            t.className = 'toast ' + type;
+            t.innerHTML = `<i class="fas fa-${icons[type] || 'bell'}" style="color:${type === 'success' ? 'var(--success)' : type === 'error' ? 'var(--danger)' : 'var(--primary)'}"></i><span>${msg}</span>`;
+            c.appendChild(t);
+            setTimeout(() => t.classList.add('show'), 50);
+            setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 350); }, 4000);
+        }
+
+        // ========== UTIL ==========
+        function val(id) { return document.getElementById(id)?.value || ''; }
+    </script>
+</body>
+
+</html>

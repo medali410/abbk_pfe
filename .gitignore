@@ -1,0 +1,36 @@
+# Secrets — ne jamais versionner
+.env
+**/.env
+!.env.example
+
+# Node.js
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+.venv/
+**/.venv*/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+
+# Flutter / Dart
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub/
+**/doc/api/
+
+# IDE & OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.log

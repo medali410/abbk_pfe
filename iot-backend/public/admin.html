@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ABBKA - 4 Machines Dashboard</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div class="logo">
+            <i class="ri-dashboard-3-line"></i>
+            <span>ABBKA</span>
+        </div>
+
+        <div class="user-box">
+            <div class="avatar">👔</div>
+            <div class="user-info">
+                <span class="user-name" id="user-name">Admin</span>
+                <span class="user-role">Administrateur</span>
+            </div>
+        </div>
+
+        <nav class="nav">
+            <a href="#" class="nav-item active" data-page="dashboard">
+                <i class="ri-home-4-line"></i><span>Dashboard</span>
+            </a>
+            <a href="#" class="nav-item" data-page="machines">
+                <i class="ri-cpu-line"></i><span>Machines</span>
+            </a>
+            <a href="#" class="nav-item" data-page="live">
+                <i class="ri-live-line"></i><span>Temps Réel</span>
+                <span class="live-dot" id="mqtt-dot"></span>
+            </a>
+            <a href="#" class="nav-item" data-page="techniciens">
+                <i class="ri-user-settings-line"></i><span>Techniciens</span>
+            </a>
+            <a href="#" class="nav-item" data-page="pannes">
+                <i class="ri-alarm-warning-line"></i><span>Pannes</span>
+                <span class="badge" id="badge-pannes">0</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <button class="btn-logout" onclick="logout()">
+                <i class="ri-logout-box-line"></i> Déconnexion
+            </button>
+        </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+        <header class="header">
+            <div>
+                <h1 id="page-title">Dashboard - 4 Machines</h1>
+                <p id="current-date"></p>
+            </div>
+            <div class="header-right">
+                <div class="mqtt-status" id="mqtt-status">
+                    <span class="dot"></span>
+                    <span id="mqtt-status-text">Connexion...</span>
+                </div>
+                <button class="btn-refresh" onclick="refreshAll()">
+                    <i class="ri-refresh-line"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!--  PAGE: DASHBOARD - Vue d'ensemble des 4 machines           -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <section id="page-dashboard" class="page active">
+
+            <!-- Stats globales -->
+            <div class="stats-row">
+                <div class="stat-card green">
+                    <i class="ri-play-circle-fill"></i>
+                    <div>
+                        <span class="stat-value" id="stat-running">0</span>
+                        <span class="stat-label">En marche</span>
+                    </div>
+                </div>
+                <div class="stat-card orange">
+                    <i class="ri-error-warning-fill"></i>
+                    <div>
+                        <span class="stat-value" id="stat-warning">0</span>
+                        <span class="stat-label">Attention</span>
+                    </div>
+                </div>
+                <div class="stat-card red">
+                    <i class="ri-alert-fill"></i>
+                    <div>
+                        <span class="stat-value" id="stat-critical">0</span>
+                        <span class="stat-label">Critique</span>
+                    </div>
+                </div>
+                <div class="stat-card blue">
+                    <i class="ri-tools-fill"></i>
+                    <div>
+                        <span class="stat-value" id="stat-pannes">0</span>
+                        <span class="stat-label">Pannes</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Factory info -->
+            <div class="factory-info">
+                <span><i class="ri-building-2-line"></i> <strong id="factory-name">ABBKA_Factory</strong></span>
+                <span><i class="ri-restart-line"></i> Cycle: <strong id="factory-cycle">0</strong></span>
+                <span><i class="ri-wifi-line"></i> RSSI: <strong id="factory-rssi">-- dBm</strong></span>
+                <span><i class="ri-time-line"></i> MAJ: <strong id="factory-update">--</strong></span>
+            </div>
+
+            <!-- Grille des 4 machines -->
+            <h2 class="section-title">
+                <i class="ri-cpu-line"></i> Les 4 Machines en Temps Réel
+            </h2>
+
+            <div class="machines-4-grid" id="machines-4-grid">
+                <!-- Généré par JavaScript -->
+            </div>
+
+            <!-- Graphique comparatif -->
+            <h2 class="section-title">
+                <i class="ri-bar-chart-line"></i> Comparaison des Machines
+            </h2>
+            <div class="chart-container">
+                <canvas id="comparison-chart"></canvas>
+            </div>
+
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!--  PAGE: MACHINES - Gestion détaillée                         -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <section id="page-machines" class="page">
+            <div class="page-header">
+                <h2>Gestion des Machines</h2>
+                <button class="btn-primary" onclick="openModal('machine')">
+                    <i class="ri-add-line"></i> Ajouter Machine
+                </button>
+            </div>
+
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Nom</th>
+                        <th>Status</th>
+                        <th>Temp</th>
+                        <th>Pression</th>
+                        <th>Puissance</th>
+                        <th>Risque IA</th>
+                        <th>État</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="machines-table"></tbody>
+            </table>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!--  PAGE: TEMPS RÉEL - Toutes les données live                -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <section id="page-live" class="page">
+            <div class="live-header">
+                <h2><i class="ri-live-fill"></i> Données Temps Réel - 4 Machines</h2>
+                <div class="live-info">
+                    <span>Topic: <code>abbk/asus01_9f3a/telemetry</code></span>
+                </div>
+            </div>
+
+            <!-- 4 cartes temps réel -->
+            <div class="live-4-grid" id="live-4-grid">
+                <!-- Généré par JavaScript -->
+            </div>
+
+            <!-- Graphique temps réel -->
+            <div class="chart-container">
+                <h3>Évolution en Temps Réel</h3>
+                <canvas id="live-chart"></canvas>
+            </div>
+
+            <!-- Log MQTT -->
+            <div class="mqtt-log">
+                <h3><i class="ri-terminal-line"></i> Log MQTT</h3>
+                <div class="log-container" id="mqtt-log"></div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!--  PAGE: TECHNICIENS                                          -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <section id="page-techniciens" class="page">
+            <div class="page-header">
+                <h2>Gestion des Techniciens</h2>
+                <button class="btn-primary" onclick="openModal('tech')">
+                    <i class="ri-user-add-line"></i> Ajouter Technicien
+                </button>
+            </div>
+            <div class="techs-grid" id="techs-grid"></div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!--  PAGE: PANNES                                               -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <section id="page-pannes" class="page">
+            <div class="page-header">
+                <h2>Gestion des Pannes</h2>
+                <button class="btn-primary" onclick="openModal('panne')">
+                    <i class="ri-add-line"></i> Créer Panne
+                </button>
+            </div>
+
+            <div class="filters">
+                <button class="filter-btn active" onclick="filterPannes('all')">Toutes</button>
+                <button class="filter-btn" onclick="filterPannes('NOUVELLE')">Nouvelles</button>
+                <button class="filter-btn" onclick="filterPannes('EN_COURS')">En cours</button>
+                <button class="filter-btn" onclick="filterPannes('TERMINEE')">Terminées</button>
+            </div>
+
+            <div class="pannes-list" id="pannes-list"></div>
+        </section>
+
+    </main>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!--  MODALS                                                      -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+
+    <!-- Modal Machine -->
+    <div class="modal" id="modal-machine">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Ajouter Machine</h3>
+                <button onclick="closeModal('machine')">&times;</button>
+            </div>
+            <form id="form-machine">
+                <div class="form-group">
+                    <label>ID Machine *</label>
+                    <input type="text" id="m-id" required placeholder="MAC_A05">
+                </div>
+                <div class="form-group">
+                    <label>Nom</label>
+                    <input type="text" id="m-nom" placeholder="Machine 5">
+                </div>
+                <div class="form-group">
+                    <label>Localisation</label>
+                    <input type="text" id="m-loc" placeholder="Bâtiment A">
+                </div>
+                <button type="submit" class="btn-primary">Ajouter</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Technicien -->
+    <div class="modal" id="modal-tech">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Ajouter Technicien</h3>
+                <button onclick="closeModal('tech')">&times;</button>
+            </div>
+            <form id="form-tech">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nom *</label>
+                        <input type="text" id="t-nom" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Username *</label>
+                        <input type="text" id="t-user" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Mot de passe *</label>
+                        <input type="password" id="t-pass" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="t-email">
+                    </div>
+                </div>
+                <button type="submit" class="btn-primary">Ajouter</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Panne -->
+    <div class="modal" id="modal-panne">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Créer Panne</h3>
+                <button onclick="closeModal('panne')">&times;</button>
+            </div>
+            <form id="form-panne">
+                <div class="form-group">
+                    <label>Machine *</label>
+                    <select id="p-machine" required></select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Type</label>
+                        <input type="text" id="p-type" placeholder="Mécanique...">
+                    </div>
+                    <div class="form-group">
+                        <label>Sévérité</label>
+                        <select id="p-severity">
+                            <option value="FAIBLE">Faible</option>
+                            <option value="MOYEN">Moyen</option>
+                            <option value="ELEVE">Élevé</option>
+                            <option value="CRITIQUE">Critique</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="p-desc" rows="3"></textarea>
+                </div>
+                <button type="submit" class="btn-primary">Créer</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Assigner -->
+    <div class="modal" id="modal-assign">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Assigner au Technicien</h3>
+                <button onclick="closeModal('assign')">&times;</button>
+            </div>
+            <form id="form-assign">
+                <input type="hidden" id="a-panne-id">
+                <div class="form-group">
+                    <label>Technicien *</label>
+                    <select id="a-tech" required></select>
+                </div>
+                <div class="form-group">
+                    <label>Message</label>
+                    <textarea id="a-msg" rows="4" placeholder="Instructions..."></textarea>
+                </div>
+                <button type="submit" class="btn-primary">Envoyer</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Détail Machine -->
+    <div class="modal" id="modal-detail">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h3 id="detail-title">Détails Machine</h3>
+                <button onclick="closeModal('detail')">&times;</button>
+            </div>
+            <div id="detail-content"></div>
+        </div>
+    </div>
+
+    <script src="js/mqtt-client.js"></script>
+    <script src="js/admin.js"></script>
+</body>
+
+</html>

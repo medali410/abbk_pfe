@@ -1,0 +1,8 @@
+{
+  "threshold": 0.12744757533073425,
+  "normal_mean_error": 0.06796260923147202,
+  "normal_std_error": 0.027603361755609512,
+  "percentile_used": 97.0,
+  "failure_detection_rate": 1.0,
+  "failure_mean_error": 3.0123021602630615
+}

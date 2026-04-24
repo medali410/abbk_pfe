@@ -1,0 +1,31 @@
+{
+  "version": "3.0-lstm",
+  "n_types": 3,
+  "n_scenarios": 6,
+  "types_moteurs": [
+    "EL_L",
+    "EL_M",
+    "EL_S"
+  ],
+  "scenarios": [
+    "ELECTRIQUE",
+    "NORMAL",
+    "ROULEMENT",
+    "SURCHARGE",
+    "SURCHAUFFE",
+    "USURE_GENERALE"
+  ],
+  "capteurs": [
+    "temperature",
+    "pression",
+    "puissance",
+    "vibration",
+    "presence",
+    "magnetique",
+    "infrarouge"
+  ],
+  "rul_max": 253.0,
+  "window_size": 10,
+  "model_type": "lstm",
+  "smote_target_per_class": 2895
+}

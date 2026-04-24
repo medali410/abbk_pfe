@@ -1,0 +1,10 @@
+{
+  "panne_accuracy": 0.8466347155657429,
+  "anomalie_accuracy": 0.8453844550948114,
+  "rul_mae": 39.582271575927734,
+  "rul_rmse": 56.52433968267564,
+  "scenario_accuracy": 0.84413419462388,
+  "scenario_precision_macro": 0.8387282304666063,
+  "scenario_recall_macro": 0.8592865284357402,
+  "scenario_f1_macro": 0.8470326557940319
+}

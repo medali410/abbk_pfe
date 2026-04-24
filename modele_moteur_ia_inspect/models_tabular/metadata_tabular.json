@@ -1,0 +1,29 @@
+{
+  "version": "tabular-ai4i-v1",
+  "feature_columns": [
+    "air_temperature",
+    "process_temperature",
+    "torque",
+    "rpm",
+    "tool_wear",
+    "type_ord",
+    "delta_temp",
+    "pression",
+    "puissance",
+    "vibration",
+    "presence",
+    "magnetique"
+  ],
+  "iso_threshold": -0.0676623605442032,
+  "type_ord_map": {
+    "L": 0,
+    "M": 1,
+    "H": 2
+  },
+  "source": "AI4I 2020",
+  "metrics": {
+    "roc_auc_test": 0.9809630373888687,
+    "pr_auc_test": 0.8852025093353608
+  },
+  "csv_used": "C:\\Users\\ASUS\\Desktop\\dali_pfe\\iot-backend\\ai4i2020.csv"
+}
