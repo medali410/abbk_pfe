@@ -273,6 +273,7 @@ const Concepteur = require('./src/models/Concepteur');
 const MaintenanceOrder = require('./src/models/MaintenanceOrder');
 const MaintenanceAgent = require('./src/models/MaintenanceAgent');
 const DiagnosticIntervention = require('./src/models/DiagnosticIntervention');
+const Mission = require('./src/models/Mission');
 const scenarioService = require('./src/services/scenarioService');
 
 async function applyTechDeltaToOwner(companyId, delta) {
@@ -1721,6 +1722,20 @@ app.get('/api/maintenance/workspace', requireAuth, async (req, res) => {
             const scenarioProb = Number(last?.failureScenario?.scenarioProbPanne || 0);
             const probPanne = Math.max(0, Math.min(100, scenarioProb));
             const lvl = computeMaintenanceLevel(probPanne, m.status);
+
+            const activeInt = await DiagnosticIntervention.findOne({ 
+                machineId: mid, 
+                status: { $nin: ['DONE', 'CANCELLED'] } 
+            }).sort({ updatedAt: -1 }).lean();
+            
+            let missionStatus = null;
+            if (activeInt && activeInt.coordinationNotes && activeInt.coordinationNotes.length > 0) {
+                const missions = activeInt.coordinationNotes.filter(n => n.isMission || n.missionStatus);
+                if (missions.length > 0) {
+                    missionStatus = missions[missions.length - 1].missionStatus;
+                }
+            }
+
             rows.push({
                 machineId: mid,
                 machineName: m.name || mid,
@@ -1730,6 +1745,7 @@ app.get('/api/maintenance/workspace', requireAuth, async (req, res) => {
                 level: lvl.level,
                 color: lvl.color,
                 recommendation: lvl.recommendation,
+                missionStatus,
                 maintenanceControlActive: Boolean(m.maintenanceControlActive),
                 maintenanceControlBy: String(m.maintenanceControlBy || ''),
                 maintenanceControlStartedAt: m.maintenanceControlStartedAt || null,
@@ -2205,14 +2221,20 @@ app.post('/api/diagnostic-interventions/:id/messages', requireAuth, requireField
         const doc = await DiagnosticIntervention.findById(id);
         if (!doc) return res.status(404).json({ error: 'Intervention introuvable' });
         if (!(await assertMaintenanceOrderCompanyAccess(req, res, String(doc.companyId || '')))) return;
-        doc.messages.push({
+        const newMessage = {
             authorId: String(req.auth?.sub || ''),
             authorRole: String(req.auth?.role || ''),
             authorName: String(req.body?.authorName || req.auth?.role || ''),
             content,
             messageType: 'TEXT',
-        });
+            createdAt: new Date(),
+        };
+        doc.messages.push(newMessage);
         await doc.save();
+
+        // Notify via socket
+        io.emit('diagnostic_message', { interventionId: id, message: newMessage });
+
         return res.json({ ok: true });
     } catch (err) {
         return res.status(500).json({ error: err.message });
@@ -2223,6 +2245,7 @@ app.post('/api/diagnostic-interventions/:id/coordination', requireAuth, requireF
     try {
         const id = String(req.params.id || '').trim();
         const content = String(req.body?.content || '').trim();
+        const isMission = req.body?.isMission === true || req.body?.isMission === 'true';
         if (!id || !content) return res.status(400).json({ error: 'id et content requis' });
         const doc = await DiagnosticIntervention.findById(id);
         if (!doc) return res.status(404).json({ error: 'Intervention introuvable' });
@@ -2234,15 +2257,112 @@ app.post('/api/diagnostic-interventions/:id/coordination', requireAuth, requireF
             authorName: String(req.body?.authorName || req.auth?.role || ''),
             content,
             messageType: 'TEXT',
+            isMission,
+            missionStatus: isMission ? 'SENT' : undefined,
             createdAt: new Date(),
         };
         doc.coordinationNotes.push(note);
         await doc.save();
 
-        // Notify via socket
-        io.emit('diagnostic_coordination', { interventionId: id, note });
+        const savedNote = doc.coordinationNotes[doc.coordinationNotes.length - 1];
 
-        return res.json({ ok: true });
+        // Persistance dans la table dédiée 'missions' si c'est une mission
+        if (isMission) {
+            try {
+                const mission = new Mission({
+                    interventionId: id,
+                    machineId: doc.machineId,
+                    content: content,
+                    missionId: req.body?.missionId || '', // Support de l'identifiant personnalisé
+                    missionStatus: 'SENT',
+                    authorId: note.authorId,
+                    authorRole: note.authorRole,
+                    authorName: note.authorName,
+                    noteId: savedNote._id
+                });
+                await mission.save();
+                console.log(`[Mission] Mission créée avec succès pour l'intervention ${id}`);
+            } catch (missionErr) {
+                console.error('[Mission] Erreur lors de la création de la mission:', missionErr.message);
+                // On ne bloque pas la réponse principale si la table mission échoue, 
+                // mais la persistance principale est déjà faite dans coordinationNotes.
+            }
+        }
+
+        // Notify via socket
+        io.emit('diagnostic_coordination', { 
+            interventionId: id, 
+            note: {
+                ...note,
+                isMission: Boolean(isMission),
+                missionStatus: isMission ? 'SENT' : undefined,
+                id: savedNote._id,
+                _id: savedNote._id
+            } 
+        });
+
+        return res.json({ ok: true, noteId: savedNote._id });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+app.patch('/api/diagnostic-interventions/:id/coordination/:noteId/status', requireAuth, requireFieldOperator, async (req, res) => {
+    try {
+        const id = String(req.params.id || '').trim();
+        const noteId = String(req.params.noteId || '').trim();
+        const status = String(req.body?.status || '').trim().toUpperCase();
+        
+        if (!['SENT', 'CONFIRMED', 'COMPLETED'].includes(status)) {
+            return res.status(400).json({ error: 'status mission invalide' });
+        }
+
+        const doc = await DiagnosticIntervention.findById(id);
+        if (!doc) return res.status(404).json({ error: 'Intervention introuvable' });
+        if (!(await assertMaintenanceOrderCompanyAccess(req, res, String(doc.companyId || '')))) return;
+
+        const note = doc.coordinationNotes.id(noteId);
+        if (!note) return res.status(404).json({ error: 'Note introuvable' });
+        
+        note.missionStatus = status;
+        await doc.save();
+
+        // Notify via socket IMMÉDIATEMENT après la sauvegarde (avant les side-effects)
+        io.emit('diagnostic_coordination_update', { 
+            interventionId: id, 
+            noteId, 
+            status 
+        });
+
+        // Réponse HTTP immédiate : le client reçoit OK dès la sauvegarde
+        res.json({ ok: true });
+
+        // --- Side-effects en arrière-plan (ne bloquent plus la réponse HTTP) ---
+
+        // Synchronisation avec la table dédiée 'missions'
+        Mission.findOneAndUpdate({ noteId: noteId }, { missionStatus: status })
+            .catch(e => console.error('[Mission] Sync statut échouée:', e.message));
+
+        // Linked machine control update
+        if (status === 'CONFIRMED') {
+            Machine.findByIdAndUpdate(doc.machineId, {
+                maintenanceControlActive: true,
+                maintenanceControlBy: note.authorName || 'Technician',
+                maintenanceControlStartedAt: new Date(),
+                status: 'MAINTENANCE'
+            }).then(() => {
+                io.emit('machine_status_update', { machineId: doc.machineId, status: 'MAINTENANCE' });
+            }).catch(e => console.error('[Machine] Update CONFIRMED échoué:', e.message));
+        } else if (status === 'COMPLETED') {
+            Machine.findByIdAndUpdate(doc.machineId, {
+                maintenanceControlActive: false,
+                status: 'STOPPED'
+            }).then(() => {
+                io.emit('machine_status_update', { machineId: doc.machineId, status: 'STOPPED' });
+            }).catch(e => console.error('[Machine] Update COMPLETED échoué:', e.message));
+        }
+
+        return; // La réponse a déjà été envoyée
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
@@ -3930,6 +4050,35 @@ io.on('connection', function (socket) {
         io.to(roomId).emit('call_end', { roomId });
     });
 
+    socket.on('mission_control_command', function (payload) {
+        const cmd = String(payload.command || '').trim();
+        const machineId = payload.machineId || 'X9-HYPERION-CORE';
+        console.log(`[MissionControl] Command received: ${cmd}`);
+
+        // Simulate system response
+        setTimeout(() => {
+            let response = '';
+            let type = 'SYSTEM_OS';
+            
+            if (cmd.toLowerCase().includes('diagnostic')) {
+                response = `Executing full spectral sweep... [||||||||||--] 82%`;
+            } else if (cmd.toLowerCase().includes('venting')) {
+                response = `Initiating emergency venting sequence. Isolate Sector 4 and reroute power to Node X7.`;
+                type = 'YOU';
+            } else if (cmd.toLowerCase().includes('status')) {
+                response = `System status: DEGRADED. Core temperature rising.`;
+            } else {
+                response = `Command "${cmd}" received. Processing...`;
+            }
+
+            socket.emit('mission_control_log', {
+                type,
+                text: response,
+                timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+            });
+        }, 800);
+    });
+
     socket.on('disconnect', function () {
         console.log('Client deconnecte');
     });
@@ -3954,6 +4103,34 @@ app.use(express.static(path.join(__dirname, 'dashboard')));
 // ============================================================
 // DEMARRER LE SERVEUR
 // ============================================================
+
+// ============================================================
+// MISSION CONTROL SIMULATION
+// ============================================================
+setInterval(() => {
+    const health = 70 + Math.random() * 10;
+    const temp = 85 + Math.random() * 5;
+    const bandwidth = 400 + Math.random() * 80;
+    
+    io.emit('mission_control_metrics', {
+        machineId: 'X9-HYPERION-CORE',
+        healthScore: health.toFixed(0),
+        coreTemp: temp.toFixed(1),
+        bandwidth: bandwidth.toFixed(0),
+        status: temp > 88 ? 'DEGRADED' : 'OPERATIONAL',
+    });
+
+    /*
+    // Occasionally send a critical event
+    if (Math.random() > 0.95) {
+        io.emit('mission_control_log', {
+            type: 'CRITICAL_EVENT',
+            text: `Thermal runaway detected in secondary coolant loop. Node X9 exceeding safety threshold (${temp.toFixed(1)}°C).`,
+            timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        });
+    }
+    */
+}, 3000);
 
 server.listen(PORT, function () {
     console.log('');

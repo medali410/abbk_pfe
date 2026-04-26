@@ -16,7 +16,7 @@ import 'maintenance_login_page.dart';
 import 'maintenance_dashboard_page.dart';
 import 'technician_terminal_page.dart';
 import 'technician_collaboration_page.dart';
-
+import 'mission_control_page.dart';
 
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -117,6 +117,7 @@ class MyApp extends StatelessWidget {
         '/technician-terminal': (context) => const TechnicianTerminalPage(),
         '/technician-collaboration': (context) => const TechnicianCollaborationPage(),
         '/conception-observatory': (context) => const ConceptionObservatoryPage(),
+        '/mission-control': (context) => const MissionControlPage(),
 
 
         '/maintenance-login': (context) => const MaintenanceLoginPage(),

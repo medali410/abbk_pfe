@@ -13,6 +13,22 @@ class _TechnicianCollaborationPageState extends State<TechnicianCollaborationPag
   final TextEditingController _messageController = TextEditingController();
   List<Map<String, dynamic>> _maintenanceAgents = [];
   bool _loadingAgents = true;
+  String _machineId = 'MAC-1775750118162';
+  String _machineName = 'DZLI';
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    if (args != null) {
+      if (args.containsKey('machineId')) {
+        _machineId = args['machineId'].toString();
+      }
+      if (args.containsKey('machineName')) {
+        _machineName = args['machineName'].toString();
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -205,7 +221,7 @@ class _TechnicianCollaborationPageState extends State<TechnicianCollaborationPag
               const Icon(Icons.list_alt, color: Colors.cyanAccent, size: 20),
               const SizedBox(width: 10),
               Text(
-                'Personnel Maintenance - Machine DZLI',
+                'Personnel Maintenance - Machine $_machineName',
                 style: GoogleFonts.orbitron(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const Spacer(),
@@ -307,18 +323,18 @@ class _TechnicianCollaborationPageState extends State<TechnicianCollaborationPag
   }
 
   Widget _buildOperationGrid() {
-    // Filtrer pour ne garder que les agents s'occupant de la machine dzli (MAC-1775750118162)
-    final dzliAgents = _maintenanceAgents.where((agent) {
+    // Filtrer pour ne garder que les agents s'occupant de la machine sélectionnée
+    final filteredAgents = _maintenanceAgents.where((agent) {
       final machineIds = agent['machineIds'] as List? ?? [];
-      return machineIds.contains('MAC-1775750118162');
+      return machineIds.contains(_machineId);
     }).toList();
 
-    if (dzliAgents.isEmpty) {
+    if (filteredAgents.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(40),
           child: Text(
-            'AUCUN AGENT ASSIGNÉ À DZLI',
+            'AUCUN AGENT ASSIGNÉ À $_machineName',
             style: GoogleFonts.spaceGrotesk(color: Colors.blueGrey, fontSize: 12, letterSpacing: 2),
           ),
         ),
@@ -328,7 +344,7 @@ class _TechnicianCollaborationPageState extends State<TechnicianCollaborationPag
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: dzliAgents.length,
+      itemCount: filteredAgents.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
         crossAxisSpacing: 20,
@@ -336,7 +352,7 @@ class _TechnicianCollaborationPageState extends State<TechnicianCollaborationPag
         childAspectRatio: 1.8,
       ),
       itemBuilder: (context, index) {
-        final agent = dzliAgents[index];
+        final agent = filteredAgents[index];
         final firstName = agent['firstName'] ?? '';
         final lastName = agent['lastName'] ?? '';
         final name = '$firstName $lastName'.trim();
@@ -364,7 +380,7 @@ class _TechnicianCollaborationPageState extends State<TechnicianCollaborationPag
       onTap: () {
         Navigator.pushNamed(
           context,
-          '/technician-terminal',
+          '/mission-control',
           arguments: {
             'techId': techId,
             'name': name,

@@ -407,6 +407,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                             loginPassword,
                             location,
                             id,
+                            name,
                             assignedMachineIds,
                             isConceptionViewer,
                           ),
@@ -845,6 +846,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     String loginPassword,
     String location,
     String technicianId,
+    String technicianName,
     List<String> assignedMachineIds,
     bool isConceptionProfile,
   ) {
@@ -867,7 +869,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             flex: 8,
             child: Column(
               children: [
-                _buildMachinesSection(context, assignedMachineIds, isConceptionProfile),
+                _buildMachinesSection(context, assignedMachineIds, isConceptionProfile, technicianId, technicianName),
                 const SizedBox(height: 32),
                 _buildPerformanceSection(),
                 const SizedBox(height: 24),
@@ -886,7 +888,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           const SizedBox(height: 24),
           _buildLocationCard(),
           const SizedBox(height: 24),
-          _buildMachinesSection(context, assignedMachineIds, isConceptionProfile),
+          _buildMachinesSection(context, assignedMachineIds, isConceptionProfile, technicianId, technicianName),
           const SizedBox(height: 24),
           _buildPerformanceSection(),
           const SizedBox(height: 24),
@@ -1019,7 +1021,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     );
   }
 
-  Widget _buildMachinesSection(BuildContext context, List<String> assignedMachineIds, bool isConceptionProfile) {
+  Widget _buildMachinesSection(BuildContext context, List<String> assignedMachineIds, bool isConceptionProfile, String technicianId, String technicianName) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1142,16 +1144,15 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                         onTap: () {
                           if (machineId.isEmpty) return;
                           
-                          // Redirection vers la page de détails IA pour toutes les machines dans le profil
-                          Navigator.push(
+                          // Redirection vers le Mission Control (Terminal de haute technologie)
+                          Navigator.pushNamed(
                             context,
-                            MaterialPageRoute(
-                              builder: (_) => MachineDetailAiPage(
-                                machineId: machineId,
-                                viewerRole: 'technician',
-                                viewerName: 'Technicien',
-                              ),
-                            ),
+                            '/mission-control',
+                            arguments: {
+                              'techId': machineId, // Utilise l'ID de la machine pour capter les messages
+                              'name': technicianName, // Nom du technicien
+                              'machineName': machineName,
+                            },
                           );
                         },
                       );

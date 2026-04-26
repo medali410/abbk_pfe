@@ -38,6 +38,7 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
   List<Map<String, dynamic>> _messages = [];
   List<Map<String, dynamic>> _coordinationNotes = [];
   bool _loading = true;
+  bool _isMissionMode = false;
 
   // Controllers
   final TextEditingController _techController = TextEditingController();
@@ -103,7 +104,7 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
     });
 
     _socket!.on('diagnostic_message', (data) {
-      if (data['interventionId'] == widget.interventionId) {
+      if (data['interventionId'].toString() == widget.interventionId.toString()) {
         if (mounted) {
           setState(() {
             _messages.add(Map<String, dynamic>.from(data['message']));
@@ -114,7 +115,7 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
     });
 
     _socket!.on('diagnostic_coordination', (data) {
-      if (data['interventionId'] == widget.interventionId) {
+      if (data['interventionId'].toString() == widget.interventionId.toString()) {
         if (mounted) {
           setState(() {
             _coordinationNotes.add(Map<String, dynamic>.from(data['note']));
@@ -123,6 +124,52 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
         }
       }
     });
+
+    _socket!.on('diagnostic_coordination_update', (data) {
+      if (mounted && data['interventionId'].toString() == widget.interventionId.toString()) {
+        if (data['status'] == 'COMPLETED') {
+          _showMissionCompletedDialog();
+        }
+      }
+    });
+  }
+
+  Future<void> _showMissionCompletedDialog() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: Text(
+          'Mission terminée',
+          style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: _green),
+        ),
+        content: Text(
+          'Le technicien a terminé sa mission.\nQue souhaitez-vous faire ?',
+          style: GoogleFonts.inter(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              setState(() => _isMissionMode = true);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('MODE MISSION ACTIVÉ. Tapez votre nouvelle mission ci-dessous.'))
+              );
+            },
+            child: const Text('Envoyer une nouvelle mission', style: TextStyle(color: _cyan)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _finishIntervention();
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: _green),
+            child: const Text('Clôturer la panne'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _scrollToBottom(ScrollController sc) {
@@ -137,7 +184,9 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
     final text = _techController.text.trim();
     if (text.isEmpty) return;
     try {
-      await ApiService.addDiagnosticMessage(widget.interventionId, text);
+      // On récupère le nom de l'expéditeur (Maintenance Agent par défaut ici)
+      final author = (ApiService.savedUserRole ?? 'MAINTENANCE').toUpperCase();
+      await ApiService.addDiagnosticMessage(widget.interventionId, text, authorName: author);
       _techController.clear();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
@@ -148,8 +197,9 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
     final text = _coordController.text.trim();
     if (text.isEmpty) return;
     try {
-      await ApiService.addCoordinationNote(widget.interventionId, text);
+      await ApiService.addCoordinationNote(widget.interventionId, text, isMission: _isMissionMode);
       _coordController.clear();
+      setState(() => _isMissionMode = false);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
     }
@@ -177,9 +227,7 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
         children: [
           _buildTelemetrySidebar(),
           const VerticalDivider(width: 1, color: Colors.white10),
-          Expanded(flex: 3, child: _buildTechnicalCanal()),
-          const VerticalDivider(width: 1, color: Colors.white10),
-          Expanded(flex: 2, child: _buildInternalCoordination()),
+          Expanded(child: _buildInternalCoordination()),
         ],
       ),
     );
@@ -343,13 +391,13 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
                 ? _buildEmptyState('EN ATTENTE DE COMMUNICATIONS TECHNIQUES')
                 : ListView.builder(
                     controller: _techScroll,
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
                     itemCount: _messages.length,
                     itemBuilder: (ctx, idx) => _buildMessageBubble(_messages[idx]),
                   ),
           ),
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05)))),
             child: Row(
               children: [
@@ -363,7 +411,7 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
                       filled: true,
                       fillColor: Colors.white.withOpacity(0.03),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     ),
                     onSubmitted: (_) => _sendTechMessage(),
                   ),
@@ -405,18 +453,39 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
                 ? _buildEmptyState('ATTENTE DE COORDINATION TECHNIQUE SECONDAIRE', icon: Icons.hub_outlined)
                 : ListView.builder(
                     controller: _coordScroll,
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
                     itemCount: _coordinationNotes.length,
                     itemBuilder: (ctx, idx) => _buildMessageBubble(_coordinationNotes[idx], isCoord: true),
                   ),
           ),
           Container(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
             decoration: BoxDecoration(color: _panel.withOpacity(0.5), border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05)))),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('ENVOYER UNE NOTE DE COORDINATION', style: GoogleFonts.spaceGrotesk(color: _cyan, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('ENVOYER UNE NOTE DE COORDINATION', style: GoogleFonts.spaceGrotesk(color: _cyan, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                    Row(
+                      children: [
+                        Text('MODE MISSION', style: GoogleFonts.spaceGrotesk(color: _isMissionMode ? _accent : _muted, fontSize: 8, fontWeight: FontWeight.bold)),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          height: 20,
+                          width: 40,
+                          child: Switch(
+                            value: _isMissionMode,
+                            onChanged: (v) => setState(() => _isMissionMode = v),
+                            activeColor: _accent,
+                            activeTrackColor: _accent.withOpacity(0.3),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _coordController,
@@ -497,11 +566,21 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
   }
 
   Widget _buildMessageBubble(Map<String, dynamic> msg, {bool isCoord = false}) {
-    final isMe = msg['authorRole'] == ApiService.savedUserRole;
+    final currentRole = ApiService.savedUserRole;
+    // On utilise le rôle comme fallback si le nom n'est pas dispo dans ce widget
+    final currentName = (currentRole ?? 'MAINTENANCE').toUpperCase();
+    
+    final msgRole = msg['authorRole'];
+    final msgName = msg['authorName'];
+    
+    // On considère "isMe" si le rôle correspond. 
+    // Pour une distinction plus fine (multi-agents), il faudrait passer le nom au widget.
+    bool isMe = (msgRole == currentRole);
+    
     final time = msg['createdAt'] != null ? DateFormat('HH:mm').format(DateTime.parse(msg['createdAt'])) : '--:--';
     
     return Padding(
-      padding: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
@@ -513,7 +592,7 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
               Text(time, style: GoogleFonts.inter(color: _muted, fontSize: 9)),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 2),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
@@ -521,7 +600,31 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: isMe ? (isCoord ? _cyan : _accent).withOpacity(0.2) : Colors.white.withOpacity(0.05)),
             ),
-            child: Text(msg['content'] ?? '', style: GoogleFonts.inter(color: _text, fontSize: 13, height: 1.4)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (msg['isMission'] == true) ...[
+                  Row(
+                    children: [
+                      Icon(Icons.assignment_turned_in, color: isCoord ? _cyan : _accent, size: 12),
+                      const SizedBox(width: 6),
+                      Text('MISSION', style: GoogleFonts.orbitron(color: isCoord ? _cyan : _accent, fontSize: 8, fontWeight: FontWeight.bold)),
+                      const Spacer(),
+                      Text(
+                        (msg['missionStatus'] ?? 'PENDING').toString(),
+                        style: GoogleFonts.spaceGrotesk(
+                          color: msg['missionStatus'] == 'COMPLETED' ? _green : (msg['missionStatus'] == 'STARTED' ? _accent : _muted),
+                          fontSize: 8,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                ],
+                Text(msg['content'] ?? '', style: GoogleFonts.inter(color: _text, fontSize: 13, height: 1.4)),
+              ],
+            ),
           ),
         ],
       ),

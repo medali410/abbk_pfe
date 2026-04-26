@@ -665,17 +665,33 @@ class ApiService {
     String interventionId,
     String content, {
     String? authorName,
+    bool isMission = false,
   }) async {
     final response = await http.post(
       Uri.parse('$baseUrl/diagnostic-interventions/$interventionId/coordination'),
       headers: await jsonHeadersAuthorized(),
       body: json.encode({
         'content': content,
+        'isMission': isMission,
         if (authorName != null && authorName.isNotEmpty) 'authorName': authorName,
       }),
     );
     if (response.statusCode == 200) return;
     _throwApiError(response, 'Envoi note de coordination refusé');
+  }
+
+  static Future<void> updateMissionStatus(
+    String interventionId,
+    String noteId,
+    String status, // SENT, CONFIRMED, COMPLETED
+  ) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/diagnostic-interventions/$interventionId/coordination/$noteId/status'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode({'status': status}),
+    );
+    if (response.statusCode == 200) return;
+    _throwApiError(response, 'Mise à jour du statut mission refusée');
   }
 
   static Future<void> addDiagnosticStep(

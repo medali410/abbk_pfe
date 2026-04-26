@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'machine_detail_ai_page.dart';
 import 'services/api_service.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 class MaintenanceDashboardPage extends StatefulWidget {
   const MaintenanceDashboardPage({super.key});
@@ -14,14 +15,95 @@ class MaintenanceDashboardPage extends StatefulWidget {
 class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
   late Future<Map<String, dynamic>> _future;
   String _levelFilter = 'ALL';
+  IO.Socket? _socket;
 
   @override
   void initState() {
     super.initState();
     _future = ApiService.getMaintenanceWorkspace();
+    _initSocket();
   }
 
-  void _reload() => setState(() => _future = ApiService.getMaintenanceWorkspace());
+  void _initSocket() {
+    try {
+      _socket = IO.io(ApiService.socketBaseUrl, <String, dynamic>{
+        'transports': ['websocket'],
+        'autoConnect': true,
+      });
+
+      _socket!.onConnect((_) => debugPrint('[Dashboard] Socket Connected'));
+
+      _socket!.on('diagnostic_coordination_update', (data) {
+        if (mounted) {
+          final status = (data['status'] ?? '').toString();
+          final interventionId = (data['interventionId'] ?? '').toString();
+          
+          if (status == 'CONFIRMED') {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("MISSION CONFIRMÉE : Le technicien a BIEN REÇU la mission et va COMMENCER à travailler dessus."),
+                backgroundColor: Color(0xFFFF6E00),
+                duration: Duration(seconds: 5),
+              ),
+            );
+          } else if (status == 'COMPLETED') {
+            _showMissionCompletedDialog(interventionId);
+          }
+          _reload();
+        }
+      });
+
+      _socket!.on('diagnostic_message', (data) {
+        if (mounted) {
+          final msg = data['message'];
+          final author = (msg['authorName'] ?? 'Technicien').toString();
+          
+          // Ne pas afficher si c'est nous (MAINTENANCE_AGENT) qui avons envoyé? 
+          // En fait, c'est bien de voir la confirmation.
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("MESSAGE DE $author : ${msg['content']}"),
+              backgroundColor: const Color(0xFF327AFF),
+              action: SnackBarAction(
+                label: 'VOIR',
+                textColor: Colors.white,
+                onPressed: () {
+                  // Optionnel: ouvrir une vue détaillée
+                },
+              ),
+            ),
+          );
+          _reload();
+        }
+      });
+
+      _socket!.on('diagnostic_coordination', (data) {
+        if (mounted) {
+          final note = data['note'];
+          if (note['isMission'] == true) {
+             ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("NOUVELLE MISSION ENVOYÉE : ${note['content']}"),
+                backgroundColor: Colors.purpleAccent,
+              ),
+            );
+          }
+          _reload();
+        }
+      });
+    } catch (e) {
+      debugPrint('Dashboard Socket Error: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _socket?.dispose();
+    super.dispose();
+  }
+
+  void _reload() => setState(() { _future = ApiService.getMaintenanceWorkspace(); });
 
   Future<void> _showTakeControlDialog(Map<String, dynamic> machine) async {
     final confirmed = await showDialog<bool>(
@@ -160,6 +242,169 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Maintenance corrective créée.')),
       );
+    }
+  }
+
+  Future<void> _showMissionDialog(Map<String, dynamic> machine) async {
+    final missionCtrl = TextEditingController();
+    final interventionId = await _getOrCreateInterventionId(machine);
+    if (interventionId == null) return;
+
+    final sent = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          'Mission — ${(machine['machineName'] ?? machine['machineId']).toString()}',
+          style: GoogleFonts.orbitron(fontWeight: FontWeight.w700, fontSize: 16, color: const Color(0xFFFF6E00)),
+        ),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Cette mission sera envoyée directement au Mission Control.',
+                style: GoogleFonts.inter(fontSize: 12, color: Colors.blueGrey),
+              ),
+              const SizedBox(height: 15),
+              TextField(
+                controller: missionCtrl,
+                maxLines: 3,
+                style: GoogleFonts.inter(fontSize: 14),
+                decoration: InputDecoration(
+                  labelText: 'Détails de la mission',
+                  hintText: 'ex: Isoler le secteur 4 et vérifier la pression...',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              final text = missionCtrl.text.trim();
+              if (text.isEmpty) return;
+              try {
+                await ApiService.addCoordinationNote(
+                  interventionId,
+                  text,
+                  isMission: true,
+                  authorName: 'MAINTENANCE_AGENT',
+                );
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx, true);
+              } catch (e) {
+                if (!ctx.mounted) return;
+                ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+              }
+            },
+            icon: const Icon(Icons.send_rounded, size: 16),
+            label: const Text('Envoyer au Mission Control'),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF6E00)),
+          ),
+        ],
+      ),
+    );
+
+    if (sent == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Mission transmise avec succès.')),
+      );
+    }
+  }
+
+  Future<String?> _getOrCreateInterventionId(Map<String, dynamic> machine) async {
+    try {
+      final interventions = await ApiService.getDiagnosticInterventions();
+      final mId = (machine['machineId'] ?? '').toString();
+      final active = interventions.firstWhere(
+        (i) => i['machineId'] == mId && i['status'] != 'DONE' && i['status'] != 'CANCELLED',
+        orElse: () => {},
+      );
+
+      if (active.isNotEmpty) {
+        return active['id'].toString();
+      }
+
+      // Si pas d'intervention, on en crée une automatique? 
+      // Ou on demande à l'utilisateur. Pour l'instant, créons-en une basique.
+      final newInt = await ApiService.createDiagnosticIntervention({
+        'machineId': mId,
+        'companyId': (machine['companyId'] ?? '').toString(),
+        'scenarioType': 'SENSOR_COMM',
+        'summary': 'Mission coordination initiée depuis le Dashboard Maintenance.',
+      });
+      return newInt['id'].toString();
+    } catch (e) {
+      debugPrint('Error finding/creating intervention: $e');
+      return null;
+    }
+  }
+
+  Future<void> _showMissionCompletedDialog(String interventionId) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: Text(
+          'Mission terminée',
+          style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: Colors.greenAccent),
+        ),
+        content: Text(
+          'Le technicien a terminé sa mission.\nQue souhaitez-vous faire ?',
+          style: GoogleFonts.inter(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _findMachineAndOpenMission(interventionId);
+            },
+            child: const Text('Envoyer une nouvelle mission', style: TextStyle(color: Colors.cyanAccent)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                await ApiService.setDiagnosticStatus(interventionId, 'DONE');
+                if (!mounted) return;
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Panne clôturée. Machine remise en service.'), backgroundColor: Colors.green),
+                );
+                _reload();
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Clôturer la panne'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _findMachineAndOpenMission(String interventionId) async {
+    try {
+      final interventions = await ApiService.getDiagnosticInterventions();
+      final inter = interventions.firstWhere((i) => i['id'] == interventionId, orElse: () => {});
+      if (inter.isNotEmpty) {
+        final machineId = inter['machineId'];
+        final data = await ApiService.getMaintenanceWorkspace();
+        final machines = (data['machines'] as List? ?? []).map((e) => e as Map<String, dynamic>).toList();
+        final machine = machines.firstWhere((m) => m['machineId'] == machineId, orElse: () => {});
+        if (machine.isNotEmpty) {
+          _showMissionDialog(machine);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error re-opening mission dialog: $e');
     }
   }
 
@@ -351,29 +596,126 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
                           style: GoogleFonts.inter(color: const Color(0xFF81C784), fontSize: 12, fontWeight: FontWeight.w600),
                         ),
                       ],
-                      const SizedBox(height: 10),
+                      // SECTION MODE MISSION
+                      if (m['missionStatus'] != null && m['missionStatus'] != 'NONE') ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: (m['missionStatus'] == 'COMPLETED' ? Colors.greenAccent : const Color(0xFFFF6E00)).withOpacity(0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    m['missionStatus'] == 'COMPLETED' ? Icons.check_circle : Icons.pending_actions,
+                                    color: m['missionStatus'] == 'COMPLETED' ? Colors.greenAccent : const Color(0xFFFF6E00),
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'MODE MISSION ACTIF',
+                                    style: GoogleFonts.orbitron(
+                                      color: m['missionStatus'] == 'COMPLETED' ? Colors.greenAccent : const Color(0xFFFF6E00),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Text(
+                                    (m['missionStatus'] ?? '').toString().toUpperCase(),
+                                    style: GoogleFonts.jetBrainsMono(color: Colors.white70, fontSize: 10),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                m['missionStatus'] == 'SENT' || m['missionStatus'] == 'PENDING'
+                                    ? 'En attente de confirmation du technicien...'
+                                    : m['missionStatus'] == 'CONFIRMED' || m['missionStatus'] == 'STARTED'
+                                        ? 'Mission confirmée / Technicien en intervention.'
+                                        : 'Mission terminée par le technicien.',
+                                style: GoogleFonts.inter(color: Colors.white, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 14),
                       Align(
                         alignment: Alignment.centerRight,
                         child: Wrap(
                           spacing: 8,
+                          runSpacing: 8,
                           children: [
-                            if ((m['maintenanceControlActive'] == true))
-                              OutlinedButton.icon(
-                                onPressed: () => _finishControl(m),
-                                icon: const Icon(Icons.task_alt_rounded, size: 16),
-                                label: const Text('Terminer contrôle'),
-                              )
-                            else
+                            // Actions si mission terminée
+                            if (m['missionStatus'] == 'COMPLETED')
                               ElevatedButton.icon(
-                                onPressed: () => _showTakeControlDialog(m),
-                                icon: const Icon(Icons.engineering_rounded, size: 16),
-                                label: const Text('Prendre en charge'),
+                                onPressed: () {
+                                  // Récupérer l'ID d'intervention pour clôturer
+                                  _getOrCreateInterventionId(m).then((id) {
+                                    if (id != null) _showMissionCompletedDialog(id);
+                                  });
+                                },
+                                icon: const Icon(Icons.verified_user_rounded, size: 16),
+                                label: const Text('VALIDER MISSION'),
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
                               ),
-                            ElevatedButton.icon(
-                              onPressed: () => _showCreateCorrectiveDialog(m),
-                              icon: const Icon(Icons.add_task_rounded, size: 16),
-                              label: const Text('Créer corrective'),
-                            ),
+
+                            // Bouton vers l'Observatoire si mission active
+                            if (m['missionStatus'] != null && m['missionStatus'] != 'COMPLETED' && m['missionStatus'] != 'NONE')
+                              ElevatedButton.icon(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => MachineDetailAiPage(
+                                        machineId: machineId,
+                                        machineName: machineName,
+                                        viewerRole: 'maintenance',
+                                        viewerName: (agent['fullName'] ?? '').toString(),
+                                      ),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.remove_red_eye_rounded, size: 16),
+                                label: const Text('SUIVRE MISSION'),
+                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF6E00)),
+                              ),
+
+                            // Actions standard si mission inactive
+                            if (m['missionStatus'] == null || m['missionStatus'] == 'NONE') ...[
+                              if ((m['maintenanceControlActive'] == true))
+                                OutlinedButton.icon(
+                                  onPressed: () => _finishControl(m),
+                                  icon: const Icon(Icons.task_alt_rounded, size: 16),
+                                  label: const Text('Terminer contrôle'),
+                                )
+                              else
+                                ElevatedButton.icon(
+                                  onPressed: () => _showTakeControlDialog(m),
+                                  icon: const Icon(Icons.engineering_rounded, size: 16),
+                                  label: const Text('Prendre en charge'),
+                                ),
+                              ElevatedButton.icon(
+                                onPressed: () => _showCreateCorrectiveDialog(m),
+                                icon: const Icon(Icons.add_task_rounded, size: 16),
+                                label: const Text('Créer corrective'),
+                              ),
+                              ElevatedButton.icon(
+                                onPressed: () => _showMissionDialog(m),
+                                icon: const Icon(Icons.rocket_launch_rounded, size: 16),
+                                label: const Text('Envoyer Mission'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFFF6E00).withOpacity(0.9),
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ],
                             OutlinedButton.icon(
                               onPressed: () {
                                 Navigator.push(

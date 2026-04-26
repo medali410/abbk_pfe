@@ -21,6 +21,8 @@ const MessageSchema = new mongoose.Schema({
     authorName: { type: String, default: '' },
     content: { type: String, required: true },
     messageType: { type: String, enum: ['TEXT', 'SYSTEM'], default: 'TEXT' },
+    isMission: { type: Boolean, default: false },
+    missionStatus: { type: String, enum: ['SENT', 'PENDING', 'CONFIRMED', 'COMPLETED'] },
     createdAt: { type: Date, default: Date.now },
 }, { _id: true });
 
