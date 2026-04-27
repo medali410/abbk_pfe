@@ -300,11 +300,10 @@ class _LoginPageState extends State<LoginPage> {
                                                   );
                                                   return;
                                                 }
-                                                // Observatory = même UI que la maquette Tailwind « Predictive IoT - Détail Machine »
+                                                // Redirect to the new Concepteur Dashboard
                                                 Navigator.pushReplacementNamed(
                                                   context,
-                                                  '/conception-observatory',
-                                                  arguments: args,
+                                                  '/concepteur-dashboard',
                                                 );
                                               } else if (role == 'technician') {
                                                 final args = Map<String, dynamic>.from(response);

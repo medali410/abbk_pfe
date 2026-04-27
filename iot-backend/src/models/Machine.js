@@ -23,8 +23,24 @@ const MachineSchema = new mongoose.Schema({
     power: { type: String, default: '0 kW' },
     voltage: { type: String, default: '0V' },
     speed: { type: String, default: '0 tr/min' },
-    /** EL_S | EL_M | EL_L — entrée embedding du modèle IA (aligné dataset AI4I L/M/H). */
-    motorType: { type: String, default: 'EL_M' },
+    motorType: { 
+        type: String, 
+        enum: ['air_cooled', 'water_cooled'],
+        default: 'air_cooled'
+    },
+    seuilsControle: [
+        {
+            typeControle: { type: String },
+            intervalleHeures: { type: Number },
+            derniereVerificationHeure: { type: Number, default: 0 },
+            prochainControleHeure: { type: Number },
+            priorite: { 
+                type: String, 
+                enum: ['basse', 'normale', 'haute', 'urgente'],
+                default: 'normale'
+            }
+        }
+    ],
     /**
      * Multiplicateur indicatif : heures_intervention_affichees ≈ rul_estime (sortie modèle) × ce facteur.
      * À régler par superadmin selon le parc (pas une vérité physique ; calibration métier).
@@ -37,6 +53,11 @@ const MachineSchema = new mongoose.Schema({
         type: String,
         enum: ['RUNNING', 'STOPPED', 'MAINTENANCE', 'normal'],
         default: 'STOPPED'
+    },
+    tempsMarche: {
+        totalHeures: { type: Number, default: 0 },
+        derniereMiseAJour: { type: Date, default: null },
+        enMarche: { type: Boolean, default: false }
     },
     maintenanceControlActive: { type: Boolean, default: false },
     maintenanceControlBy: { type: String, default: '' },

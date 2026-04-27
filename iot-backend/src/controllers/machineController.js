@@ -1,11 +1,16 @@
 const Machine = require('../models/Machine');
 const Telemetry = require('../models/Telemetry');
+const Controle = require('../models/Controle');
+
+// ── Socket.IO instance (injectée depuis server.js) ──────────────────────────
+let _io = null;
+exports.setIo = (io) => { _io = io; };
+// ────────────────────────────────────────────────────────────────────────────
 
 exports.getAllMachines = async (req, res) => {
     try {
         const machines = await Machine.find().sort({ createdAt: -1 });
 
-        // Attach latest telemetry to each machine
         const machinesWithTelemetry = await Promise.all(machines.map(async (machine) => {
             const latestTelemetry = await Telemetry.findOne({ machineId: machine._id }).sort({ createdAt: -1 });
             const machineObj = machine.toObject();
@@ -90,7 +95,7 @@ exports.updateMachineParameters = async (req, res) => {
     }
 };
 
-// Called by n8n to update machine status after AI analysis
+// Called by n8n / dashboard to update machine status after AI analysis
 exports.updateMachineStatus = async (req, res) => {
     try {
         const { status, aiDiagnosis } = req.body;
@@ -115,7 +120,65 @@ exports.updateMachineStatus = async (req, res) => {
         if (!machine) return res.status(404).json({ message: 'Machine non trouvée' });
 
         console.log(`[n8n] ✅ Statut machine "${machine.name}" mis à jour → ${status}`);
+
+        // ── Socket.IO : machine_status ────────────────────────────────────────
+        if (_io) {
+            _io.emit('machine_status', {
+                machineId:   String(machine._id),
+                machineName: machine.name,
+                status:      machine.status,
+                ts:          new Date().toISOString(),
+            });
+            console.log(`🔔 Socket.IO → machine_status ${machine.name} : ${status}`);
+
+            // ── controle_urgent : vérifier contrôles urgents planifiés ─────────
+            const urgents = await Controle.find({
+                machineId: String(machine._id),
+                statut:    'planifié',
+                priorite:  'urgente',
+            }).lean();
+
+            for (const c of urgents) {
+                _io.emit('controle_urgent', {
+                    controleId:   String(c._id),
+                    machineId:    String(machine._id),
+                    machineName:  machine.name,
+                    typeControle: c.typeControle,
+                    heures:       c.heuresDeClenchement,
+                    priorite:     'urgente',
+                    prioriteLabel: 'URGENTE 🔴',
+                    motorType:    c.motorType,
+                    dateControle: c.dateControle,
+                });
+                console.log(`🚨 Socket.IO → controle_urgent ${c.typeControle} pour ${machine.name}`);
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         res.json({ success: true, machineId: machine._id, name: machine.name, status });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+exports.getTempsMarche = async (req, res) => {
+    try {
+        const machine = await Machine.findById(req.params.id).select('tempsMarche name status');
+        if (!machine) return res.status(404).json({ message: 'Machine non trouvée' });
+        
+        const totalHeures = machine.tempsMarche.totalHeures || 0;
+        
+        res.json({
+            machineId: machine._id,
+            machineName: machine.name,
+            tempsMarche: {
+                totalHeures: totalHeures,
+                totalMinutes: Math.round(totalHeures * 60),
+                derniereMiseAJour: machine.tempsMarche.derniereMiseAJour,
+                enMarche: machine.tempsMarche.enMarche
+            },
+            status: machine.status
+        });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

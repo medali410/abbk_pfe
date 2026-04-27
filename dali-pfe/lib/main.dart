@@ -17,6 +17,9 @@ import 'maintenance_dashboard_page.dart';
 import 'technician_terminal_page.dart';
 import 'technician_collaboration_page.dart';
 import 'mission_control_page.dart';
+import 'control_calendar_page.dart';
+import 'concepteur_dashboard_page.dart';
+
 
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -41,11 +44,11 @@ class _SessionEntryState extends State<SessionEntry> {
     final role = (ApiService.savedUserRole ?? '').toLowerCase();
     final token = ApiService.authToken ?? '';
     if (token.isEmpty) return;
-    if (role == 'conception') {
+    if (role == 'conception' || role == 'concepteur') {
       _redirectScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        Navigator.of(context).pushReplacementNamed('/conception-observatory');
+        Navigator.of(context).pushReplacementNamed('/concepteur-dashboard');
       });
       return;
     }
@@ -117,7 +120,9 @@ class MyApp extends StatelessWidget {
         '/technician-terminal': (context) => const TechnicianTerminalPage(),
         '/technician-collaboration': (context) => const TechnicianCollaborationPage(),
         '/conception-observatory': (context) => const ConceptionObservatoryPage(),
+        '/concepteur-dashboard': (context) => const ConcepteurDashboardPage(),
         '/mission-control': (context) => const MissionControlPage(),
+        '/control-calendar': (context) => const ControlCalendarPage(),
 
 
         '/maintenance-login': (context) => const MaintenanceLoginPage(),

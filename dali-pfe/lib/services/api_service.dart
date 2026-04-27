@@ -947,4 +947,34 @@ class ApiService {
     }
     throw Exception('Erreur de chargement des conversations conception');
   }
+
+  // -------------------------
+  // CONTROLES (STEP 4 & 5)
+  // -------------------------
+
+  static Future<List<Map<String, dynamic>>> getControles() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/controles'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    _throwApiError(response, 'Erreur de chargement des contrôles');
+  }
+
+  static Future<void> updateControleStatus(String id, String status, {String? notes}) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/controles/$id/statut'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode({
+        'statut': status,
+        if (notes != null) 'notes': notes,
+      }),
+    );
+    if (response.statusCode != 200) {
+      _throwApiError(response, 'Erreur mise à jour statut contrôle');
+    }
+  }
 }

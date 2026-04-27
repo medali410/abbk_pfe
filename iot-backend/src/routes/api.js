@@ -11,6 +11,10 @@ const aiController = require('../controllers/aiController');
 const conceptionController = require('../controllers/conceptionController');
 const terminalController = require('../controllers/terminalController');
 const collaborationController = require('../controllers/collaborationController');
+const controleController = require('../controllers/controleController');
+
+// ... (other imports)
+
 
 
 
@@ -28,6 +32,8 @@ router.post('/machines', machineController.createMachine);
 router.put('/machines/:id', machineController.updateMachine);
 router.put('/machines/:id/parameters', machineController.updateMachineParameters);
 router.post('/machines/:id/status', machineController.updateMachineStatus); // Used by n8n
+router.get('/machines/:id/temps-marche', machineController.getTempsMarche);
+
 router.delete('/machines/:id', machineController.deleteMachine);
 
 // Telemetry Routes
@@ -85,6 +91,12 @@ router.get('/terminal/data', terminalController.getTerminalData);
 // Collaboration Routes
 router.get('/collaboration/data', collaborationController.getCollaborationData);
 
-
+// Control Routes (STEP 4)
+router.get('/controles', controleController.getAllControles);
+router.get('/controles/technicien/:id', controleController.getControlesByTechnician);
+router.get('/controles/machine/:id', controleController.getControlesByMachine);
+router.put('/controles/:id/statut', controleController.updateControleStatus);
+router.get('/controles/calendrier/:month', controleController.getControlesByMonth);
 
 module.exports = router;
+

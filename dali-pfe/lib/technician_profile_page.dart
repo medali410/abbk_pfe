@@ -18,6 +18,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   bool _conceptionRedirectScheduled = false;
 
   IO.Socket? _chatSocket;
+  IO.Socket? _notifSocket; // ← socket dédié aux notifications contrôle
   bool _chatInitialized = false;
   String _chatRoomId = '';
   String _chatSenderName = 'Technicien';
@@ -28,6 +29,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   List<Map<String, dynamic>> _chatConversations = <Map<String, dynamic>>[];
   int _unreadChatCount = 0;
   final Set<String> _criticalAlertSentMachineIds = <String>{};
+  final Set<String> _shownControleIds = <String>{}; // évite les doublons
 
   static const _bg = Color(0xFF10102B);
   static const _surfaceContainerLow = Color(0xFF191934);
@@ -48,6 +50,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   void dispose() {
     _chatInputController.dispose();
     _chatSocket?.dispose();
+    _notifSocket?.dispose();
     super.dispose();
   }
 
@@ -117,11 +120,323 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     });
 
     _chatInitialized = true;
+
+    // ── Notification temps réel : nouveau contrôle automatique ──────────────
+    final notifSocket = IO.io(ApiService.socketBaseUrl, <String, dynamic>{
+      'transports': ['websocket'],
+      'autoConnect': true,
+    });
+    _notifSocket = notifSocket;
+
+    notifSocket.on('nouveau_controle', (raw) {
+      try {
+        if (!mounted) return;
+        final data = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+        final controleId = (data['controleId'] ?? '').toString();
+        if (controleId.isNotEmpty && _shownControleIds.contains(controleId)) return;
+        if (controleId.isNotEmpty) _shownControleIds.add(controleId);
+        _showNouveauControleAlert(data);
+      } catch (_) {}
+    });
+
+    // ── controle_urgent : alerte rouge immédiate ──────────────────────────────
+    notifSocket.on('controle_urgent', (raw) {
+      try {
+        if (!mounted) return;
+        final data = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+        final controleId = (data['controleId'] ?? '').toString();
+        if (controleId.isNotEmpty && _shownControleIds.contains(controleId)) return;
+        if (controleId.isNotEmpty) _shownControleIds.add(controleId);
+        _showControleUrgentAlert(data);
+      } catch (_) {}
+    });
+
+    // ── machine_status : bandeau discret ─────────────────────────────────────
+    notifSocket.on('machine_status', (raw) {
+      try {
+        if (!mounted) return;
+        final data = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+        final nom    = (data['machineName'] ?? 'Machine').toString();
+        final statut = (data['status'] ?? '').toString();
+        final couleur = statut == 'RUNNING'
+            ? Colors.green
+            : statut == 'STOPPED'
+                ? Colors.redAccent
+                : Colors.orange;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '⚙️ $nom → $statut',
+              style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600),
+            ),
+            backgroundColor: couleur.withOpacity(0.85),
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      } catch (_) {}
+    });
+
+    // ── temps_marche_update : mise à jour silencieuse (pas d'alerte visuelle) ─
+    notifSocket.on('temps_marche_update', (raw) {
+      // Les données sont disponibles pour d'éventuels widgets de suivi en temps réel.
+      // Aucun dialog : évite de perturber le technicien toutes les minutes.
+      try {
+        if (!mounted) return;
+        // Exemple : setState(() => _machinesHeures = List.from(raw));
+        // À brancher sur un widget dédié si besoin.
+      } catch (_) {}
+    });
+    // ────────────────────────────────────────────────────────────────────────
+
+
     if (mounted) {
       setState(() {});
       _checkPendingInterventions(techId);
     }
   }
+
+  // ── Alerte : nouveau contrôle généré automatiquement ─────────────────────
+  void _showNouveauControleAlert(Map<String, dynamic> data) {
+    if (!mounted) return;
+    final machineName  = (data['machineName']  ?? 'Machine').toString();
+    final typeControle = (data['typeControle'] ?? 'Contrôle').toString();
+    final heures       = data['heures'] is num ? (data['heures'] as num).toStringAsFixed(0) : '?';
+    final prioriteLabel = (data['prioriteLabel'] ?? data['priorite'] ?? 'NORMALE').toString();
+    final controleId   = (data['controleId'] ?? '').toString();
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surfaceContainerLow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Color(0xFFFF6E00), width: 2),
+        ),
+        title: Row(
+          children: [
+            const Text('🔔', style: TextStyle(fontSize: 24)),
+            const SizedBox(width: 10),
+            Text(
+              'Nouveau contrôle !',
+              style: GoogleFonts.inter(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Machine
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: _surfaceContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.precision_manufacturing, color: Color(0xFF75D1FF), size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      machineName,
+                      style: GoogleFonts.spaceGrotesk(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Type de contrôle
+            Row(
+              children: [
+                const Icon(Icons.build_circle_outlined, color: Color(0xFFFFB692), size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '→ $typeControle ($heures h)',
+                    style: GoogleFonts.inter(color: _onSurface, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // Priorité
+            Row(
+              children: [
+                const Icon(Icons.flag_outlined, size: 18, color: Color(0xFFFFB4AB)),
+                const SizedBox(width: 8),
+                Text(
+                  'Priorité : $prioriteLabel',
+                  style: GoogleFonts.inter(
+                    color: _onSurfaceVariant,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Ignorer', style: GoogleFonts.inter(color: _onSurfaceVariant)),
+          ),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.calendar_month_outlined, size: 18),
+            label: Text('Voir calendrier', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF6E00),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.pushNamed(context, '/control-calendar', arguments: {
+                'technicianName': _chatSenderName,
+                'machineIds': <String>[],
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ── Alerte URGENTE : contrôle critique immédiat ───────────────────────────
+  void _showControleUrgentAlert(Map<String, dynamic> data) {
+    if (!mounted) return;
+    final machineName  = (data['machineName']  ?? 'Machine').toString();
+    final typeControle = (data['typeControle'] ?? 'Contrôle').toString();
+    final heures = data['heures'] is num
+        ? (data['heures'] as num).toStringAsFixed(0)
+        : '?';
+
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Le technicien DOIT agir
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A0A0A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Colors.redAccent, width: 2.5),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_rounded, color: Colors.redAccent, size: 28),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '🚨 CONTRÔLE URGENT !',
+                style: GoogleFonts.inter(
+                  color: Colors.redAccent,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 17,
+                  letterSpacing: 1,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.precision_manufacturing, color: Colors.redAccent, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      machineName,
+                      style: GoogleFonts.spaceGrotesk(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                const Icon(Icons.build_circle, color: Colors.redAccent, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '→ $typeControle ($heures h)',
+                    style: GoogleFonts.inter(color: Colors.white70, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.flag, size: 18, color: Colors.redAccent),
+                const SizedBox(width: 8),
+                Text(
+                  'Priorité : URGENTE 🔴',
+                  style: GoogleFonts.inter(
+                    color: Colors.redAccent,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Plus tard', style: GoogleFonts.inter(color: Colors.white38)),
+          ),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.check_circle_outline, size: 18),
+            label: Text('Prendre en charge', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.pushNamed(context, '/control-calendar', arguments: {
+                'technicianName': _chatSenderName,
+                'machineIds': <String>[],
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> _checkPendingInterventions(String techId) async {
     try {
@@ -383,12 +698,16 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
 
     return Scaffold(
       backgroundColor: _bg,
-      body: Stack(
+      body: Row(
         children: [
-          Column(
-            children: [
-              _buildTopHeader(args),
-              Expanded(
+          if (isDesktop) _buildSidebar(name, assignedMachineIds),
+          Expanded(
+            child: Stack(
+              children: [
+                Column(
+                  children: [
+                    _buildTopHeader(args),
+                    Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(24),
                   child: Center(
@@ -419,20 +738,23 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               ),
             ],
           ),
-          SafeArea(
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Container(
-                margin: const EdgeInsets.only(left: 10, top: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0D9B5),
-                  borderRadius: BorderRadius.circular(6),
+                SafeArea(
+                  child: Align(
+                    alignment: Alignment.topLeft,
+                    child: Container(
+                      margin: const EdgeInsets.only(left: 10, top: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0D9B5),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.arrow_back, color: Color(0xFF1A1A1A)),
+                        onPressed: () => Navigator.maybePop(context),
+                      ),
+                    ),
+                  ),
                 ),
-                child: IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Color(0xFF1A1A1A)),
-                  onPressed: () => Navigator.maybePop(context),
-                ),
-              ),
+              ],
             ),
           ),
         ],
@@ -441,7 +763,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     );
   }
 
-  Widget _buildSidebar() {
+  Widget _buildSidebar(String name, List<String> assignedMachineIds) {
     return Container(
       width: 256,
       color: _surfaceContainerLow,
@@ -494,6 +816,12 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           _buildSidebarTile(Icons.precision_manufacturing_outlined, 'Machine Fleet'),
           _buildSidebarTile(Icons.history_edu, 'Service Logs', isActive: true),
           _buildSidebarTile(Icons.description_outlined, 'Documents'),
+          _buildSidebarTile(Icons.calendar_month_outlined, 'Calendrier de Contrôle', onTap: () {
+            Navigator.pushNamed(context, '/control-calendar', arguments: {
+              'technicianName': name,
+              'machineIds': assignedMachineIds,
+            });
+          }),
           const Spacer(),
           Padding(
             padding: const EdgeInsets.all(24.0),
@@ -520,7 +848,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     );
   }
 
-  Widget _buildSidebarTile(IconData icon, String label, {bool isActive = false, bool isSmall = false}) {
+  Widget _buildSidebarTile(IconData icon, String label, {bool isActive = false, bool isSmall = false, VoidCallback? onTap}) {
     return Container(
       margin: const EdgeInsets.only(right: 8),
       decoration: BoxDecoration(
@@ -536,7 +864,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             fontSize: isSmall ? 12 : 14,
           ),
         ),
-        onTap: () {},
+        onTap: onTap ?? () {},
         dense: isSmall,
       ),
     );

@@ -275,6 +275,13 @@ const MaintenanceAgent = require('./src/models/MaintenanceAgent');
 const DiagnosticIntervention = require('./src/models/DiagnosticIntervention');
 const Mission = require('./src/models/Mission');
 const scenarioService = require('./src/services/scenarioService');
+const { startTempseMarcheService } = require('./src/services/tempsMarcheService');
+const { startControleService } = require('./src/services/controleService');
+const { initializeExistingMachines } = require('./src/services/initThresholdsService');
+const machineCtrl = require('./src/controllers/machineController');
+
+
+
 
 async function applyTechDeltaToOwner(companyId, delta) {
     if (!companyId || !delta) return;
@@ -468,7 +475,24 @@ async function connectToMongo() {
 
 connectToMongo().then(async (success) => {
     if (!success) return;
+
+    // ── Injection Socket.IO dans les contrôleurs ──────────────────────────────
+    machineCtrl.setIo(io);          // machine_status + controle_urgent
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Démarrer les services automatiques
+    startTempseMarcheService(io);   // temps_marche_update
+    startControleService(io);       // nouveau_controle + controle_urgent auto
+
+    // Initialiser les machines existantes (une seule fois au démarrage)
+    initializeExistingMachines();
+
+    console.log('✅ Services temps de marche et contrôles démarrés');
+
+
+
     try {
+
         await Conception.syncIndexes();
         const db = mongoose.connection.db;
         const names = (await db.listCollections().toArray()).map((c) => c.name);
@@ -4082,6 +4106,49 @@ io.on('connection', function (socket) {
     socket.on('disconnect', function () {
         console.log('Client deconnecte');
     });
+});
+
+const controleController = require('./src/controllers/controleController');
+
+// Routes pour les Contrôles
+app.get('/api/controles', requireAuth, requireFieldOperator, controleController.getAllControles);
+app.get('/api/controles/technicien/:id', requireAuth, requireFieldOperator, controleController.getControlesByTechnician);
+app.get('/api/controles/machine/:id', requireAuth, requireFieldOperator, controleController.getControlesByMachine);
+app.put('/api/controles/:id/statut', requireAuth, requireFieldOperator, controleController.updateControleStatus);
+app.get('/api/controles/calendrier/:month', requireAuth, requireFieldOperator, controleController.getControlesByMonth);
+
+app.post('/api/controles/simulate', async (req, res) => {
+    try {
+        const Controle = require('./src/models/Controle');
+        const nouveauControle = await Controle.create({
+            machineId: 'MAC-1775750118162',
+            machineName: 'Machine A',
+            typeControle: 'Vérification Système (Simulation)',
+            heuresDeClenchement: 1500,
+            dateControle: new Date(),
+            priorite: 'urgente',
+            statut: 'planifié',
+            motorType: 'air_cooled',
+            technicienId: '69de162d9682704b9e91f470' // ID de ali ali
+        });
+        
+        io.emit('nouveau_controle', {
+            controleId: String(nouveauControle._id),
+            machineId: nouveauControle.machineId,
+            machineName: nouveauControle.machineName,
+            typeControle: nouveauControle.typeControle,
+            heures: nouveauControle.heuresDeClenchement,
+            priorite: nouveauControle.priorite,
+            prioriteLabel: 'URGENTE 🔴',
+            motorType: nouveauControle.motorType,
+            dateControle: nouveauControle.dateControle,
+            technicienId: nouveauControle.technicienId
+        });
+        
+        res.json({ success: true, controle: nouveauControle });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Routes /api non définies → JSON explicite (évite un 404 HTML confus depuis un autre service)
