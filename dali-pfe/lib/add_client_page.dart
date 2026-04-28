@@ -16,11 +16,19 @@ class AddClientPage extends StatefulWidget {
 class _AddClientPageState extends State<AddClientPage> {
   String? _selectedMotorType;
   bool _obscurePassword = true;
+  bool _isSubmitting = false;
+  bool _isLoadingLinks = false;
   final _companyController = TextEditingController();
   final _locationController = TextEditingController();
   final _addressController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  List<Map<String, dynamic>> _machines = [];
+  List<Map<String, dynamic>> _technicians = [];
+  List<Map<String, dynamic>> _maintenanceAgents = [];
+  final Set<String> _selectedMachineIds = {};
+  final Set<String> _selectedTechnicianIds = {};
+  final Set<String> _selectedMaintenanceAgentIds = {};
 
   // Color constants
   static const _bg = Color(0xFF10102B);
@@ -39,6 +47,7 @@ class _AddClientPageState extends State<AddClientPage> {
   @override
   void initState() {
     super.initState();
+    _loadLinkData();
     if (widget.initialData != null) {
       _companyController.text = widget.initialData!['name'] ?? '';
       _locationController.text = widget.initialData!['location'] ?? '';
@@ -47,6 +56,32 @@ class _AddClientPageState extends State<AddClientPage> {
       // Le mot de passe n'est jamais renvoyé par l'API (haché) : saisir un nouveau MDP pour le remplacer
       _passwordController.clear();
       _selectedMotorType = widget.initialData!['motorType'] ?? 'ac-induction';
+    }
+  }
+
+  Future<void> _loadLinkData() async {
+    setState(() => _isLoadingLinks = true);
+    try {
+      final results = await Future.wait([
+        ApiService.getUnassignedMachines(),
+        ApiService.getTechnicians(),
+        ApiService.getMaintenanceAgents(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _machines = (results[0] as List).cast<Map<String, dynamic>>();
+        _technicians = (results[1] as List).cast<Map<String, dynamic>>();
+        _maintenanceAgents = (results[2] as List).cast<Map<String, dynamic>>();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _machines = [];
+        _technicians = [];
+        _maintenanceAgents = [];
+      });
+    } finally {
+      if (mounted) setState(() => _isLoadingLinks = false);
     }
   }
 
@@ -311,9 +346,125 @@ class _AddClientPageState extends State<AddClientPage> {
           const SizedBox(height: 32),
           _buildCredentialsSection(),
           const SizedBox(height: 32),
+          _buildLinkSection(),
+          const SizedBox(height: 32),
           _buildActions(),
         ],
       ),
+    );
+  }
+
+  Widget _buildLinkSection() {
+    return Container(
+      padding: const EdgeInsets.only(top: 24),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Color(0x1A594136))),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Affectations après création client',
+            style: GoogleFonts.inter(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: _secondary,
+              letterSpacing: 3,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Choisissez la machine à acheter, puis les techniciens et agents maintenance associés.',
+            style: GoogleFonts.inter(fontSize: 11, color: _onSurfaceVariant.withOpacity(0.85)),
+          ),
+          const SizedBox(height: 16),
+          if (_isLoadingLinks)
+            const Center(child: CircularProgressIndicator())
+          else ...[
+            _buildSimpleMultiSelect(
+              label: 'Machines',
+              items: _machines,
+              selected: _selectedMachineIds,
+              idBuilder: (m) => (m['id'] ?? m['_id'] ?? '').toString(),
+              labelBuilder: (m) => (m['name'] ?? m['id'] ?? '').toString(),
+            ),
+            const SizedBox(height: 12),
+            _buildSimpleMultiSelect(
+              label: 'Techniciens',
+              items: _technicians,
+              selected: _selectedTechnicianIds,
+              idBuilder: (t) => (t['technicianId'] ?? t['id'] ?? t['_id'] ?? '').toString(),
+              labelBuilder: (t) => (t['name'] ?? t['technicianId'] ?? '').toString(),
+            ),
+            const SizedBox(height: 12),
+            _buildSimpleMultiSelect(
+              label: 'Agents maintenance',
+              items: _maintenanceAgents,
+              selected: _selectedMaintenanceAgentIds,
+              idBuilder: (a) => (a['maintenanceAgentId'] ?? a['id'] ?? '').toString(),
+              labelBuilder: (a) {
+                final first = (a['firstName'] ?? '').toString();
+                final last = (a['lastName'] ?? '').toString();
+                final full = '$first $last'.trim();
+                return full.isNotEmpty ? full : (a['maintenanceAgentId'] ?? '').toString();
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSimpleMultiSelect({
+    required String label,
+    required List<Map<String, dynamic>> items,
+    required Set<String> selected,
+    required String Function(Map<String, dynamic>) idBuilder,
+    required String Function(Map<String, dynamic>) labelBuilder,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _fieldLabel(label),
+        const SizedBox(height: 8),
+        Container(
+          constraints: const BoxConstraints(maxHeight: 180),
+          decoration: BoxDecoration(
+            color: _inputBg,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: _outline.withOpacity(0.25)),
+          ),
+          child: items.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text('Aucune donnée disponible', style: GoogleFonts.inter(color: _onSurfaceVariant)),
+                  ),
+                )
+              : ListView(
+                  shrinkWrap: true,
+                  children: items.map((item) {
+                    final id = idBuilder(item);
+                    if (id.isEmpty) return const SizedBox.shrink();
+                    return CheckboxListTile(
+                      value: selected.contains(id),
+                      onChanged: (v) {
+                        setState(() {
+                          if (v == true) {
+                            selected.add(id);
+                          } else {
+                            selected.remove(id);
+                          }
+                        });
+                      },
+                      dense: true,
+                      title: Text(labelBuilder(item), style: GoogleFonts.inter(color: _onSurface, fontSize: 13)),
+                      activeColor: _primaryContainer,
+                    );
+                  }).toList(),
+                ),
+        ),
+      ],
     );
   }
 
@@ -479,11 +630,11 @@ class _AddClientPageState extends State<AddClientPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _fieldLabel('Localisation'),
+        _fieldLabel('Localisation (ville ou lien Google Maps)'),
         const SizedBox(height: 8),
         _buildInputField(
           controller: _locationController,
-          hint: 'City, Country',
+          hint: 'Ex: Tunis, TN ou https://maps.google.com/...',
           keyboardType: TextInputType.text,
         ),
       ],
@@ -717,7 +868,7 @@ class _AddClientPageState extends State<AddClientPage> {
 
           // Submit button
           InkWell(
-            onTap: _onSubmit,
+            onTap: _isSubmitting ? null : _onSubmit,
             borderRadius: BorderRadius.circular(8),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
@@ -736,15 +887,21 @@ class _AddClientPageState extends State<AddClientPage> {
                   ),
                 ],
               ),
-              child: Text(
-                widget.initialData == null ? 'Créer le Client' : 'Sauvegarder',
-                style: GoogleFonts.inter(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.white,
-                  letterSpacing: 2,
-                ),
-              ),
+              child: _isSubmitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                    )
+                  : Text(
+                      widget.initialData == null ? 'Créer le Client' : 'Sauvegarder',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        letterSpacing: 2,
+                      ),
+                    ),
             ),
           ),
         ],
@@ -878,6 +1035,14 @@ class _AddClientPageState extends State<AddClientPage> {
       return;
     }
 
+    if (_selectedMachineIds.isEmpty &&
+        (_selectedTechnicianIds.isNotEmpty || _selectedMaintenanceAgentIds.isNotEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sélectionnez au moins une machine avant d’assigner technicien/maintenance')),
+      );
+      return;
+    }
+
     final payload = <String, dynamic>{
       'name': _companyController.text.trim(),
       'location': _locationController.text.trim(),
@@ -889,9 +1054,12 @@ class _AddClientPageState extends State<AddClientPage> {
       payload['password'] = _passwordController.text;
     }
 
+    setState(() => _isSubmitting = true);
     try {
+      String? createdClientKey;
       if (isNew) {
-        await ApiService.addClient(payload);
+        final created = await ApiService.addClient(payload);
+        createdClientKey = (created['clientId'] ?? created['id'] ?? created['_id'] ?? '').toString();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -917,10 +1085,34 @@ class _AddClientPageState extends State<AddClientPage> {
       } else {
         final id = widget.initialData!['clientId'] ?? widget.initialData!['id'] ?? widget.initialData!['_id'] ?? '';
         await ApiService.updateClient(id, payload);
+        createdClientKey = id.toString();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Client mis à jour !', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green),
           );
+        }
+      }
+
+      final linkClientId = createdClientKey.trim();
+      if (linkClientId.isNotEmpty) {
+        for (final machineId in _selectedMachineIds) {
+          await ApiService.assignMachineToClient(machineId, linkClientId);
+        }
+        for (final tech in _technicians) {
+          final techId = (tech['technicianId'] ?? tech['id'] ?? tech['_id'] ?? '').toString();
+          if (techId.isEmpty || !_selectedTechnicianIds.contains(techId)) continue;
+          await ApiService.updateTechnician(techId, {
+            'companyId': linkClientId,
+            'machineIds': _selectedMachineIds.toList(),
+          });
+        }
+        for (final agent in _maintenanceAgents) {
+          final agentId = (agent['maintenanceAgentId'] ?? agent['id'] ?? agent['_id'] ?? '').toString();
+          if (agentId.isEmpty || !_selectedMaintenanceAgentIds.contains(agentId)) continue;
+          await ApiService.updateMaintenanceAgent(agentId, {
+            'clientId': linkClientId,
+            'machineIds': _selectedMachineIds.toList(),
+          });
         }
       }
       
@@ -934,6 +1126,8 @@ class _AddClientPageState extends State<AddClientPage> {
           SnackBar(content: Text('Erreur API: $e', style: const TextStyle(color: Colors.white)), backgroundColor: Colors.red),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 }

@@ -8,6 +8,7 @@ const technicianSchema = new mongoose.Schema({
     phone: { type: String },
     specialization: { type: String },
     technicalDescription: { type: String, default: '' },
+    location: { type: String, default: '' },
     companyId: { type: String, required: true },
     /** IDs machines (_id Mongo) que ce technicien supervise — au moins une si le client a déjà des machines */
     machineIds: { type: [String], default: [] },

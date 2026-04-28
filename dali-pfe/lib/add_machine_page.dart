@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'services/api_service.dart';
 
 class AddMachinePage extends StatefulWidget {
   final String clientId;
   final String clientName;
+  final String actorRole;
 
   const AddMachinePage({
     super.key,
     this.clientId = '',
     this.clientName = '',
+    this.actorRole = '',
   });
 
   @override
@@ -22,25 +22,15 @@ class _AddMachinePageState extends State<AddMachinePage> {
   final _formKey = GlobalKey<FormState>();
   
   final _nameController = TextEditingController();
-  final _powerController = TextEditingController();
-  final _voltageController = TextEditingController();
-  final _speedController = TextEditingController();
-  final _locationController = TextEditingController();
-  final _companyIdController = TextEditingController();
-  final _serialNumberController = TextEditingController();
-  final _firmwareVersionController = TextEditingController(text: 'v1.0.0');
+  final _model3dController = TextEditingController();
 
   String _type = 'pompe_centrifuge';
   String _motorType = 'air_cooled';
-  DateTime _installDate = DateTime.now();
-  String _status = 'RUNNING';
-
-  List<Map<String, dynamic>> _technicians = [];
-  bool _loadingTechs = false;
-  final Set<String> _techniciensAssignes = {};
 
   List<Map<String, dynamic>> _seuilsControle = [];
   bool _isSaving = false;
+  bool _isAuthorized = false;
+  bool _isCheckingAuth = true;
 
   // Design Tokens
   static const _bg = Color(0xFF0A0A1F);
@@ -53,14 +43,28 @@ class _AddMachinePageState extends State<AddMachinePage> {
   @override
   void initState() {
     super.initState();
-    if (widget.clientId.isNotEmpty) {
-      _companyIdController.text = widget.clientId;
-    }
-    if (widget.clientName.isNotEmpty) {
-      _locationController.text = 'Site ${widget.clientName}';
-    }
+    _resolveAuthorization();
     _initializeSeuilsControle();
-    _loadTechnicians();
+  }
+
+  Future<void> _resolveAuthorization() async {
+    final routeRole = widget.actorRole.toLowerCase().trim();
+    if (routeRole == 'concepteur' || routeRole == 'conception') {
+      if (!mounted) return;
+      setState(() {
+        _isAuthorized = true;
+        _isCheckingAuth = false;
+      });
+      return;
+    }
+
+    await ApiService.loadSavedAuth();
+    if (!mounted) return;
+    final role = (ApiService.savedUserRole ?? '').toLowerCase();
+    setState(() {
+      _isAuthorized = role == 'concepteur' || role == 'conception';
+      _isCheckingAuth = false;
+    });
   }
 
   void _initializeSeuilsControle() {
@@ -85,35 +89,43 @@ class _AddMachinePageState extends State<AddMachinePage> {
     }
   }
 
-  Future<void> _loadTechnicians() async {
-    setState(() => _loadingTechs = true);
-    try {
-      final list = await ApiService.getTechnicians();
-      if (!mounted) return;
-      setState(() {
-        _technicians = list;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _technicians = []);
-    } finally {
-      if (mounted) setState(() => _loadingTechs = false);
-    }
-  }
-
   @override
   void dispose() {
     _nameController.dispose();
-    _powerController.dispose();
-    _voltageController.dispose();
-    _speedController.dispose();
-    _locationController.dispose();
-    _companyIdController.dispose();
-    _serialNumberController.dispose();
-    _firmwareVersionController.dispose();
+    _model3dController.dispose();
     super.dispose();
   }
 
+  String _toFriendlyError(Object error) {
+    final msg = error.toString().replaceFirst('Exception: ', '').trim();
+    if (msg.contains('403')) {
+      return 'Acces refuse : seul le role Concepteur peut ajouter une machine.';
+    }
+    if (msg.contains('401')) {
+      return 'Session invalide. Reconnectez-vous puis reessayez.';
+    }
+    if (msg.contains('400')) {
+      final details = msg.replaceAll(RegExp(r'^.*400[:\s-]*', caseSensitive: false), '').trim();
+      if (details.isNotEmpty) {
+        return 'Donnees invalides : $details';
+      }
+      return 'Donnees invalides. Verifiez les champs puis reessayez.';
+    }
+    return msg;
+  }
+
   Future<void> _saveMachine() async {
+    if (!_isAuthorized) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Accès refusé : seul le rôle Concepteur peut ajouter une machine.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
     if (!_formKey.currentState!.validate()) return;
     
     setState(() => _isSaving = true);
@@ -121,41 +133,51 @@ class _AddMachinePageState extends State<AddMachinePage> {
     final machineData = {
       "name": _nameController.text.trim(),
       "type": _type,
-      "power": _powerController.text.trim(),
-      "voltage": _voltageController.text.trim(),
-      "speed": _speedController.text.trim(),
       "motorType": _motorType,
-      "installDate": _installDate.toIso8601String(),
-      "location": _locationController.text.trim(),
-      "companyId": _companyIdController.text.trim(),
-      "serialNumber": _serialNumberController.text.trim(),
-      "firmwareVersion": _firmwareVersionController.text.trim(),
-      "status": _status,
+      "model3dUrl": _model3dController.text.trim(),
       "seuilsControle": _seuilsControle,
-      "techniciensAssignes": _techniciensAssignes.toList(),
-      "tempsMarche": {"totalHeures": 0, "enMarche": false},
     };
 
     try {
-      // Use direct HTTP post to match the exact requirement /api/machines
-      final uri = Uri.parse('${ApiService.baseUrl}/machines');
-      final headers = await ApiService.jsonHeadersAuthorized();
-      final response = await http.post(uri, headers: headers, body: json.encode(machineData));
+      final created = await ApiService.createStandaloneMachine(
+        machineData,
+        actorRole: widget.actorRole,
+      );
+      final createdId = (created['id'] ?? created['_id'] ?? '').toString().trim();
+      final createdName = (created['name'] ?? machineData['name'] ?? '').toString().trim().toLowerCase();
 
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Machine ajoutée avec succès !'), backgroundColor: Colors.green),
-          );
-          Navigator.pop(context, true);
+      // Controle fort: on confirme que la machine est bien persistee en base
+      // avant d'annoncer le succes a l'utilisateur.
+      final allMachines = await ApiService.getMachines();
+      final stored = allMachines.any((m) {
+        final mid = (m['id'] ?? m['_id'] ?? '').toString().trim();
+        final mname = (m['name'] ?? '').toString().trim().toLowerCase();
+        if (createdId.isNotEmpty && mid == createdId) return true;
+        return createdName.isNotEmpty && mname == createdName;
+      });
+      if (!stored) {
+        throw Exception('Machine non confirmee en base de donnees. Reessayez.');
+      }
+
+      if (widget.clientId.isNotEmpty) {
+        final machineId = (created['id'] ?? created['_id'] ?? '').toString().trim();
+        if (machineId.isNotEmpty) {
+          await ApiService.assignMachineToClient(machineId, widget.clientId);
         }
-      } else {
-        throw Exception('Erreur serveur: ${response.statusCode}');
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Machine ajoutée avec succès !'), backgroundColor: Colors.green),
+        );
+        Navigator.pop(context, created);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(_toFriendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -165,6 +187,61 @@ class _AddMachinePageState extends State<AddMachinePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isCheckingAuth) {
+      return const Scaffold(
+        backgroundColor: _bg,
+        body: Center(
+          child: CircularProgressIndicator(color: _primary),
+        ),
+      );
+    }
+
+    if (!_isAuthorized) {
+      return Scaffold(
+        backgroundColor: _bg,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new, color: _onSurface, size: 20),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: Text(
+            'AJOUTER UNE MACHINE',
+            style: GoogleFonts.inter(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 2,
+              color: _onSurface,
+            ),
+          ),
+          centerTitle: true,
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: _surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.withOpacity(0.35)),
+              ),
+              child: Text(
+                'Accès refusé : cette fonctionnalité est réservée au rôle Concepteur.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  color: _onSurface,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
@@ -279,109 +356,14 @@ class _AddMachinePageState extends State<AddMachinePage> {
             },
           ),
           const SizedBox(height: 24),
-          Row(
-            children: [
-              Expanded(
-                child: _buildTextField(
-                  label: 'PUISSANCE (kW) *',
-                  hint: 'ex: 15',
-                  controller: _powerController,
-                  icon: Icons.flash_on_outlined,
-                  keyboardType: TextInputType.number,
-                  validator: (v) => (double.tryParse(v ?? '') ?? 0) > 0 ? null : 'Invalide',
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildTextField(
-                  label: 'TENSION (V) *',
-                  hint: 'ex: 400',
-                  controller: _voltageController,
-                  icon: Icons.bolt_outlined,
-                  validator: (v) => v == null || v.isEmpty ? 'Requis' : null,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              Expanded(
-                child: _buildTextField(
-                  label: 'VITESSE (tr/min) *',
-                  hint: 'ex: 1500',
-                  controller: _speedController,
-                  icon: Icons.speed_outlined,
-                  keyboardType: TextInputType.number,
-                  validator: (v) => (int.tryParse(v ?? '') ?? 0) > 0 ? null : 'Invalide',
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildDateField(
-                  label: 'DATE INSTALLATION *',
-                  value: _installDate,
-                  onChanged: (date) => setState(() => _installDate = date),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
           _buildTextField(
-            label: 'LOCALISATION *',
-            hint: 'ex: Zone B',
-            controller: _locationController,
-            icon: Icons.location_on_outlined,
-            validator: (v) => v == null || v.isEmpty ? 'Requis' : null,
-          ),
-          const SizedBox(height: 24),
-          _buildTextField(
-            label: 'ID ENTREPRISE *',
-            hint: 'ex: CLI-2026',
-            controller: _companyIdController,
-            icon: Icons.business_outlined,
-            validator: (v) => v == null || v.isEmpty ? 'Requis' : null,
-          ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              Expanded(
-                child: _buildTextField(
-                  label: 'NUMÉRO SÉRIE',
-                  hint: 'Optionnel',
-                  controller: _serialNumberController,
-                  icon: Icons.tag,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildTextField(
-                  label: 'FIRMWARE',
-                  hint: 'ex: v1.0.0',
-                  controller: _firmwareVersionController,
-                  icon: Icons.memory,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          _buildDropdownField(
-            label: 'STATUT INITIAL',
-            value: _status,
-            items: ['RUNNING', 'STOPPED', 'MAINTENANCE', 'ERROR'],
-            icon: Icons.online_prediction,
-            onChanged: (v) {
-              if (v != null) setState(() => _status = v);
-            },
+            label: 'MODÈLE 3D *',
+            hint: 'ex: machine.glb',
+            controller: _model3dController,
+            icon: Icons.view_in_ar_outlined,
+            validator: (v) => v == null || v.trim().isEmpty ? 'Champ obligatoire' : null,
           ),
           const SizedBox(height: 32),
-          _buildSectionTitle('TECHNICIENS ASSIGNÉS'),
-          const SizedBox(height: 16),
-          _buildTechniciansSelect(),
-          const SizedBox(height: 32),
-          _buildSectionTitle('SEUILS DE MAINTENANCE'),
-          const SizedBox(height: 16),
-          _buildSeuilsList(),
         ],
       ),
     );
@@ -489,133 +471,6 @@ class _AddMachinePageState extends State<AddMachinePage> {
           onChanged: onChanged,
         ),
       ],
-    );
-  }
-
-  Widget _buildDateField({
-    required String label,
-    required DateTime value,
-    required void Function(DateTime) onChanged,
-  }) {
-    final dateStr = "${value.toLocal()}".split(' ')[0];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: GoogleFonts.spaceGrotesk(
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            color: _onSurfaceVariant,
-            letterSpacing: 1.5,
-          ),
-        ),
-        const SizedBox(height: 8),
-        InkWell(
-          onTap: () async {
-            final date = await showDatePicker(
-              context: context,
-              initialDate: value,
-              firstDate: DateTime(2000),
-              lastDate: DateTime(2100),
-              builder: (context, child) {
-                return Theme(
-                  data: Theme.of(context).copyWith(
-                    colorScheme: const ColorScheme.dark(
-                      primary: _primary,
-                      onPrimary: Colors.white,
-                      surface: _surface,
-                      onSurface: _onSurface,
-                    ),
-                  ),
-                  child: child!,
-                );
-              },
-            );
-            if (date != null) onChanged(date);
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            decoration: BoxDecoration(
-              color: _bg.withOpacity(0.5),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.white.withOpacity(0.1)),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.calendar_today_outlined, color: _primary.withOpacity(0.6), size: 20),
-                const SizedBox(width: 12),
-                Text(dateStr, style: GoogleFonts.spaceGrotesk(color: _onSurface, fontSize: 16)),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTechniciansSelect() {
-    if (_loadingTechs) {
-      return const Center(child: CircularProgressIndicator(color: _primary));
-    }
-    if (_technicians.isEmpty) {
-      return Text('Aucun technicien disponible.', style: GoogleFonts.inter(color: _onSurfaceVariant));
-    }
-    return Column(
-      children: _technicians.map((tech) {
-        final id = (tech['_id'] ?? tech['id'] ?? tech['technicianId'] ?? '').toString();
-        final name = (tech['name'] ?? id).toString();
-        if (id.isEmpty) return const SizedBox.shrink();
-        final isSelected = _techniciensAssignes.contains(id);
-        
-        return CheckboxListTile(
-          value: isSelected,
-          onChanged: (v) {
-            setState(() {
-              if (v == true) {
-                _techniciensAssignes.add(id);
-              } else {
-                _techniciensAssignes.remove(id);
-              }
-            });
-          },
-          title: Text(name, style: GoogleFonts.inter(color: _onSurface)),
-          activeColor: _primary,
-          checkColor: Colors.white,
-          contentPadding: EdgeInsets.zero,
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildSeuilsList() {
-    if (_seuilsControle.isEmpty) {
-      return Text('Aucun seuil défini pour ce type de moteur.', style: GoogleFonts.inter(color: _onSurfaceVariant));
-    }
-    return Column(
-      children: _seuilsControle.map((seuil) {
-        return Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          decoration: BoxDecoration(
-            color: _bg.withOpacity(0.3),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.white.withOpacity(0.05)),
-          ),
-          child: ListTile(
-            leading: const Icon(Icons.build_circle_outlined, color: _primary),
-            title: Text(seuil['typeControle'], style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.w600)),
-            subtitle: Text('Toutes les ${seuil['intervalleHeures']} heures', style: GoogleFonts.spaceGrotesk(color: _onSurfaceVariant, fontSize: 12)),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-              onPressed: () {
-                setState(() {
-                  _seuilsControle.remove(seuil);
-                });
-              },
-            ),
-          ),
-        );
-      }).toList(),
     );
   }
 

@@ -70,25 +70,20 @@ class _LoginPageState extends State<LoginPage> {
                       Row(
                         children: [
                           Container(
-                            width: 32,
-                            height: 32,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [Color(0xFFFF6E00), Color(0xFFFF8F3F)],
-                              ),
-                              borderRadius: BorderRadius.circular(6),
+                            width: 190,
+                            height: 46,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
                             ),
-                            child: const Icon(Icons.analytics_outlined, color: Colors.white, size: 20), // query_stats approx
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            'PREDICTIVE CLOUD',
-                            style: GoogleFonts.inter(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 1.8,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Image.asset(
+                              'assets/images/abbk_logo.png',
+                              fit: BoxFit.contain,
+                              filterQuality: FilterQuality.high,
                             ),
                           ),
                         ],

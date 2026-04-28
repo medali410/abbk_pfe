@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:google_fonts/google_fonts.dart';
 import 'login_page.dart';
+import 'home_page.dart';
 import 'services/api_service.dart';
 import 'dashboard_page.dart';
 import 'client_dashboard_page.dart';
@@ -18,9 +20,8 @@ import 'technician_terminal_page.dart';
 import 'technician_collaboration_page.dart';
 import 'mission_control_page.dart';
 import 'control_calendar_page.dart';
+import 'control_reports_history_page.dart';
 import 'concepteur_dashboard_page.dart';
-
-
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -63,7 +64,7 @@ class _SessionEntryState extends State<SessionEntry> {
   }
 
   @override
-  Widget build(BuildContext context) => const LoginPage();
+  Widget build(BuildContext context) => const HomePage();
 }
 
 Future<void> main() async {
@@ -95,7 +96,9 @@ class MyApp extends StatelessWidget {
           onSurface: Color(0xFFF4F4F9),
           surfaceContainerHighest: Color(0xFF1E1E2E),
         ),
-        textTheme: GoogleFonts.interTextTheme(Theme.of(context).textTheme).apply(
+        textTheme: GoogleFonts.interTextTheme(
+          Theme.of(context).textTheme,
+        ).apply(
           bodyColor: const Color(0xFFF4F4F9),
           displayColor: const Color(0xFFF4F4F9),
         ),
@@ -106,31 +109,36 @@ class MyApp extends StatelessWidget {
           clipBehavior: Clip.none,
           children: [
             if (child != null) Positioned.fill(child: child),
+            if (kDebugMode) const _ApiBaseDebugBadge(),
             const _GlobalBackButtonOverlay(),
           ],
         );
       },
       routes: {
         '/': (context) => const SessionEntry(),
+        '/login': (context) => const LoginPage(),
         '/dashboard': (context) => const DashboardPage(),
         '/client-dashboard': (context) => const ClientDashboardPage(),
         '/add-client': (context) => const AddClientPage(),
         '/team': (context) => const ProjectTeamPage(),
         '/technician-profile': (context) => const TechnicianProfilePage(),
         '/technician-terminal': (context) => const TechnicianTerminalPage(),
-        '/technician-collaboration': (context) => const TechnicianCollaborationPage(),
-        '/conception-observatory': (context) => const ConceptionObservatoryPage(),
+        '/technician-collaboration':
+            (context) => const TechnicianCollaborationPage(),
+        '/conception-observatory':
+            (context) => const ConceptionObservatoryPage(),
         '/concepteur-dashboard': (context) => const ConcepteurDashboardPage(),
         '/mission-control': (context) => const MissionControlPage(),
         '/control-calendar': (context) => const ControlCalendarPage(),
-
+        '/control-reports-history':
+            (context) => const ControlReportsHistoryPage(),
 
         '/maintenance-login': (context) => const MaintenanceLoginPage(),
         '/maintenance-dashboard': (context) => const MaintenanceDashboardPage(),
         '/add-technician': (context) => const AddTechnicianPage(),
         '/machine-team': (context) => const MachineTeamPage(),
-        '/machine-detail': (context) =>
-            const MachineDetailAiPage(machineId: 'MAC_HATHA'),
+        '/machine-detail':
+            (context) => const MachineDetailAiPage(machineId: 'MAC_HATHA'),
         '/message-equipe': (context) => const MessageEquipePage(),
       },
     );
@@ -159,12 +167,52 @@ class _GlobalBackButtonOverlay extends StatelessWidget {
                 if (nav.canPop()) {
                   nav.pop();
                 } else {
-                  nav.pushReplacementNamed('/dashboard');
+                  nav.pushReplacementNamed('/');
                 }
               },
               child: const Padding(
                 padding: EdgeInsets.all(8),
-                child: Icon(Icons.arrow_back, color: Color(0xFF1A1A1A), size: 22),
+                child: Icon(
+                  Icons.arrow_back,
+                  color: Color(0xFF1A1A1A),
+                  size: 22,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ApiBaseDebugBadge extends StatelessWidget {
+  const _ApiBaseDebugBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final label = 'API: ${ApiService.baseUrl}';
+    return Positioned(
+      right: 12,
+      top: 10,
+      child: SafeArea(
+        child: IgnorePointer(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 520),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xCC111827),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0x66FFFFFF)),
+            ),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                color: const Color(0xFFF9FAFB),
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),

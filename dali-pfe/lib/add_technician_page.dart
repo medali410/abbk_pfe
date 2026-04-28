@@ -44,6 +44,7 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
+  final _locationCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   final _techDescCtrl = TextEditingController();
 
@@ -75,6 +76,7 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
       _nameCtrl.text = data['name'] ?? '';
       _emailCtrl.text = data['email'] ?? '';
       _phoneCtrl.text = data['phone'] ?? '';
+      _locationCtrl.text = data['location'] ?? '';
       _techDescCtrl.text = data['technicalDescription'] ?? '';
       _selectedSpecialization = (data['specialization'] ?? 'Vibration').toString();
       _passCtrl.clear();
@@ -201,6 +203,7 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
         'name': _nameCtrl.text.trim(),
         'email': _emailCtrl.text.trim().toLowerCase(),
         'phone': _phoneCtrl.text.trim(),
+        'location': _locationCtrl.text.trim(),
         'specialization': _selectedSpecialization,
         'technicalDescription': _techDescCtrl.text.trim(),
         'companyId': _selectedClientId,
@@ -246,6 +249,7 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
     _nameCtrl.dispose();
     _emailCtrl.dispose();
     _phoneCtrl.dispose();
+    _locationCtrl.dispose();
     _passCtrl.dispose();
     _techDescCtrl.dispose();
     super.dispose();
@@ -321,7 +325,20 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
       decoration: BoxDecoration(color: _bg, border: Border(bottom: BorderSide(color: _outline.withOpacity(.15)))),
       child: Row(
         children: [
-          Text('PREDICTIVE CLOUD', style: GoogleFonts.inter(color: _primaryContainer, fontWeight: FontWeight.w900, letterSpacing: 2)),
+          Container(
+            width: 190,
+            height: 46,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Image.asset(
+              'assets/images/abbk_logo.png',
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+            ),
+          ),
           const SizedBox(width: 24),
           Expanded(
             child: Container(
@@ -471,6 +488,8 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
                     ),
                     const SizedBox(height: 14),
                     _input('Email professionnel', _emailCtrl, fieldKey: 'email', hint: 'm.dubois@predictivecloud.io'),
+                    const SizedBox(height: 14),
+                    _input('Localisation (ville ou lien Google Maps)', _locationCtrl, hint: 'Ex: Sfax ou https://maps.google.com/...'),
                   ],
                 ),
               )

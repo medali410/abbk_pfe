@@ -307,6 +307,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               Navigator.pop(ctx);
               Navigator.pushNamed(context, '/control-calendar', arguments: {
                 'technicianName': _chatSenderName,
+                'technicianId': _technicianId,
                 'machineIds': <String>[],
               });
             },
@@ -428,6 +429,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               Navigator.pop(ctx);
               Navigator.pushNamed(context, '/control-calendar', arguments: {
                 'technicianName': _chatSenderName,
+                'technicianId': _technicianId,
                 'machineIds': <String>[],
               });
             },
@@ -819,6 +821,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           _buildSidebarTile(Icons.calendar_month_outlined, 'Calendrier de Contrôle', onTap: () {
             Navigator.pushNamed(context, '/control-calendar', arguments: {
               'technicianName': name,
+              'technicianId': _technicianId,
               'machineIds': assignedMachineIds,
             });
           }),
@@ -877,13 +880,18 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            'PREDICTIVE CLOUD',
-            style: GoogleFonts.inter(
+          Container(
+            width: 190,
+            height: 46,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
               color: Colors.white,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 2,
-              fontSize: 20,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Image.asset(
+              'assets/images/abbk_logo.png',
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
             ),
           ),
           Row(

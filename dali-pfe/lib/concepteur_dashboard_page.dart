@@ -1,7 +1,13 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image/image.dart' as img;
 import 'services/api_service.dart';
 import 'machine_detail_ai_page.dart';
+import 'add_machine_page.dart';
 
 class ConcepteurDashboardPage extends StatefulWidget {
   const ConcepteurDashboardPage({super.key});
@@ -21,22 +27,441 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   static const Color mutedTextColor = Color(0xFF9E9EAE);
   static const Color successColor = Color(0xFF4CAF50);
   static const Color alertColor = Color(0xFFFF4B4B);
+  static const int _maxPickedImageBytes = 12 * 1024 * 1024;
+  static const int _targetUploadImageBytes = 60 * 1024;
+  static const int _hardUploadImageBytes = 75 * 1024;
+  static const int _maxImageDimension = 900;
 
   String selectedMenu = 'DASHBOARD';
   
   // State variables
   List<Map<String, dynamic>> _allMachines = [];
+  List<Map<String, dynamic>> _purchaseRequests = [];
+  List<Map<String, dynamic>> _archives = [];
   bool _loading = true;
+  bool _loadingRequests = false;
+  bool _loadingArchives = false;
   String? _error;
   
   final TextEditingController _searchController = TextEditingController();
   String _selectedCategory = 'Toutes les catégories';
   String _selectedStatus = 'Tous';
+
+  bool _looksLikeNetworkImage(String value) {
+    final v = value.trim().toLowerCase();
+    return v.startsWith('http://') || v.startsWith('https://');
+  }
+
+  bool _looksLikeDataImage(String value) {
+    final v = value.trim().toLowerCase();
+    return v.startsWith('data:image/');
+  }
+
+  String _normalizeMachineImageValue(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return '';
+    if (_looksLikeNetworkImage(trimmed) || _looksLikeDataImage(trimmed)) {
+      return trimmed;
+    }
+
+    final hasExtension = RegExp(r'\.[a-z0-9]{2,5}$', caseSensitive: false)
+        .hasMatch(trimmed);
+    return hasExtension ? trimmed : '$trimmed.png';
+  }
+
+  String _toEditImageValue(String value) {
+    final trimmed = value.trim();
+    if (trimmed.toLowerCase().endsWith('.png') &&
+        !_looksLikeNetworkImage(trimmed) &&
+        !_looksLikeDataImage(trimmed)) {
+      return trimmed.substring(0, trimmed.length - 4);
+    }
+    return trimmed;
+  }
+
+  bool _looksLikeLocalFilePath(String value) {
+    final v = value.trim();
+    if (v.isEmpty) return false;
+    return RegExp(r'^[a-zA-Z]:[\\/]').hasMatch(v) ||
+        v.startsWith(r'\\') ||
+        v.startsWith('/');
+  }
+
+  Widget _buildMachineImageWidget(
+    String rawImageValue, {
+    required double height,
+    double width = double.infinity,
+    BoxFit fit = BoxFit.cover,
+    Widget? fallback,
+  }) {
+    final normalized = _normalizeMachineImageValue(rawImageValue);
+    final fallbackWidget = fallback ??
+        Container(
+          height: height,
+          width: width,
+          color: cardColor,
+          alignment: Alignment.center,
+          child: const Icon(
+            Icons.precision_manufacturing,
+            color: mutedTextColor,
+            size: 36,
+          ),
+        );
+
+    if (normalized.isEmpty) return fallbackWidget;
+
+    if (_looksLikeDataImage(normalized)) {
+      try {
+        final bytes = base64Decode(normalized.split(',').last);
+        return Image.memory(
+          bytes,
+          height: height,
+          width: width,
+          fit: fit,
+          errorBuilder: (_, __, ___) => fallbackWidget,
+        );
+      } catch (_) {
+        return fallbackWidget;
+      }
+    }
+
+    if (_looksLikeNetworkImage(normalized)) {
+      return Image.network(
+        normalized,
+        height: height,
+        width: width,
+        fit: fit,
+        errorBuilder: (_, __, ___) => fallbackWidget,
+      );
+    }
+
+    return fallbackWidget;
+  }
+
+  Future<Uint8List> _optimizeImageForUpload(Uint8List bytes) async {
+    if (bytes.length <= _targetUploadImageBytes) return bytes;
+
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return bytes;
+
+    img.Image working = decoded;
+    if (working.width > _maxImageDimension || working.height > _maxImageDimension) {
+      working = img.copyResize(
+        working,
+        width: working.width >= working.height ? _maxImageDimension : null,
+        height: working.height > working.width ? _maxImageDimension : null,
+        interpolation: img.Interpolation.average,
+      );
+    }
+
+    Uint8List best = Uint8List.fromList(img.encodeJpg(working, quality: 85));
+    const qualities = <int>[72, 64, 56, 48, 40, 34, 28, 24];
+    for (final q in qualities) {
+      final candidate = Uint8List.fromList(img.encodeJpg(working, quality: q));
+      if (candidate.length < best.length) best = candidate;
+      if (candidate.length <= _targetUploadImageBytes) return candidate;
+    }
+    return best;
+  }
+
+  Future<String?> _pickImageAsDataUrl() async {
+    final picked = await FilePicker.pickFiles(
+      type: FileType.image,
+      withData: true,
+      allowMultiple: false,
+    );
+    if (picked == null || picked.files.isEmpty) return null;
+    final file = picked.files.first;
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) return null;
+
+    if (bytes.length > _maxPickedImageBytes) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Image source trop volumineuse (max 12 Mo).',
+            ),
+            backgroundColor: alertColor,
+          ),
+        );
+      }
+      return null;
+    }
+
+    final optimizedBytes = await _optimizeImageForUpload(bytes);
+    if (optimizedBytes.length > _hardUploadImageBytes) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Image encore trop lourde apres compression (max 2 Mo).',
+            ),
+            backgroundColor: alertColor,
+          ),
+        );
+      }
+      return null;
+    }
+
+    final ext = (file.extension ?? '').toLowerCase();
+    String mime = 'image/jpeg';
+    final wasCompressed = optimizedBytes.length != bytes.length;
+    if (!wasCompressed) {
+      if (ext == 'png') mime = 'image/png';
+      if (ext == 'gif') mime = 'image/gif';
+      if (ext == 'webp') mime = 'image/webp';
+    }
+    final b64 = base64Encode(optimizedBytes);
+    return 'data:$mime;base64,$b64';
+  }
   
   @override
   void initState() {
     super.initState();
     _fetchMachines();
+    _fetchPurchaseRequests();
+    _fetchArchives();
+  }
+
+  Future<void> _fetchPurchaseRequests() async {
+    setState(() => _loadingRequests = true);
+    try {
+      final rows = await ApiService.getPurchaseRequests();
+      if (!mounted) return;
+      setState(() => _purchaseRequests = rows);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _purchaseRequests = []);
+    } finally {
+      if (mounted) setState(() => _loadingRequests = false);
+    }
+  }
+
+  Future<void> _fetchArchives() async {
+    setState(() => _loadingArchives = true);
+    try {
+      final rows = await ApiService.getInterventionArchives();
+      if (!mounted) return;
+      setState(() => _archives = rows);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _archives = []);
+    } finally {
+      if (mounted) setState(() => _loadingArchives = false);
+    }
+  }
+
+  Future<void> _validateAndProvisionTeam(Map<String, dynamic> req) async {
+    final reqId = (req['id'] ?? req['_id'] ?? '').toString();
+    if (reqId.isEmpty) return;
+
+    final clientNameCtrl = TextEditingController(
+      text: (req['requesterName'] ?? '').toString(),
+    );
+    final clientPwdCtrl = TextEditingController();
+    final clientLocCtrl = TextEditingController(
+      text: (req['googleMapsUrl'] ?? req['location'] ?? '').toString(),
+    );
+
+    final techNameCtrl = TextEditingController();
+    final techPwdCtrl = TextEditingController();
+    final techLocCtrl = TextEditingController();
+
+    final maintNameCtrl = TextEditingController();
+    final maintPwdCtrl = TextEditingController();
+    final maintLocCtrl = TextEditingController();
+
+    final submit = await showDialog<bool>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: sidebarColor,
+            title: Text(
+              'Valider la demande',
+              style: GoogleFonts.inter(color: textColor),
+            ),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: clientNameCtrl,
+                      decoration: const InputDecoration(labelText: 'Client - Nom'),
+                    ),
+                    TextField(
+                      controller: clientPwdCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Client - Mot de passe',
+                      ),
+                    ),
+                    TextField(
+                      controller: clientLocCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Client - Localisation / Maps',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: techNameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Technicien - Nom complet',
+                      ),
+                    ),
+                    TextField(
+                      controller: techPwdCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Technicien - Mot de passe',
+                      ),
+                    ),
+                    TextField(
+                      controller: techLocCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Technicien - Localisation',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: maintNameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Maintenance - Nom complet',
+                      ),
+                    ),
+                    TextField(
+                      controller: maintPwdCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Maintenance - Mot de passe',
+                      ),
+                    ),
+                    TextField(
+                      controller: maintLocCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Maintenance - Localisation',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Creer'),
+              ),
+            ],
+          ),
+    );
+    if (submit != true) return;
+
+    final fullMaint = maintNameCtrl.text.trim();
+    final parts = fullMaint.split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
+    final first = parts.isNotEmpty ? parts.first : '';
+    final last = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+    if (first.isEmpty || last.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nom maintenance complet requis.')),
+      );
+      return;
+    }
+
+    try {
+      await ApiService.provisionPurchaseRequestTeam(reqId, {
+        'reviewedByName': 'Concepteur',
+        'clientName': clientNameCtrl.text.trim(),
+        'clientPassword': clientPwdCtrl.text.trim(),
+        'clientLocation': clientLocCtrl.text.trim(),
+        'technicianName': techNameCtrl.text.trim(),
+        'technicianPassword': techPwdCtrl.text.trim(),
+        'technicianLocation': techLocCtrl.text.trim(),
+        'maintenanceFirstName': first,
+        'maintenanceLastName': last,
+        'maintenancePassword': maintPwdCtrl.text.trim(),
+        'maintenanceLocation': maintLocCtrl.text.trim(),
+      });
+      if (!mounted) return;
+      await _fetchPurchaseRequests();
+      await _fetchMachines();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Provision terminee: client, technicien et maintenance crees.',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Provision impossible: $e')));
+    }
+  }
+
+  Future<void> _rejectRequest(Map<String, dynamic> req) async {
+    final id = (req['id'] ?? req['_id'] ?? '').toString();
+    if (id.isEmpty) return;
+    try {
+      await ApiService.updatePurchaseRequestStatus(
+        id,
+        'REJECTED',
+        reviewedByName: 'Concepteur',
+      );
+      if (!mounted) return;
+      await _fetchPurchaseRequests();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Rejet impossible: $e')));
+    }
+  }
+
+  Future<void> _showArchiveExport(Map<String, dynamic> a) async {
+    final interventionId = (a['interventionId'] ?? '').toString();
+    if (interventionId.isEmpty) return;
+    try {
+      final archive = await ApiService.exportInterventionArchive(interventionId);
+      if (!mounted) return;
+      showDialog<void>(
+        context: context,
+        builder:
+            (ctx) => AlertDialog(
+              backgroundColor: sidebarColor,
+              title: Text(
+                'Archive $interventionId',
+                style: GoogleFonts.inter(color: textColor),
+              ),
+              content: SizedBox(
+                width: 600,
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    const JsonEncoder.withIndent('  ').convert(archive),
+                    style: GoogleFonts.spaceGrotesk(
+                      color: textColor,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Fermer'),
+                ),
+              ],
+            ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Export impossible: $e')));
+    }
   }
 
   Future<void> _fetchMachines() async {
@@ -45,7 +470,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       _error = null;
     });
     try {
-      final data = await ApiService.getMachines();
+      final data = await _loadMachinesFromBackend();
       if (mounted) {
         setState(() {
           _allMachines = data;
@@ -60,6 +485,72 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
         });
       }
     }
+  }
+
+  Future<List<Map<String, dynamic>>> _loadMachinesFromBackend() async {
+    // Objectif dashboard concepteur: afficher TOUTES les machines visibles.
+    // On fusionne la source globale Mongo (/api/machines) + workspace conception.
+    final mergedById = <String, Map<String, dynamic>>{};
+
+    try {
+      final fromMachinesApi = await ApiService.getAllMachinesFromMongo();
+      for (final m in fromMachinesApi) {
+        final mm = Map<String, dynamic>.from(m);
+        final id = (mm['id'] ?? mm['_id'] ?? mm['machineId'] ?? '')
+            .toString()
+            .trim();
+        if (id.isNotEmpty) {
+          mm['id'] = id;
+        }
+        if (id.isNotEmpty) {
+          mergedById[id] = mm;
+        } else {
+          final fallbackKey = 'name:${(mm['name'] ?? '').toString().trim().toLowerCase()}';
+          mergedById[fallbackKey] = mm;
+        }
+      }
+    } catch (_) {}
+
+    try {
+      final workspace = await ApiService.getConceptionWorkspace();
+      final dynamic rawList =
+          workspace['machines'] ?? workspace['data'] ?? workspace['items'];
+      if (rawList is List) {
+        for (final e in rawList.whereType<Map>()) {
+          final mm = Map<String, dynamic>.from(e);
+          final id = (mm['id'] ?? mm['_id'] ?? mm['machineId'] ?? '')
+              .toString()
+              .trim();
+          if (id.isNotEmpty) {
+            mm['id'] = id;
+          }
+          if (id.isNotEmpty) {
+            // Évite qu'une version workspace obsolète écrase les données
+            // fraîches Mongo (ex: image mise à jour juste après édition).
+            if (mergedById.containsKey(id)) {
+              mergedById[id] = {
+                ...mm,
+                ...mergedById[id]!,
+              };
+            } else {
+              mergedById[id] = mm;
+            }
+          } else {
+            final fallbackKey = 'name:${(mm['name'] ?? '').toString().trim().toLowerCase()}';
+            if (mergedById.containsKey(fallbackKey)) {
+              mergedById[fallbackKey] = {
+                ...mm,
+                ...mergedById[fallbackKey]!,
+              };
+            } else {
+              mergedById[fallbackKey] = mm;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    return mergedById.values.toList();
   }
 
   List<Map<String, dynamic>> get _filteredMachines {
@@ -140,6 +631,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            _buildPurchaseRequestsPanel(),
+            const SizedBox(height: 20),
+            _buildArchivesPanel(),
+            const SizedBox(height: 20),
             _buildStatsGrid(),
             const SizedBox(height: 32),
             _buildMainSectionHeader(),
@@ -154,6 +649,186 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             _buildPagination(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildPurchaseRequestsPanel() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: sidebarColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.shopping_cart_checkout, color: primaryColor),
+              const SizedBox(width: 8),
+              Text(
+                'Demandes d\'achat (Home)',
+                style: GoogleFonts.spaceGrotesk(
+                  color: textColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: _loadingRequests ? null : _fetchPurchaseRequests,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('Actualiser'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (_loadingRequests)
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else if (_purchaseRequests.isEmpty)
+            Text(
+              'Aucune demande d\'achat en attente.',
+              style: GoogleFonts.inter(color: mutedTextColor),
+            )
+          else
+            ..._purchaseRequests.take(8).map((r) {
+              final status = (r['status'] ?? 'PENDING').toString();
+              final pending = status == 'PENDING';
+              return Container(
+                margin: const EdgeInsets.only(top: 10),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: cardColor,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${r['requesterName'] ?? 'Client'} • ${(r['machineName'] ?? r['machineId'] ?? '').toString()}',
+                            style: GoogleFonts.inter(
+                              color: textColor,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Localisation: ${(r['googleMapsUrl'] ?? r['location'] ?? '—').toString()}',
+                            style: GoogleFonts.inter(
+                              color: mutedTextColor,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _statusBadge(
+                      status,
+                      status == 'VALIDATED'
+                          ? successColor
+                          : (status == 'REJECTED' ? alertColor : primaryColor),
+                    ),
+                    const SizedBox(width: 8),
+                    if (pending)
+                      TextButton(
+                        onPressed: () => _rejectRequest(r),
+                        child: const Text('Rejeter'),
+                      ),
+                    if (pending)
+                      ElevatedButton(
+                        onPressed: () => _validateAndProvisionTeam(r),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          foregroundColor: Colors.black,
+                        ),
+                        child: const Text('Valider'),
+                      ),
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildArchivesPanel() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: sidebarColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.inventory_2_outlined, color: accentColor),
+              const SizedBox(width: 8),
+              Text(
+                'Archives pannes (rapport final)',
+                style: GoogleFonts.spaceGrotesk(
+                  color: textColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: _loadingArchives ? null : _fetchArchives,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('Actualiser'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (_loadingArchives)
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else if (_archives.isEmpty)
+            Text(
+              'Aucune archive disponible.',
+              style: GoogleFonts.inter(color: mutedTextColor),
+            )
+          else
+            ..._archives.take(8).map((a) {
+              final iid = (a['interventionId'] ?? '').toString();
+              return ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  '${a['scenarioLabel'] ?? 'Intervention'}',
+                  style: GoogleFonts.inter(
+                    color: textColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                subtitle: Text(
+                  'Intervention: $iid • Machine: ${(a['machineId'] ?? '').toString()}',
+                  style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
+                ),
+                trailing: OutlinedButton.icon(
+                  onPressed: () => _showArchiveExport(a),
+                  icon: const Icon(Icons.download_for_offline_outlined, size: 16),
+                  label: const Text('Exporter'),
+                ),
+              );
+            }),
+        ],
       ),
     );
   }
@@ -374,6 +1049,25 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               textStyle: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13),
             ),
           ),
+          const SizedBox(width: 12),
+          OutlinedButton.icon(
+            onPressed: _loading ? null : _fetchMachines,
+            icon: _loading
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('Rafraîchir'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: textColor,
+              side: BorderSide(color: Colors.white.withOpacity(0.2)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              textStyle: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 12),
+            ),
+          ),
           const SizedBox(width: 24),
           Stack(
             children: [
@@ -494,7 +1188,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'RÉPERTOIRE DES MACHINES',
+              'LISTE DE TOUTES LES MACHINES',
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 32,
                 fontWeight: FontWeight.w900,
@@ -508,7 +1202,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                 Container(width: 40, height: 2, color: primaryColor),
                 const SizedBox(width: 12),
                 Text(
-                  'SYNC MONGO DB ATLAS // ${_allMachines.length} UNITÉS',
+                  'TOUTES LES MACHINES EN BASE // ${_allMachines.length} UNITÉS',
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
@@ -611,14 +1305,178 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
-            childAspectRatio: 0.72,
-            crossAxisSpacing: 24,
-            mainAxisSpacing: 24,
+            childAspectRatio: 0.80,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
           ),
           itemCount: machines.length,
-          itemBuilder: (context, index) => _buildMachineCard(machines[index]),
+          itemBuilder: (context, index) => _buildMachineGalleryCard(machines[index]),
         );
       },
+    );
+  }
+
+  Widget _buildMachineGalleryCard(Map<String, dynamic> m) {
+    final id = (m['id'] ?? m['_id'] ?? m['machineId'] ?? '').toString();
+    final name = (m['name'] ?? 'Machine sans nom').toString();
+    final ref = (m['machineId'] ?? m['reference'] ?? 'REF-000').toString().toUpperCase();
+    final type = (m['type'] ?? m['category'] ?? 'Non categorisee').toString();
+    final location = (m['location'] ?? 'Localisation inconnue').toString();
+    final isPublished = m['isPublished'] == true || m['status'] == 'active' || m['status'] == 'Publié';
+    final has3D = m['has3D'] == true ||
+        m['threeDModel'] != null ||
+        (m['model3dUrl'] ?? '').toString().trim().isNotEmpty;
+    final dateRaw = (m['createdAt'] ?? m['dateAjout'] ?? '').toString();
+    final dateLabel = dateRaw.contains('T') ? dateRaw.split('T').first : (dateRaw.isEmpty ? 'Date non definie' : dateRaw);
+    final imageUrl = (m['imageUrl'] ?? '').toString();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF171733),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Stack(
+            children: [
+              _buildMachineImageWidget(
+                imageUrl,
+                height: 154,
+                width: double.infinity,
+                fit: BoxFit.cover,
+              ),
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withOpacity(0.15),
+                        Colors.black.withOpacity(0.55),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 10,
+                left: 10,
+                child: Row(
+                  children: [
+                    _statusBadge(
+                      isPublished ? 'PUBLIC' : 'NON PUBLIC',
+                      isPublished ? const Color(0xFF4CAF50) : const Color(0xFFE53935),
+                    ),
+                    const SizedBox(width: 6),
+                    _statusBadge(
+                      has3D ? '3D DISPONIBLE' : 'NO 3D',
+                      has3D ? const Color(0xFF26C6DA) : const Color(0xFF8A8AA1),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'REF: $ref',
+                    style: GoogleFonts.inter(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: primaryColor,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w700,
+                      color: textColor,
+                      height: 1.0,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Categorie\n$type',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(fontSize: 10, color: mutedTextColor, height: 1.25),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Localisation\n$location',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(fontSize: 10, color: mutedTextColor, height: 1.25),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Date d\'ajout\n$dateLabel',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(fontSize: 10, color: mutedTextColor, height: 1.25),
+                  ),
+                  const Spacer(),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _cardButton(Icons.visibility_outlined, 'DETAILS', const Color(0xFF212142), () => _openDetails(id)),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _cardButton(Icons.view_in_ar_outlined, 'VOIR 3D', const Color(0xFF212142), () => _open3DForMachine(m)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _cardButton(
+                          Icons.edit_outlined,
+                          'MODIFIER',
+                          const Color(0xFF212142),
+                          () => _showEditMachineDialog(m),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _cardButton(
+                          Icons.delete_outline,
+                          'EFFACER',
+                          const Color(0xFF3A1D2A),
+                          () => _confirmDelete(id, name),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -646,9 +1504,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     final isPublished = m['isPublished'] == true || m['status'] == 'active' || m['status'] == 'Publié';
     final statusLabel = isPublished ? 'Publié' : 'Non publié';
     final has3D = m['has3D'] == true || m['threeDModel'] != null;
-    final imageUrl = (m['imageUrl'] ?? '').toString().isNotEmpty 
-        ? m['imageUrl'] 
-        : 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?q=80&w=800';
+    final imageUrl = (m['imageUrl'] ?? '').toString();
 
     return Container(
       decoration: BoxDecoration(
@@ -663,8 +1519,21 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           // Image Section
           Stack(
             children: [
-              Image.network(imageUrl, height: 180, width: double.infinity, fit: BoxFit.cover, 
-                errorBuilder: (_, __, ___) => Container(color: cardColor, height: 180, child: const Icon(Icons.precision_manufacturing, color: mutedTextColor, size: 48))),
+              _buildMachineImageWidget(
+                imageUrl,
+                height: 180,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                fallback: Container(
+                  color: cardColor,
+                  height: 180,
+                  child: const Icon(
+                    Icons.precision_manufacturing,
+                    color: mutedTextColor,
+                    size: 48,
+                  ),
+                ),
+              ),
               Positioned(
                 top: 12,
                 left: 12,
@@ -874,15 +1743,20 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
   Widget _statusBadge(String label, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withOpacity(0.4)),
+        color: color.withOpacity(0.20),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.65)),
       ),
       child: Text(
         label,
-        style: GoogleFonts.inter(fontSize: 8, fontWeight: FontWeight.bold, color: color),
+        style: GoogleFonts.inter(
+          fontSize: 8,
+          fontWeight: FontWeight.w800,
+          color: color,
+          letterSpacing: 0.4,
+        ),
       ),
     );
   }
@@ -950,7 +1824,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   }
 
   Widget _buildPagination() {
-    final count = _filteredMachines.length;
+    final count = _allMachines.length;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -1011,13 +1885,55 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     );
   }
 
+  void _open3DForMachine(Map<String, dynamic> m) {
+    final id = (m['id'] ?? m['_id'] ?? '').toString().trim();
+    if (id.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Machine invalide: identifiant introuvable.'),
+            backgroundColor: alertColor,
+          ),
+        );
+      }
+      return;
+    }
+    _openDetails(id);
+  }
+
   Future<void> _confirmDelete(String id, String name) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: sidebarColor,
         title: Text('Supprimer $name ?', style: GoogleFonts.spaceGrotesk(color: textColor)),
-        content: Text('Cette action est irréversible.', style: GoogleFonts.inter(color: mutedTextColor)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Cette action est irréversible.',
+              style: GoogleFonts.inter(color: mutedTextColor),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Machine ciblée :',
+              style: GoogleFonts.inter(
+                color: textColor,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Nom: $name',
+              style: GoogleFonts.inter(color: mutedTextColor),
+            ),
+            Text(
+              'ID: $id',
+              style: GoogleFonts.inter(color: primaryColor, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ANNULER')),
           TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('SUPPRIMER', style: TextStyle(color: alertColor))),
@@ -1051,52 +1967,227 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   }
 
   void _showAddMachineDialog() {
-    // Navigate to add client view if we need a client, but here we just show a message
-    // as addMachine requires a clientId in ApiService.
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: sidebarColor,
-        title: Text('Ajouter une machine', style: GoogleFonts.spaceGrotesk(color: textColor)),
-        content: Text('Pour ajouter une machine, veuillez utiliser le catalogue client ou contacter l\'administrateur.', style: GoogleFonts.inter(color: mutedTextColor)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
-        ],
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AddMachinePage(actorRole: 'conception'),
       ),
-    );
+    ).then((result) {
+      if (result != null) {
+        if (result is Map<String, dynamic>) {
+          setState(() {
+            final created = Map<String, dynamic>.from(result);
+            _allMachines.insert(0, created);
+          });
+          _fetchMachines();
+        } else {
+          _fetchMachines();
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Machine ajoutee et synchronisee dans le dashboard Concepteur.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    });
   }
 
   void _showEditMachineDialog(Map<String, dynamic> m) {
-    // Similar to add machine, but with prefilled data
     final id = (m['id'] ?? m['_id'] ?? '').toString();
     final nameController = TextEditingController(text: m['name'] ?? '');
+    final imageUrlController = TextEditingController(
+      text: _toEditImageValue((m['imageUrl'] ?? '').toString()),
+    );
+    final model3dController = TextEditingController(text: (m['model3dUrl'] ?? m['threeDModel'] ?? '').toString());
+    final locationController = TextEditingController(text: (m['location'] ?? '').toString());
+    final typeController = TextEditingController(text: (m['type'] ?? m['category'] ?? '').toString());
     
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: sidebarColor,
-        title: Text('Éditer machine', style: GoogleFonts.spaceGrotesk(color: textColor)),
-        content: TextField(
-          controller: nameController,
-          decoration: const InputDecoration(labelText: 'Nom de la machine'),
-          style: const TextStyle(color: Colors.white),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('ANNULER')),
-          TextButton(
-            onPressed: () async {
-              try {
-                await ApiService.updateMachine(id, {'name': nameController.text.trim()});
-                Navigator.pop(context);
-                _fetchMachines();
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: alertColor));
-              }
-            }, 
-            child: const Text('ENREGISTRER', style: TextStyle(color: primaryColor))
+      builder: (context) {
+        String selectedImage = _normalizeMachineImageValue(imageUrlController.text);
+        return StatefulBuilder(
+          builder: (context, setLocalState) => AlertDialog(
+            backgroundColor: sidebarColor,
+            title: Text('Éditer machine', style: GoogleFonts.spaceGrotesk(color: textColor)),
+            content: SizedBox(
+              width: 480,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      decoration: const InputDecoration(labelText: 'Nom de la machine'),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: imageUrlController,
+                            decoration: const InputDecoration(labelText: 'Photo (URL image)'),
+                            style: const TextStyle(color: Colors.white),
+                            onChanged: (v) => setLocalState(() {
+                              selectedImage = _normalizeMachineImageValue(v);
+                            }),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            final dataUrl = await _pickImageAsDataUrl();
+                            if (dataUrl != null && dataUrl.isNotEmpty) {
+                              setLocalState(() {
+                                selectedImage = dataUrl;
+                                imageUrlController.text = dataUrl;
+                              });
+                            }
+                          },
+                          icon: const Icon(Icons.upload_file, size: 16),
+                          label: const Text('Choisir photo'),
+                        ),
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            setLocalState(() {
+                              selectedImage = '';
+                              imageUrlController.clear();
+                            });
+                          },
+                          icon: const Icon(Icons.delete_outline, size: 16),
+                          label: const Text('Supprimer photo'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      height: 120,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: bgColor.withOpacity(0.45),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: selectedImage.isEmpty
+                          ? const Center(child: Icon(Icons.image_outlined, color: mutedTextColor))
+                          : (_looksLikeNetworkImage(selectedImage)
+                              ? Image.network(
+                                  selectedImage,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => const Center(
+                                    child: Icon(Icons.broken_image_outlined, color: mutedTextColor),
+                                  ),
+                                )
+                              : (_looksLikeDataImage(selectedImage)
+                                  ? Image.memory(
+                                      base64Decode(selectedImage.split(',').last),
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Center(
+                                        child: Icon(Icons.broken_image_outlined, color: mutedTextColor),
+                                      ),
+                                    )
+                                  : const Center(
+                                      child: Text(
+                                        'Aperçu indisponible (URL invalide)',
+                                        style: TextStyle(color: mutedTextColor, fontSize: 12),
+                                      ),
+                                    ))),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: model3dController,
+                      decoration: const InputDecoration(labelText: 'Modèle 3D (URL/fichier)'),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: typeController,
+                      decoration: const InputDecoration(labelText: 'Catégorie'),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: locationController,
+                      decoration: const InputDecoration(labelText: 'Localisation'),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('ANNULER')),
+              TextButton(
+                onPressed: () async {
+                  try {
+                    final rawImageInput = imageUrlController.text.trim();
+                    if (_looksLikeLocalFilePath(rawImageInput)) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Chemin local detecte. Utilisez "Choisir photo" pour televerser une image.',
+                            ),
+                            backgroundColor: alertColor,
+                          ),
+                        );
+                      }
+                      return;
+                    }
+                    final normalizedImage =
+                        _normalizeMachineImageValue(rawImageInput);
+                    final payload = <String, dynamic>{
+                      'name': nameController.text.trim(),
+                      'imageUrl': normalizedImage,
+                      'model3dUrl': model3dController.text.trim(),
+                      'type': typeController.text.trim(),
+                      'location': locationController.text.trim(),
+                    };
+                    await ApiService.updateMachine(id, payload);
+                    if (mounted) {
+                      setState(() {
+                        final idx = _allMachines.indexWhere((x) {
+                          final xid = (x['id'] ?? x['_id'] ?? x['machineId'] ?? '')
+                              .toString();
+                          return xid == id;
+                        });
+                        if (idx != -1) {
+                          _allMachines[idx] = {
+                            ..._allMachines[idx],
+                            ...payload,
+                          };
+                        }
+                      });
+                    }
+                    Navigator.pop(context);
+                    _fetchMachines();
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Machine mise à jour avec succès.'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Erreur: $e'), backgroundColor: alertColor),
+                    );
+                  }
+                },
+                child: const Text('ENREGISTRER', style: TextStyle(color: primaryColor)),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

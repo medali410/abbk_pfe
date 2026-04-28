@@ -700,6 +700,105 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           'Rapport vibratoire — baseline',
           'PDF · Signature FFT référence',
         ),
+        const SizedBox(height: 28),
+        Text(
+          'Historique des pannes (archives)',
+          style: GoogleFonts.inter(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: _onSurface,
+          ),
+        ),
+        const SizedBox(height: 8),
+        FutureBuilder<List<Map<String, dynamic>>>(
+          future: ApiService.getInterventionArchives(machineId: mid),
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting) {
+              return const Padding(
+                padding: EdgeInsets.all(12),
+                child: CircularProgressIndicator(),
+              );
+            }
+            if (snap.hasError) {
+              return Text(
+                'Archives indisponibles: ${snap.error}',
+                style: GoogleFonts.inter(color: _onSurfaceVariant),
+              );
+            }
+            final rows = snap.data ?? const <Map<String, dynamic>>[];
+            if (rows.isEmpty) {
+              return Text(
+                'Aucune panne terminée archivée pour cette machine.',
+                style: GoogleFonts.inter(color: _onSurfaceVariant),
+              );
+            }
+            return Column(
+              children:
+                  rows.take(6).map((a) {
+                    final iid = (a['interventionId'] ?? '').toString();
+                    final lbl = (a['scenarioLabel'] ?? 'Panne').toString();
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        lbl,
+                        style: GoogleFonts.inter(
+                          color: _onSurface,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      subtitle: Text(
+                        iid,
+                        style: GoogleFonts.spaceGrotesk(
+                          color: _onSurfaceVariant,
+                          fontSize: 11,
+                        ),
+                      ),
+                      trailing: TextButton.icon(
+                        onPressed: () async {
+                          final data = await ApiService.exportInterventionArchive(
+                            iid,
+                          );
+                          if (!mounted) return;
+                          showDialog<void>(
+                            context: context,
+                            builder:
+                                (ctx) => AlertDialog(
+                                  backgroundColor: _surfaceContainerLow,
+                                  title: Text(
+                                    'Archive $iid',
+                                    style: GoogleFonts.inter(color: _onSurface),
+                                  ),
+                                  content: SizedBox(
+                                    width: 560,
+                                    child: SingleChildScrollView(
+                                      child: SelectableText(
+                                        const JsonEncoder.withIndent(
+                                          '  ',
+                                        ).convert(data),
+                                        style: GoogleFonts.spaceGrotesk(
+                                          color: _onSurface,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx),
+                                      child: const Text('Fermer'),
+                                    ),
+                                  ],
+                                ),
+                          );
+                        },
+                        icon: const Icon(Icons.download, size: 16),
+                        label: const Text('Exporter'),
+                      ),
+                    );
+                  }).toList(),
+            );
+          },
+        ),
         const SizedBox(height: 48),
       ],
     );
@@ -787,14 +886,18 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             child: Row(
               children: [
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 170,
+                  height: 46,
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                   decoration: BoxDecoration(
-                    color: _primary,
-                    borderRadius: BorderRadius.circular(10),
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.precision_manufacturing,
-                      color: Colors.white, size: 22),
+                  child: Image.asset(
+                    'assets/images/abbk_logo.png',
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Column(
@@ -808,14 +911,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                         color: _onSurface,
                       ),
                     ),
-                    Text(
-                      'PREDICTIVE CLOUD',
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 9,
-                        color: _primary,
-                        letterSpacing: 2.0,
-                      ),
-                    ),
+                    const SizedBox.shrink(),
                   ],
                 ),
               ],

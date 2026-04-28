@@ -24,6 +24,12 @@ class ApiService {
     return r == 'superadmin' || r == 'admin';
   }
 
+  /// Autorisé à ajouter des machines : rôle Concepteur uniquement.
+  static bool get canAddMachineAsConcepteur {
+    final r = (_userRole ?? '').toLowerCase();
+    return r == 'concepteur' || r == 'conception';
+  }
+
   static Future<void> loadSavedAuth() async {
     final p = await SharedPreferences.getInstance();
     _authToken = p.getString(_kToken);
@@ -193,6 +199,47 @@ class ApiService {
     }
   }
 
+  /// Toutes les machines présentes en MongoDB (inclut non assignées / companyId vide).
+  static Future<List<Map<String, dynamic>>> getAllMachinesFromMongo() async {
+    final response = await http.get(Uri.parse('$baseUrl/machines?includeAllMongo=1'));
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    } else {
+      throw Exception('Erreur de chargement complet des machines Mongo');
+    }
+  }
+
+  /// Catalogue public home: on essaie d'abord la source Mongo complète.
+  /// Fallback sur l'endpoint standard pour rester compatible avec d'anciens backends.
+  static Future<List<Map<String, dynamic>>> getMachinesForHomeCatalog() async {
+    try {
+      return await getAllMachinesFromMongo();
+    } catch (_) {
+      try {
+        return await getMachines();
+      } catch (e) {
+        throw Exception(
+          'Chargement machines impossible via API_BASE ($baseUrl). '
+          'Lancez Flutter avec --dart-define=API_BASE=http://127.0.0.1:3001 ou vérifiez le backend. Détail: $e',
+        );
+      }
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> getUnassignedMachines() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/machines/unassigned'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    } else {
+      throw Exception('Erreur de chargement des machines non assignées');
+    }
+  }
+
   static Future<Map<String, dynamic>?> getLatestTelemetry(String machineId) async {
     final response =
         await http.get(Uri.parse('$baseUrl/historique?machineId=$machineId'));
@@ -283,6 +330,73 @@ class ApiService {
     }
   }
 
+  static Future<Map<String, dynamic>> createPurchaseRequest(
+    Map<String, dynamic> data,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/purchase-requests'),
+      headers: _jsonHeaders(),
+      body: json.encode(data),
+    );
+    if (response.statusCode == 201) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    _throwApiError(response, 'Creation de la demande d\'achat refusee');
+  }
+
+  static Future<List<Map<String, dynamic>>> getPurchaseRequests({
+    String? status,
+  }) async {
+    final uri = Uri.parse('$baseUrl/purchase-requests').replace(
+      queryParameters:
+          (status != null && status.trim().isNotEmpty)
+              ? {'status': status.trim().toUpperCase()}
+              : null,
+    );
+    final response = await http.get(
+      uri,
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    _throwApiError(response, 'Chargement des demandes d\'achat impossible');
+  }
+
+  static Future<void> updatePurchaseRequestStatus(
+    String id,
+    String status, {
+    String reviewedByName = '',
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/purchase-requests/$id/status'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode({
+        'status': status.toUpperCase(),
+        if (reviewedByName.trim().isNotEmpty)
+          'reviewedByName': reviewedByName.trim(),
+      }),
+    );
+    if (response.statusCode == 200) return;
+    _throwApiError(response, 'Mise a jour demande achat impossible');
+  }
+
+  static Future<Map<String, dynamic>> provisionPurchaseRequestTeam(
+    String purchaseRequestId,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/purchase-requests/$purchaseRequestId/provision-team'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode(body),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    _throwApiError(response, 'Provision equipe impossible');
+  }
+
   static Future<Map<String, dynamic>> addMachine(String clientId, Map<String, dynamic> data) async {
     final response = await http.post(
       Uri.parse('$baseUrl/clients/$clientId/machines'),
@@ -290,6 +404,40 @@ class ApiService {
       body: json.encode(data),
     );
     if (response.statusCode == 201) {
+      return json.decode(response.body);
+    } else {
+      throw Exception('HTTP ${response.statusCode}: ${response.body}');
+    }
+  }
+
+  static Future<Map<String, dynamic>> createStandaloneMachine(
+    Map<String, dynamic> data, {
+    String actorRole = '',
+  }) async {
+    final routeRole = actorRole.toLowerCase().trim();
+    final roleAllowed = routeRole == 'concepteur' || routeRole == 'conception';
+    if (!roleAllowed && !canAddMachineAsConcepteur) {
+      throw Exception('Accès refusé : seul le rôle Concepteur peut ajouter une machine.');
+    }
+    final response = await http.post(
+      Uri.parse('$baseUrl/machines'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode(data),
+    );
+    if (response.statusCode == 201) {
+      return json.decode(response.body);
+    } else {
+      _throwApiError(response, 'Creation machine refusee');
+    }
+  }
+
+  static Future<Map<String, dynamic>> assignMachineToClient(String machineId, String clientId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/machines/$machineId/assign-client'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode({'clientId': clientId}),
+    );
+    if (response.statusCode == 200) {
       return json.decode(response.body);
     } else {
       throw Exception('HTTP ${response.statusCode}: ${response.body}');
@@ -334,9 +482,7 @@ class ApiService {
       final response = await http.get(Uri.parse('$baseUrl/companies'));
       if (response.statusCode == 200) {
         List<dynamic> body = json.decode(response.body);
-        if (body is List) {
-          return body.map((e) => e as Map<String, dynamic>).toList();
-        }
+        return body.map((e) => e as Map<String, dynamic>).toList();
       }
     } catch (_) {}
     return await getClients();
@@ -483,7 +629,7 @@ class ApiService {
 
   static Future<void> deleteMachine(String machineId) async {
     final response = await http.delete(
-      Uri.parse('$baseUrl/machines/$machineId'),
+      Uri.parse('$baseUrl/machines/$machineId?localMongo=1'),
       headers: await jsonHeadersAuthorized(),
     );
     if (response.statusCode == 200) return;
@@ -766,6 +912,48 @@ class ApiService {
     _throwApiError(response, 'Suppression de l\'intervention refusée');
   }
 
+  static Future<List<Map<String, dynamic>>> getInterventionArchives({
+    String? machineId,
+    String? companyId,
+    String? interventionId,
+  }) async {
+    final qp = <String, String>{
+      if (machineId != null && machineId.trim().isNotEmpty)
+        'machineId': machineId.trim(),
+      if (companyId != null && companyId.trim().isNotEmpty)
+        'companyId': companyId.trim(),
+      if (interventionId != null && interventionId.trim().isNotEmpty)
+        'interventionId': interventionId.trim(),
+    };
+    final uri = Uri.parse('$baseUrl/intervention-archives').replace(
+      queryParameters: qp.isEmpty ? null : qp,
+    );
+    final response = await http.get(
+      uri,
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    _throwApiError(response, 'Chargement des archives de pannes impossible');
+  }
+
+  static Future<Map<String, dynamic>> exportInterventionArchive(
+    String interventionId,
+  ) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/intervention-archives/$interventionId/export'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final dynamic decoded = json.decode(response.body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return {'raw': decoded};
+    }
+    _throwApiError(response, 'Export archive impossible');
+  }
+
   static Future<void> reassignDiagnosticTechnician(String id, {required String technicianId, required String technicianName}) async {
     final response = await http.patch(
       Uri.parse('$baseUrl/diagnostic-interventions/$id/reassign'),
@@ -964,13 +1152,47 @@ class ApiService {
     _throwApiError(response, 'Erreur de chargement des contrôles');
   }
 
-  static Future<void> updateControleStatus(String id, String status, {String? notes}) async {
+  static Future<List<Map<String, dynamic>>> getControlesForTechnician(
+    String technicianId, {
+    int days = 30,
+  }) async {
+    final response = await http.get(
+      Uri.parse(
+        '$baseUrl/controles/technicien/${Uri.encodeComponent(technicianId)}?days=$days',
+      ),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final dynamic data = json.decode(response.body);
+      if (data is List) {
+        return data.cast<Map<String, dynamic>>();
+      }
+      if (data is Map<String, dynamic>) {
+        final list = data['controles'] ?? data['machines'] ?? data['data'] ?? [];
+        if (list is List) {
+          return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+      return <Map<String, dynamic>>[];
+    }
+    _throwApiError(response, 'Erreur de chargement des contrôles technicien');
+  }
+
+  static Future<void> updateControleStatus(
+    String id,
+    String status, {
+    String? notes,
+    String? technicienId,
+    Map<String, dynamic>? extraPayload,
+  }) async {
     final response = await http.put(
       Uri.parse('$baseUrl/controles/$id/statut'),
       headers: await jsonHeadersAuthorized(),
       body: json.encode({
         'statut': status,
         if (notes != null) 'notes': notes,
+        if (technicienId != null && technicienId.isNotEmpty) 'technicienId': technicienId,
+        ...?extraPayload,
       }),
     );
     if (response.statusCode != 200) {

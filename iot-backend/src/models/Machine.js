@@ -25,7 +25,7 @@ const MachineSchema = new mongoose.Schema({
     speed: { type: String, default: '0 tr/min' },
     motorType: { 
         type: String, 
-        enum: ['air_cooled', 'water_cooled'],
+        enum: ['air_cooled', 'water_cooled', 'electric', 'diesel', 'EL_M'],
         default: 'air_cooled'
     },
     seuilsControle: [
@@ -65,8 +65,11 @@ const MachineSchema = new mongoose.Schema({
     maintenanceControlStartedAt: { type: Date, default: null },
     maintenanceControlEndsAt: { type: Date, default: null },
     location: { type: String, required: false },
+    // URL / nom du modèle 3D saisi depuis le dashboard conception.
+    model3dUrl: { type: String, default: '' },
     lastMaintenance: { type: Date },
-    companyId: { type: String, required: true },
+    // Peut rester vide tant que la machine n'est pas encore vendue/assignée à un client.
+    companyId: { type: String, required: false, default: '' },
     registeredVia: { type: String, enum: ['dashboard', 'arduino', 'api'], default: 'dashboard' },
     firmwareVersion: { type: String, default: '' },
     parameters: {

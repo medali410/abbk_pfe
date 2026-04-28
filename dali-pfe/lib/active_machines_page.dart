@@ -490,7 +490,7 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Liste des Machines Actives',
+                        'Liste des Machines',
                         style: GoogleFonts.inter(
                           fontSize: isDesktop ? 36 : 24,
                           fontWeight: FontWeight.w800,
@@ -500,7 +500,7 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Machines enregistrées en base (filtrables par client)',
+                        'Toutes les machines enregistrées en base (filtrables par client)',
                         style: GoogleFonts.spaceGrotesk(
                           fontSize: 14,
                           color: _onSurfaceVariant,

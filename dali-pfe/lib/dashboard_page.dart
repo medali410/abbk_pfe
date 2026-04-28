@@ -10,6 +10,7 @@ import 'add_concepteur_page.dart';
 import 'conception_list_page.dart';
 import 'add_maintenance_agent_page.dart';
 import 'maintenance_module_page.dart';
+import 'add_machine_page.dart';
 import 'services/api_service.dart';
 
 // ─────────────────────────────────────────────────────────────
@@ -24,7 +25,7 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   // 0 = overview | 1 = add client | 2 = clients | 3 = machines | 4 = équipe projet | 5 = add tech
-  // 6 = conception hub | 8 = add document conception | 9 = (libre) | 10 = add concepteur | 11 = add maintenance agent | 12 = diagnostic panne
+  // 6 = conception hub | 8 = add document conception | 9 = (libre) | 10 = add concepteur | 11 = add maintenance agent | 12 = diagnostic panne | 13 = add machine
   int _currentPage = 0;
   /// Cible du retour depuis [AddConcepteurPage] (4 = répertoire équipe, 6 = hub conception).
   int _concepteurEmbeddedReturnPage = 6;
@@ -205,6 +206,26 @@ class _DashboardPageState extends State<DashboardPage> {
       return;
     }
     if (page == 0) _fetchGlobalStats();
+    if (page == 13) {
+      final role = (ApiService.savedUserRole ?? '').toLowerCase();
+      final canAddMachine = role == 'concepteur' || role == 'conception';
+      if (!canAddMachine) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Accès refusé : seul le rôle Concepteur peut ajouter une machine.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const AddMachinePage()),
+      ).then((result) {
+        if (result == true) _fetchGlobalStats();
+      });
+      return;
+    }
     setState(() => _currentPage = page);
   }
 
@@ -366,24 +387,52 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
 
           // 3. FAB — visible on dashboard (0) and client list (2)
-          if ((_currentPage == 0 || _currentPage == 2) && ApiService.isSuperAdmin)
+          if ((_currentPage == 0 || _currentPage == 2) && ApiService.canAddMachineAsConcepteur)
             Positioned(
               right: 24,
               bottom: isDesktop ? 24 : 100,
-              child: FloatingActionButton.extended(
-                onPressed: () => _goTo(1),
-                backgroundColor: const Color(0xFFFF6E00),
-                elevation: 8,
-                icon: const Icon(Icons.add, color: Colors.white, size: 22),
-                label: Text(
-                  'Nouveau Client',
-                  style: GoogleFonts.inter(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                    letterSpacing: 1,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  FloatingActionButton.extended(
+                    onPressed: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const AddMachinePage()),
+                      );
+                      if (result == true) _fetchGlobalStats();
+                    },
+                    backgroundColor: const Color(0xFF75D1FF),
+                    elevation: 8,
+                    icon: const Icon(Icons.precision_manufacturing, color: Colors.white, size: 22),
+                    label: Text(
+                      'Ajouter Machine',
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        letterSpacing: 1,
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 10),
+                  FloatingActionButton.extended(
+                    onPressed: () => _goTo(1),
+                    backgroundColor: const Color(0xFFFF6E00),
+                    elevation: 8,
+                    icon: const Icon(Icons.add, color: Colors.white, size: 22),
+                    label: Text(
+                      'Nouveau Client',
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
         ],
@@ -481,6 +530,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _buildHeaderSection() {
+    final canAddMachine = ApiService.canAddMachineAsConcepteur;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -506,6 +556,26 @@ class _DashboardPageState extends State<DashboardPage> {
                 letterSpacing: 2.0,
               ),
             ),
+            if (!canAddMachine) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF6E00).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFFF6E00).withOpacity(0.45)),
+                ),
+                child: Text(
+                  'Ajout machine reserve au role Concepteur',
+                  style: GoogleFonts.inter(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFFFFB692),
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
         Container(
@@ -1089,7 +1159,7 @@ class _SidebarContent extends StatelessWidget {
           ),
           _SidebarMenuTile(
             icon: Icons.analytics_outlined,
-            label: 'MACHINES ACTIVES', // Updated from ASSET HEALTH to match required menu
+            label: 'LISTE DES MACHINES',
             active: currentPage == 3,
             onTap: () => onNavigate(3),
           ),
@@ -1110,6 +1180,13 @@ class _SidebarContent extends StatelessWidget {
                 (currentPage == 10 && concepteurEmbeddedReturnPage == 6),
             onTap: () => onNavigate(6),
           ),
+          if (ApiService.canAddMachineAsConcepteur)
+            _SidebarMenuTile(
+              icon: Icons.add_box_outlined,
+              label: 'AJOUTER MACHINE',
+              active: false,
+              onTap: () => onNavigate(13),
+            ),
           _SidebarMenuTile(
             icon: Icons.domain,
             label: 'CLIENT MANAGEMENT',

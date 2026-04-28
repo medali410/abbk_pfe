@@ -306,7 +306,7 @@ class _AddMaintenanceAgentPageState extends State<AddMaintenanceAgentPage> {
                   ),
                 ),
                 _field('Adresse', _address, maxLines: 2),
-                _field('Localisation (ville / site)', _location),
+                _field('Localisation (ville/site ou lien Google Maps)', _location),
                 const SizedBox(height: 8),
                 Text('CLIENT', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onVariant, letterSpacing: 1.2)),
                 const SizedBox(height: 8),

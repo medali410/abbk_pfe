@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'machine_detail_ai_page.dart';
 
@@ -24,6 +25,19 @@ class ClientPositionPage extends StatefulWidget {
 class _ClientPositionPageState extends State<ClientPositionPage> {
   int _currentNav = 0; // 0 = Fleet, 1 = Map, 2 = Health, 3 = Alerts
   Future<List<Map<String, dynamic>>>? _machinesFuture;
+
+  bool _isLikelyUrl(String value) {
+    final v = value.trim().toLowerCase();
+    return v.startsWith('http://') || v.startsWith('https://');
+  }
+
+  Future<void> _openLocationMap() async {
+    final raw = (widget.clientData?['location'] ?? '').toString().trim();
+    if (!_isLikelyUrl(raw)) return;
+    final uri = Uri.tryParse(raw);
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
 
   String _resolveRealtimeMachineId(Map<String, dynamic> machine) {
     final name = (machine['name'] ?? '').toString().toLowerCase().trim();
@@ -598,6 +612,8 @@ class _ClientPositionPageState extends State<ClientPositionPage> {
 
   // ─── Map View ───────────────────────────────────────────────
   Widget _buildMapView() {
+    final clientLocation = (widget.clientData?['location'] ?? '').toString().trim();
+    final hasMapLink = _isLikelyUrl(clientLocation);
     return Container(
       color: _surfaceContainerLowest,
       child: Stack(
@@ -655,6 +671,16 @@ class _ClientPositionPageState extends State<ClientPositionPage> {
               ),
             ),
           ),
+          if (hasMapLink)
+            Positioned(
+              top: 24,
+              right: 24,
+              child: ElevatedButton.icon(
+                onPressed: _openLocationMap,
+                icon: const Icon(Icons.open_in_new, size: 16),
+                label: const Text('Ouvrir localisation client'),
+              ),
+            ),
           
           // Pins
           Positioned(

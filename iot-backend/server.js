@@ -70,10 +70,16 @@ function requireFleetManager(req, res, next) {
     return res.status(403).json({ error: 'Accès refusé' });
 }
 
+function requireMachineCreator(req, res, next) {
+    const r = req.auth?.role;
+    if (r === 'superadmin' || r === 'admin' || r === 'conception') return next();
+    return res.status(403).json({ error: 'Accès refusé' });
+}
+
 /** Admin, technicien ou concepteur : actions terrain (arrêt moteur, ordres de maintenance ciblés). */
 function requireFieldOperator(req, res, next) {
     const r = req.auth?.role;
-    if (r === 'superadmin' || r === 'admin' || r === 'technician' || r === 'conception' || r === 'maintenance') {
+    if (r === 'superadmin' || r === 'admin' || r === 'technician' || r === 'conception' || r === 'maintenance' || r === 'client') {
         return next();
     }
     return res.status(403).json({ error: 'Accès réservé aux opérateurs terrain' });
@@ -133,14 +139,21 @@ async function assertMachineFieldAccess(req, res, machineDoc) {
             res.status(403).json({ error: 'Compte conception invalide' });
             return false;
         }
-        if (!c.companyId) {
-            res.status(403).json({ error: 'Compte non rattaché à un client (companyId)' });
-            return false;
-        }
-        const aliases = await buildCompanyAliasSet(String(c.companyId));
-        if (!aliases.has(String(machineDoc.companyId))) {
-            res.status(403).json({ error: 'Accès refusé pour cette machine' });
-            return false;
+        const resolvedCompanyId = await resolveConcepteurCompanyId(c, auth);
+        const machineCompanyId = String(machineDoc.companyId || '').trim();
+        if (resolvedCompanyId) {
+            const aliases = await buildCompanyAliasSet(String(resolvedCompanyId));
+            if (!aliases.has(machineCompanyId)) {
+                res.status(403).json({ error: 'Accès refusé pour cette machine' });
+                return false;
+            }
+        } else {
+            // Cas dev: compte conception sans rattachement + machine non rattachée.
+            // On autorise pour permettre la correction/nettoyage depuis le dashboard.
+            if (machineCompanyId) {
+                res.status(403).json({ error: 'Compte non rattaché à un client (companyId)' });
+                return false;
+            }
         }
         const ids = (c.machineIds || []).map(String);
         if (ids.length > 0 && !ids.includes(mid)) {
@@ -274,6 +287,8 @@ const MaintenanceOrder = require('./src/models/MaintenanceOrder');
 const MaintenanceAgent = require('./src/models/MaintenanceAgent');
 const DiagnosticIntervention = require('./src/models/DiagnosticIntervention');
 const Mission = require('./src/models/Mission');
+const PurchaseRequest = require('./src/models/PurchaseRequest');
+const InterventionArchive = require('./src/models/InterventionArchive');
 const scenarioService = require('./src/services/scenarioService');
 const { startTempseMarcheService } = require('./src/services/tempsMarcheService');
 const { startControleService } = require('./src/services/controleService');
@@ -300,6 +315,34 @@ async function applyTechDeltaToOwner(companyId, delta) {
     }
 }
 
+function normalizeGoogleMapsUrl(raw) {
+    const v = String(raw || '').trim();
+    if (!v) return '';
+    if (/^https?:\/\//i.test(v)) return v;
+    if (/^www\./i.test(v)) return `https://${v}`;
+    return '';
+}
+
+function _slugEmailPart(raw, fallback) {
+    const base = String(raw || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '.')
+        .replace(/^\.|\.$/g, '');
+    return base || fallback;
+}
+
+async function _nextTechnicianId() {
+    const year = new Date().getFullYear();
+    for (let i = 0; i < 80; i++) {
+        const candidate = `TECH-${year}-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`;
+        const exists = await Technician.exists({ technicianId: candidate });
+        if (!exists) return candidate;
+    }
+    return `TECH-${new mongoose.Types.ObjectId().toString().slice(-6).toUpperCase()}`;
+}
+
 async function buildCompanyAliasSet(clientIdParam) {
     const aliases = new Set([String(clientIdParam)]);
     const client = await Client.findOne({ clientId: clientIdParam }) ||
@@ -318,6 +361,29 @@ async function buildCompanyAliasSet(clientIdParam) {
         }
     }
     return aliases;
+}
+
+async function resolveConcepteurCompanyId(concepteurDoc, auth = {}) {
+    const fromDoc = concepteurDoc?.companyId != null ? String(concepteurDoc.companyId).trim() : '';
+    if (fromDoc) return fromDoc;
+
+    const fromToken = auth?.companyId != null ? String(auth.companyId).trim() : '';
+    if (fromToken) return fromToken;
+
+    // Filet de sécurité: si une seule société/client existe, on l'utilise.
+    // Cela évite le blocage des comptes conception mal seedés.
+    const clients = await Client.find({}, { _id: 1, clientId: 1 }).lean().limit(2);
+    if (clients.length === 1) {
+        const c = clients[0];
+        return c.clientId ? String(c.clientId).trim() : String(c._id).trim();
+    }
+
+    const companies = await Company.find({}, { _id: 1 }).lean().limit(2);
+    if (companies.length === 1) {
+        return String(companies[0]._id).trim();
+    }
+
+    return '';
 }
 
 async function companyMatchesAuth(auth, companyKey) {
@@ -406,6 +472,15 @@ const machineDbOnlyFilter = {
     _id: { $exists: true, $nin: [null, ''] },
     companyId: { $exists: true, $nin: [null, ''] },
 };
+const machineUnassignedFilter = {
+    _id: { $exists: true, $nin: [null, ''] },
+    $or: [
+        { companyId: { $exists: false } },
+        { companyId: null },
+        { companyId: '' },
+        { companyId: 'UNASSIGNED_POOL' },
+    ],
+};
 
 function loadCommaList(envKey, defaultStr) {
     return String(process.env[envKey] || defaultStr)
@@ -432,6 +507,44 @@ function filterOutDemoMachinesIfNeeded(docs) {
         }
         return true;
     });
+}
+
+/**
+ * Lecture explicite de la base Mongo locale (dev) pour exposer toutes les machines.
+ * Utilisé par /api/machines?includeAllMongo=1 quand on veut voir l'intégralité
+ * des documents locaux, même si la connexion principale du serveur cible Atlas.
+ */
+async function loadAllLocalMongoMachines() {
+    const localUri = 'mongodb://127.0.0.1:27017/dali_pfe';
+    const localConn = await mongoose.createConnection(localUri).asPromise();
+    try {
+        const docs = await localConn.collection('machines')
+            .find({})
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .toArray();
+        return docs.map((doc) => {
+            const o = { ...doc };
+            if (o._id != null) {
+                o.id = String(o._id);
+            }
+            delete o._id;
+            if (o.__v !== undefined) delete o.__v;
+            return o;
+        });
+    } finally {
+        await localConn.close();
+    }
+}
+
+async function deleteLocalMongoMachineById(machineId) {
+    const localUri = 'mongodb://127.0.0.1:27017/dali_pfe';
+    const localConn = await mongoose.createConnection(localUri).asPromise();
+    try {
+        const result = await localConn.collection('machines').deleteOne({ _id: machineId });
+        return result?.deletedCount || 0;
+    } finally {
+        await localConn.close();
+    }
 }
 
 function parseChatRoom(roomId = '') {
@@ -513,7 +626,9 @@ app.use(
         allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     }),
 );
-app.use(express.json());
+// Allow larger JSON bodies for machine images sent as data URLs.
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 // Les fichiers statiques sont enregistrés en fin de fichier pour que toutes les routes /api/* soient prioritaires.
 
 const PORT = 3001;
@@ -524,9 +639,19 @@ const TEMP_CRITICAL = Number(process.env.TEMP_CRITICAL || 85);
 
 const IA_MOTOR_TYPES = new Set(['EL_S', 'EL_M', 'EL_L']);
 
+function normalizeMachineMotorType(raw) {
+    const s = String(raw || '').trim().toLowerCase();
+    if (s === 'air_cooled' || s === 'air-cooled' || s === 'air') return 'air_cooled';
+    if (s === 'water_cooled' || s === 'water-cooled' || s === 'water') return 'water_cooled';
+    if (s === 'electric' || s === 'electrique' || s === 'el_s' || s === 'el_m' || s === 'el_l') return 'electric';
+    if (s === 'diesel') return 'diesel';
+    return 'electric';
+}
+
 function normalizeMotorType(raw) {
     const s = String(raw || 'EL_M').trim().toUpperCase();
     if (IA_MOTOR_TYPES.has(s)) return s;
+    if (s === 'AIR_COOLED' || s === 'WATER_COOLED' || s === 'ELECTRIC' || s === 'DIESEL') return 'EL_M';
     if (s === 'L' || s === 'LOW' || s === 'PETIT') return 'EL_S';
     if (s === 'M' || s === 'MEDIUM' || s === 'MOYEN') return 'EL_M';
     if (s === 'H' || s === 'HIGH' || s === 'LARGE') return 'EL_L';
@@ -1207,7 +1332,7 @@ app.post('/api/machines/register', async (req, res) => {
         const machine = new Machine({
             _id: machineId,
             name: name || `Machine ${machineId}`,
-            motorType: normalizeMotorType(motorType || 'EL_M'),
+            motorType: normalizeMachineMotorType(motorType || 'electric'),
             rulHoursPerModelUnit: Number.isFinite(rulScale) && rulScale > 0 ? rulScale : null,
             companyId,
             location: location || '',
@@ -1258,16 +1383,36 @@ app.get('/api/machines/:id/info', async (req, res) => {
     }
 });
 
-app.put('/api/machines/:id', requireAuth, requireFleetManager, async (req, res) => {
+app.put('/api/machines/:id', requireAuth, requireMachineCreator, async (req, res) => {
     try {
         const id = String(req.params.id);
         const machine = await Machine.findById(id);
         if (!machine) return res.status(404).json({ error: 'Machine non trouvée' });
-        if (!(await assertFleetCompanyAccess(req, res, machine.companyId))) return;
+        if (!(await assertMachineFieldAccess(req, res, machine))) return;
 
         const patch = {};
+        if (Object.prototype.hasOwnProperty.call(req.body, 'name')) {
+            const n = String(req.body.name || '').trim();
+            if (!n) return res.status(400).json({ error: 'Le nom de la machine est obligatoire' });
+            patch.name = n;
+        }
+        if (Object.prototype.hasOwnProperty.call(req.body, 'type')) {
+            patch.type = String(req.body.type || '').trim();
+        }
+        if (Object.prototype.hasOwnProperty.call(req.body, 'location')) {
+            patch.location = String(req.body.location || '').trim();
+        }
+        if (Object.prototype.hasOwnProperty.call(req.body, 'imageUrl')) {
+            patch.imageUrl = String(req.body.imageUrl || '').trim();
+        }
+        if (Object.prototype.hasOwnProperty.call(req.body, 'model3dUrl')) {
+            patch.model3dUrl = String(req.body.model3dUrl || '').trim();
+        }
+        if (Object.prototype.hasOwnProperty.call(req.body, 'threeDModel')) {
+            patch.threeDModel = String(req.body.threeDModel || '').trim();
+        }
         if (Object.prototype.hasOwnProperty.call(req.body, 'motorType')) {
-            patch.motorType = normalizeMotorType(req.body.motorType);
+            patch.motorType = normalizeMachineMotorType(req.body.motorType);
         }
         if (Object.prototype.hasOwnProperty.call(req.body, 'rulHoursPerModelUnit')) {
             const v = req.body.rulHoursPerModelUnit;
@@ -1278,9 +1423,18 @@ app.put('/api/machines/:id', requireAuth, requireFleetManager, async (req, res) 
                 patch.rulHoursPerModelUnit = Number.isFinite(n) && n > 0 ? n : null;
             }
         }
+        if (Object.prototype.hasOwnProperty.call(req.body, 'isPublished')) {
+            patch.isPublished = !!req.body.isPublished;
+        }
+        if (Object.prototype.hasOwnProperty.call(req.body, 'status')) {
+            const raw = String(req.body.status || '').trim().toUpperCase();
+            if (raw === 'ACTIVE') patch.status = 'RUNNING';
+            else if (raw === 'INACTIVE') patch.status = 'STOPPED';
+            else patch.status = raw;
+        }
 
         if (Object.keys(patch).length === 0) {
-            return res.status(400).json({ error: 'Aucun champ valide (motorType, rulHoursPerModelUnit)' });
+            return res.status(400).json({ error: 'Aucun champ valide a mettre a jour' });
         }
 
         Object.assign(machine, patch);
@@ -1289,8 +1443,13 @@ app.put('/api/machines/:id', requireAuth, requireFleetManager, async (req, res) 
         res.json({
             machineId: machine._id,
             name: machine.name,
+            type: machine.type,
+            location: machine.location,
+            imageUrl: machine.imageUrl || '',
+            model3dUrl: machine.model3dUrl || machine.threeDModel || '',
             motorType: machine.motorType,
             rulHoursPerModelUnit: machine.rulHoursPerModelUnit ?? null,
+            isPublished: !!machine.isPublished,
             status: machine.status,
         });
     } catch (err) {
@@ -1302,14 +1461,25 @@ app.put('/api/machines/:id', requireAuth, requireFleetManager, async (req, res) 
 // ROUTE: ARRÊT D'URGENCE MACHINE (depuis l'app Flutter)
 // ============================================================
 
-app.delete('/api/machines/:id', requireAuth, requireFleetManager, async (req, res) => {
+app.delete('/api/machines/:id', requireAuth, requireMachineCreator, async (req, res) => {
     try {
         const id = String(req.params.id);
+        const forceLocal = String(req.query.localMongo || '').trim() === '1';
         const machine = await Machine.findById(id);
         if (!machine) {
+            if (forceLocal) {
+                const localDeleted = await deleteLocalMongoMachineById(id);
+                if (localDeleted > 0) {
+                    io.emit('machine_deleted', { machineId: id });
+                    return res.json({ ok: true, machineId: id, deletedLocal: true });
+                }
+            }
             return res.status(404).json({ error: 'Machine non trouvée' });
         }
-        if (!(await assertFleetCompanyAccess(req, res, machine.companyId))) return;
+        // Pour le dashboard conception, la suppression locale ne doit pas être bloquée.
+        if (!(forceLocal && req.auth?.role === 'conception')) {
+            if (!(await assertMachineFieldAccess(req, res, machine))) return;
+        }
 
         const companyId = String(machine.companyId || '');
 
@@ -1318,6 +1488,10 @@ app.delete('/api/machines/:id', requireAuth, requireFleetManager, async (req, re
         await Technician.updateMany({}, { $pull: { machineIds: id } });
 
         await Machine.findByIdAndDelete(id);
+        let localDeleted = 0;
+        if (forceLocal) {
+            localDeleted = await deleteLocalMongoMachineById(id);
+        }
         _knownMachineCache.delete(id);
         if (machines[id]) {
             delete machines[id];
@@ -1337,7 +1511,7 @@ app.delete('/api/machines/:id', requireAuth, requireFleetManager, async (req, re
 
         io.emit('machine_deleted', { machineId: id });
         console.log('Machine supprimee: ' + id);
-        res.json({ ok: true, machineId: id });
+        res.json({ ok: true, machineId: id, deletedLocal: localDeleted > 0 });
     } catch (err) {
         console.error('Erreur suppression machine:', err.message);
         res.status(500).json({ error: err.message });
@@ -2487,7 +2661,83 @@ app.patch('/api/diagnostic-interventions/:id/status', requireAuth, requireFieldO
             doc.finishedAt = new Date();
         }
         await doc.save();
+
+        // Clôture: archivage complet + notification multi-rôles.
+        if (status === 'DONE') {
+            const missions = await Mission.find({ interventionId: doc._id }).sort({ createdAt: 1 }).lean();
+            const recipientsNotified = ['client', 'technician', 'superadmin', 'maintenance', 'conception'];
+            const archivePayload = {
+                interventionId: String(doc._id),
+                machineId: String(doc.machineId || ''),
+                companyId: String(doc.companyId || ''),
+                scenarioType: String(doc.scenarioType || ''),
+                scenarioLabel: String(doc.scenarioLabel || ''),
+                summary: String(doc.summary || ''),
+                finalDecision: String(doc.finalDecision || ''),
+                finalNote: String(doc.finalNote || ''),
+                status: 'DONE',
+                startedAt: doc.createdAt || null,
+                finishedAt: doc.finishedAt || new Date(),
+                technicianId: String(doc.technicianId || ''),
+                technicianName: String(doc.technicianName || ''),
+                messages: Array.isArray(doc.messages) ? doc.messages : [],
+                coordinationNotes: Array.isArray(doc.coordinationNotes) ? doc.coordinationNotes : [],
+                steps: Array.isArray(doc.steps) ? doc.steps : [],
+                missions,
+                recipientsNotified,
+            };
+            await InterventionArchive.findOneAndUpdate(
+                { interventionId: String(doc._id) },
+                archivePayload,
+                { new: true, upsert: true, setDefaultsOnInsert: true }
+            );
+
+            io.emit('breakdown_completed', {
+                interventionId: String(doc._id),
+                machineId: String(doc.machineId || ''),
+                companyId: String(doc.companyId || ''),
+                message: 'Panne terminee: rapport et historique disponibles.',
+                recipients: recipientsNotified,
+                finishedAt: archivePayload.finishedAt,
+            });
+        }
         return res.json({ ok: true });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/intervention-archives', requireAuth, requireFieldOperator, async (req, res) => {
+    try {
+        const query = {};
+        const machineId = String(req.query?.machineId || '').trim();
+        const companyId = String(req.query?.companyId || '').trim();
+        const interventionId = String(req.query?.interventionId || '').trim();
+        if (machineId) query.machineId = machineId;
+        if (companyId) query.companyId = companyId;
+        if (interventionId) query.interventionId = interventionId;
+        const docs = await InterventionArchive.find(query).sort({ createdAt: -1 }).lean();
+        return res.json(
+            docs.map((d) => ({
+                ...d,
+                id: String(d._id),
+                _id: undefined,
+                __v: undefined,
+            }))
+        );
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/intervention-archives/:interventionId/export', requireAuth, requireFieldOperator, async (req, res) => {
+    try {
+        const interventionId = String(req.params.interventionId || '').trim();
+        const doc = await InterventionArchive.findOne({ interventionId }).lean();
+        if (!doc) return res.status(404).json({ error: 'Archive introuvable' });
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="archive-${interventionId}.json"`);
+        return res.status(200).send(JSON.stringify(doc, null, 2));
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
@@ -2816,9 +3066,16 @@ app.get('/api/conception/workspace', requireAuth, async (req, res) => {
             });
         }
         const machineIds = (user.machineIds || []).map((x) => String(x).trim()).filter(Boolean);
-        const companyId = user.companyId != null ? String(user.companyId).trim() : '';
+        const companyId = await resolveConcepteurCompanyId(user, req.auth);
         let docs = [];
-        if (machineIds.length > 0) {
+        if (machineIds.length > 0 && companyId) {
+            docs = await Machine.find({
+                $or: [
+                    { _id: { $in: machineIds } },
+                    { companyId },
+                ],
+            }).lean();
+        } else if (machineIds.length > 0) {
             docs = await Machine.find({ _id: { $in: machineIds } }).lean();
         } else if (companyId) {
             docs = await Machine.find({ companyId }).lean();
@@ -3395,6 +3652,221 @@ app.delete('/api/technicians/:id', requireAuth, requireFleetManager, async (req,
 // ROUTES: CLIENTS
 // ============================================================
 
+app.post('/api/purchase-requests', async (req, res) => {
+    try {
+        const machineId = String(req.body?.machineId || '').trim();
+        const requesterName = String(req.body?.requesterName || '').trim();
+        const requesterEmail = String(req.body?.requesterEmail || '').trim().toLowerCase();
+        const requesterPhone = String(req.body?.requesterPhone || '').trim();
+        const location = String(req.body?.location || '').trim();
+        const googleMapsUrl = normalizeGoogleMapsUrl(req.body?.googleMapsUrl);
+        const note = String(req.body?.note || '').trim();
+
+        if (!machineId) return res.status(400).json({ error: 'machineId requis' });
+        if (!requesterName) return res.status(400).json({ error: 'Nom demandeur requis' });
+
+        const machine = await Machine.findById(machineId);
+        if (!machine) return res.status(404).json({ error: 'Machine introuvable' });
+
+        const doc = await PurchaseRequest.create({
+            machineId,
+            machineName: String(machine.name || machineId),
+            requesterName,
+            requesterEmail,
+            requesterPhone,
+            location,
+            googleMapsUrl,
+            note,
+            status: 'PENDING',
+        });
+
+        io.emit('purchase_request_created', {
+            id: String(doc._id),
+            machineId,
+            machineName: String(machine.name || machineId),
+            requesterName,
+            createdAt: doc.createdAt,
+        });
+
+        return res.status(201).json(doc.toJSON());
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/purchase-requests', requireAuth, requireFieldOperator, async (req, res) => {
+    try {
+        const status = String(req.query?.status || '').trim().toUpperCase();
+        const filter = {};
+        if (status && ['PENDING', 'VALIDATED', 'REJECTED'].includes(status)) {
+            filter.status = status;
+        }
+        const docs = await PurchaseRequest.find(filter).sort({ createdAt: -1 }).lean();
+        return res.json(
+            docs.map((d) => ({
+                ...d,
+                id: String(d._id),
+                _id: undefined,
+                __v: undefined,
+            }))
+        );
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+app.patch('/api/purchase-requests/:id/status', requireAuth, requireFieldOperator, async (req, res) => {
+    try {
+        const id = String(req.params.id || '').trim();
+        const status = String(req.body?.status || '').trim().toUpperCase();
+        if (!['VALIDATED', 'REJECTED'].includes(status)) {
+            return res.status(400).json({ error: 'Status invalide (VALIDATED ou REJECTED)' });
+        }
+        const doc = await PurchaseRequest.findById(id);
+        if (!doc) return res.status(404).json({ error: 'Demande introuvable' });
+        doc.status = status;
+        doc.reviewedById = String(req.auth?.sub || '');
+        doc.reviewedByRole = String(req.auth?.role || '');
+        doc.reviewedByName = String(req.body?.reviewedByName || req.auth?.role || '');
+        doc.reviewedAt = new Date();
+        await doc.save();
+        io.emit('purchase_request_updated', { id, status });
+        return res.json({ ok: true });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/purchase-requests/:id/provision-team', requireAuth, requireFieldOperator, async (req, res) => {
+    try {
+        const role = String(req.auth?.role || '').toLowerCase();
+        if (!['conception', 'admin', 'superadmin'].includes(role)) {
+            return res.status(403).json({ error: 'Action réservée au concepteur ou admin' });
+        }
+
+        const id = String(req.params.id || '').trim();
+        const doc = await PurchaseRequest.findById(id);
+        if (!doc) return res.status(404).json({ error: 'Demande introuvable' });
+
+        const machine = await Machine.findById(String(doc.machineId || '').trim());
+        if (!machine) return res.status(404).json({ error: 'Machine introuvable pour cette demande' });
+
+        const clientName = String(req.body?.clientName || doc.requesterName || '').trim();
+        const clientPassword = String(req.body?.clientPassword || '').trim();
+        const clientLocation = String(req.body?.clientLocation || doc.googleMapsUrl || doc.location || '').trim();
+
+        const technicianName = String(req.body?.technicianName || '').trim();
+        const technicianPassword = String(req.body?.technicianPassword || '').trim();
+        const technicianLocation = String(req.body?.technicianLocation || '').trim();
+
+        const maintenanceFirstName = String(req.body?.maintenanceFirstName || '').trim();
+        const maintenanceLastName = String(req.body?.maintenanceLastName || '').trim();
+        const maintenancePassword = String(req.body?.maintenancePassword || '').trim();
+        const maintenanceLocation = String(req.body?.maintenanceLocation || '').trim();
+
+        if (!clientName) return res.status(400).json({ error: 'Nom client requis' });
+        if (clientPassword.length < 6) return res.status(400).json({ error: 'Mot de passe client (min 6)' });
+        if (!technicianName || !technicianName.includes(' ')) return res.status(400).json({ error: 'Nom technicien complet requis' });
+        if (technicianPassword.length < 6) return res.status(400).json({ error: 'Mot de passe technicien (min 6)' });
+        if (!maintenanceFirstName || !maintenanceLastName) return res.status(400).json({ error: 'Nom/Prénom maintenance requis' });
+        if (maintenancePassword.length < 6) return res.status(400).json({ error: 'Mot de passe maintenance (min 6)' });
+
+        let client = null;
+        if (doc.linkedClientId) {
+            client = await Client.findOne({ clientId: doc.linkedClientId }) ||
+                (mongoose.Types.ObjectId.isValid(doc.linkedClientId) ? await Client.findById(doc.linkedClientId) : null);
+        }
+        if (!client) {
+            const clientId = `CLI-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+            const defaultClientEmail = `${_slugEmailPart(doc.requesterEmail || clientName, 'client')}.${Date.now().toString().slice(-4)}@dali-pfe.local`;
+            const email = String(doc.requesterEmail || defaultClientEmail).trim().toLowerCase();
+            const hash = await bcrypt.hash(clientPassword, 10);
+            client = await Client.create({
+                clientId,
+                name: clientName,
+                location: clientLocation,
+                address: String(doc.location || '').trim(),
+                email,
+                password: hash,
+                motorType: 'ac-induction',
+                machines: 1,
+                techs: 1,
+                alerts: 0,
+                health: 1.0,
+            });
+        } else {
+            client.name = clientName;
+            if (clientLocation) client.location = clientLocation;
+            if (clientPassword) client.password = await bcrypt.hash(clientPassword, 10);
+            await client.save();
+        }
+
+        const clientKey = String(client.clientId || client._id);
+        machine.companyId = clientKey;
+        await machine.save();
+
+        const techEmail = `${_slugEmailPart(technicianName, 'tech')}.${Date.now().toString().slice(-5)}@dali-pfe.local`;
+        const techId = await _nextTechnicianId();
+        const techHash = await bcrypt.hash(technicianPassword, 10);
+        const technician = await Technician.create({
+            name: technicianName,
+            technicianId: techId,
+            email: techEmail,
+            password: techHash,
+            phone: '',
+            specialization: 'Maintenance terrain',
+            technicalDescription: 'Créé automatiquement depuis validation achat',
+            location: technicianLocation,
+            companyId: clientKey,
+            machineIds: [String(machine._id)],
+            status: 'Disponible',
+        });
+
+        const maintEmail = `${_slugEmailPart(`${maintenanceFirstName}.${maintenanceLastName}`, 'maintenance')}.${Date.now().toString().slice(-5)}@dali-pfe.local`;
+        const maintHash = await bcrypt.hash(maintenancePassword, 10);
+        const maintenanceAgentId = await generateMaintenanceAgentId();
+        const maintenance = await MaintenanceAgent.create({
+            maintenanceAgentId,
+            firstName: maintenanceFirstName,
+            lastName: maintenanceLastName,
+            email: maintEmail,
+            password: maintHash,
+            location: maintenanceLocation,
+            clientId: clientKey,
+            machineIds: [String(machine._id)],
+        });
+
+        doc.status = 'VALIDATED';
+        doc.reviewedById = String(req.auth?.sub || '');
+        doc.reviewedByRole = role;
+        doc.reviewedByName = String(req.body?.reviewedByName || 'Concepteur');
+        doc.reviewedAt = new Date();
+        doc.linkedClientId = clientKey;
+        doc.linkedTechnicianId = String(technician.technicianId || technician._id);
+        doc.linkedMaintenanceAgentId = String(maintenance.maintenanceAgentId || maintenance._id);
+        await doc.save();
+
+        io.emit('purchase_request_provisioned', {
+            purchaseRequestId: String(doc._id),
+            machineId: String(machine._id),
+            clientId: clientKey,
+            technicianId: String(technician.technicianId),
+            maintenanceAgentId: String(maintenance.maintenanceAgentId),
+        });
+
+        return res.json({
+            ok: true,
+            purchaseRequestId: String(doc._id),
+            client: { id: String(client._id), clientId: clientKey, name: client.name, location: client.location, email: client.email },
+            machine: { id: String(machine._id), name: machine.name, companyId: machine.companyId },
+            technician: { id: String(technician._id), technicianId: technician.technicianId, name: technician.name, email: technician.email, location: technician.location },
+            maintenance: { id: String(maintenance._id), maintenanceAgentId: maintenance.maintenanceAgentId, firstName: maintenance.firstName, lastName: maintenance.lastName, email: maintenance.email, location: maintenance.location },
+        });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 app.get('/api/clients', async (req, res) => {
     try {
         const clients = await Client.find();
@@ -3723,7 +4195,7 @@ app.post('/api/clients/:id/machines', requireAuth, requireFleetManager, async (r
 
         if (!machine._id) machine._id = 'MAC-' + Date.now();
 
-        machine.motorType = normalizeMotorType(machine.motorType || 'EL_M');
+        machine.motorType = normalizeMachineMotorType(machine.motorType || 'electric');
         const rsNew = Number(restBody.rulHoursPerModelUnit);
         machine.rulHoursPerModelUnit = Number.isFinite(rsNew) && rsNew > 0 ? rsNew : null;
 
@@ -3753,6 +4225,98 @@ app.post('/api/clients/:id/machines', requireAuth, requireFleetManager, async (r
         res.status(201).json(machine);
     } catch (err) {
         console.error('❌ Erreur Ajout Machine:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/machines', requireAuth, requireMachineCreator, async (req, res) => {
+    try {
+        const body = { ...req.body };
+        const name = String(body.name || '').trim();
+        if (!name) {
+            return res.status(400).json({ error: 'Le nom de la machine est obligatoire' });
+        }
+        let companyId = '';
+        if (req.auth?.role === 'conception') {
+            const concepteur = await Concepteur.findById(String(req.auth.sub || ''));
+            if (!concepteur) {
+                return res.status(403).json({ error: 'Compte conception invalide' });
+            }
+            companyId = await resolveConcepteurCompanyId(concepteur, req.auth);
+            if (!companyId) {
+                return res.status(400).json({ error: 'Compte concepteur non rattache a un client (companyId).' });
+            }
+        }
+        const machine = new Machine({
+            ...body,
+            name,
+            companyId,
+            status: body.status || 'STOPPED',
+            registeredVia: 'dashboard',
+        });
+        if (!machine._id) machine._id = 'MAC-' + Date.now();
+        machine.motorType = normalizeMachineMotorType(machine.motorType || 'electric');
+        const rsNew = Number(body.rulHoursPerModelUnit);
+        machine.rulHoursPerModelUnit = Number.isFinite(rsNew) && rsNew > 0 ? rsNew : null;
+        await machine.save();
+        res.status(201).json(machine);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/machines/unassigned', requireAuth, requireFleetManager, async (req, res) => {
+    try {
+        let docs = await Machine.find(machineUnassignedFilter)
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .lean();
+        docs = filterOutDemoMachinesIfNeeded(docs);
+        res.set('Cache-Control', 'no-store, must-revalidate');
+        res.json(serializeMachineDocs(docs));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/machines/:id/assign-client', requireAuth, requireFleetManager, async (req, res) => {
+    try {
+        const machineId = String(req.params.id);
+        const targetClientId = String(req.body?.clientId || '').trim();
+        if (!targetClientId) {
+            return res.status(400).json({ error: 'clientId est obligatoire' });
+        }
+        const machine = await Machine.findById(machineId);
+        if (!machine) return res.status(404).json({ error: 'Machine non trouvée' });
+
+        const fromCompany = String(machine.companyId || '').trim();
+        if (fromCompany) {
+            if (!(await assertFleetCompanyAccess(req, res, fromCompany))) return;
+        }
+        if (!(await assertFleetCompanyAccess(req, res, targetClientId))) return;
+
+        machine.companyId = targetClientId;
+        await machine.save();
+
+        let updatedClient = await Client.findOneAndUpdate(
+            { clientId: targetClientId },
+            { $inc: { machines: 1 } },
+            { new: true }
+        );
+        if (!updatedClient && mongoose.Types.ObjectId.isValid(targetClientId)) {
+            updatedClient = await Client.findByIdAndUpdate(targetClientId, { $inc: { machines: 1 } })
+                || await Company.findByIdAndUpdate(targetClientId, { $inc: { machines: 1 } });
+        }
+
+        if (fromCompany && fromCompany !== targetClientId) {
+            await Client.findOneAndUpdate({ clientId: fromCompany }, { $inc: { machines: -1 } });
+            if (mongoose.Types.ObjectId.isValid(fromCompany)) {
+                await Client.findByIdAndUpdate(fromCompany, { $inc: { machines: -1 } });
+                await Company.findByIdAndUpdate(fromCompany, { $inc: { machines: -1 } });
+            }
+        }
+
+        res.json(machine.toJSON ? machine.toJSON() : machine);
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -3794,10 +4358,23 @@ app.get('/api/clients/:id/technicians', async (req, res) => {
 
 app.get('/api/machines', async (req, res) => {
     try {
-        let docs = await Machine.find(machineDbOnlyFilter)
+        const includeAllMongo = String(req.query.includeAllMongo || '').trim() === '1';
+        if (includeAllMongo) {
+            const localDocs = await loadAllLocalMongoMachines();
+            res.set('Cache-Control', 'no-store, must-revalidate');
+            return res.json(localDocs);
+        }
+        const baseFilter = includeAllMongo
+            ? { _id: { $exists: true, $nin: [null, ''] } }
+            : machineDbOnlyFilter;
+        let docs = await Machine.find(baseFilter)
             .sort({ updatedAt: -1, createdAt: -1 })
             .lean();
-        docs = filterOutDemoMachinesIfNeeded(docs);
+        // En mode "toutes machines Mongo", on garde toutes les entrées (même non assignées).
+        // Sinon on conserve le filtre métier actuel.
+        if (!includeAllMongo) {
+            docs = filterOutDemoMachinesIfNeeded(docs);
+        }
         res.set('Cache-Control', 'no-store, must-revalidate');
         res.json(serializeMachineDocs(docs));
     } catch (err) {

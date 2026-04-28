@@ -208,7 +208,17 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
   Future<void> _finishIntervention() async {
     try {
       await ApiService.setDiagnosticStatus(widget.interventionId, 'DONE');
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Panne terminee: notifications envoyees et archive disponible.',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context);
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
     }
