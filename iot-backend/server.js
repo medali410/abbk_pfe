@@ -343,6 +343,67 @@ async function _nextTechnicianId() {
     return `TECH-${new mongoose.Types.ObjectId().toString().slice(-6).toUpperCase()}`;
 }
 
+function _escapeHtmlMail(s) {
+    return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function _isSyntheticClientEmail(email) {
+    return /@dali-pfe\.local$/i.test(String(email || '').trim());
+}
+
+/** Envoi optionnel des identifiants (SMTP dans .env). Sans configuration, ne fait rien. */
+async function sendClientCredentialsEmail({ to, clientName, plainPassword }) {
+    const host = String(process.env.SMTP_HOST || '').trim();
+    if (!host) {
+        return { sent: false, reason: 'smtp_not_configured' };
+    }
+    if (_isSyntheticClientEmail(to)) {
+        return { sent: false, reason: 'synthetic_email_skip' };
+    }
+    let nodemailer;
+    try {
+        nodemailer = require('nodemailer');
+    } catch {
+        return { sent: false, reason: 'nodemailer_missing' };
+    }
+    const port = parseInt(String(process.env.SMTP_PORT || '587'), 10) || 587;
+    const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
+    const user = String(process.env.SMTP_USER || '').trim();
+    const pass = String(process.env.SMTP_PASS || '').trim();
+    const from = String(process.env.MAIL_FROM || user || 'noreply@localhost').trim();
+    if (!user || !pass) {
+        return { sent: false, reason: 'smtp_credentials_missing' };
+    }
+    const loginUrl = String(process.env.APP_LOGIN_URL || 'http://localhost:50666/#/login').trim();
+    const transporter = nodemailer.createTransport({ host, port, secure, auth: { user, pass } });
+    const subject = 'Vos identifiants de connexion';
+    const text = [
+        `Bonjour ${clientName},`,
+        '',
+        'Votre compte client a ete cree. Connexion :',
+        '',
+        `Email : ${to}`,
+        `Mot de passe : ${plainPassword}`,
+        '',
+        `Lien : ${loginUrl}`,
+        '',
+        'Conseil : changez ce mot de passe apres la premiere connexion si possible.',
+    ].join('\n');
+    const html = `<p>Bonjour <strong>${_escapeHtmlMail(clientName)}</strong>,</p>
+<p>Votre compte client a ete cree.</p>
+<ul>
+<li><strong>Email</strong> : ${_escapeHtmlMail(to)}</li>
+<li><strong>Mot de passe</strong> : ${_escapeHtmlMail(plainPassword)}</li>
+</ul>
+<p><a href="${_escapeHtmlMail(loginUrl)}">Ouvrir la page de connexion</a></p>`;
+    await transporter.sendMail({ from, to, subject, text, html });
+    return { sent: true };
+}
+
 async function buildCompanyAliasSet(clientIdParam) {
     const aliases = new Set([String(clientIdParam)]);
     const client = await Client.findOne({ clientId: clientIdParam }) ||
@@ -3754,6 +3815,7 @@ app.post('/api/purchase-requests/:id/provision-team', requireAuth, requireFieldO
         const clientName = String(req.body?.clientName || doc.requesterName || '').trim();
         const clientPassword = String(req.body?.clientPassword || '').trim();
         const clientLocation = String(req.body?.clientLocation || doc.googleMapsUrl || doc.location || '').trim();
+        const clientEmailOverride = String(req.body?.clientEmail || '').trim().toLowerCase();
 
         const technicianName = String(req.body?.technicianName || '').trim();
         const technicianPassword = String(req.body?.technicianPassword || '').trim();
@@ -3770,6 +3832,9 @@ app.post('/api/purchase-requests/:id/provision-team', requireAuth, requireFieldO
         if (technicianPassword.length < 6) return res.status(400).json({ error: 'Mot de passe technicien (min 6)' });
         if (!maintenanceFirstName || !maintenanceLastName) return res.status(400).json({ error: 'Nom/Prénom maintenance requis' });
         if (maintenancePassword.length < 6) return res.status(400).json({ error: 'Mot de passe maintenance (min 6)' });
+        if (clientEmailOverride && !clientEmailOverride.includes('@')) {
+            return res.status(400).json({ error: 'Email client invalide' });
+        }
 
         let client = null;
         if (doc.linkedClientId) {
@@ -3779,7 +3844,14 @@ app.post('/api/purchase-requests/:id/provision-team', requireAuth, requireFieldO
         if (!client) {
             const clientId = `CLI-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
             const defaultClientEmail = `${_slugEmailPart(doc.requesterEmail || clientName, 'client')}.${Date.now().toString().slice(-4)}@dali-pfe.local`;
-            const email = String(doc.requesterEmail || defaultClientEmail).trim().toLowerCase();
+            let email = clientEmailOverride || String(doc.requesterEmail || '').trim().toLowerCase();
+            if (!email || !email.includes('@')) {
+                email = defaultClientEmail;
+            }
+            const dupC = await Client.findOne({ email });
+            if (dupC) {
+                return res.status(409).json({ error: 'Cet email est deja utilise par un autre client' });
+            }
             const hash = await bcrypt.hash(clientPassword, 10);
             client = await Client.create({
                 clientId,
@@ -3798,6 +3870,13 @@ app.post('/api/purchase-requests/:id/provision-team', requireAuth, requireFieldO
             client.name = clientName;
             if (clientLocation) client.location = clientLocation;
             if (clientPassword) client.password = await bcrypt.hash(clientPassword, 10);
+            if (clientEmailOverride && clientEmailOverride.includes('@')) {
+                const dupC = await Client.findOne({ email: clientEmailOverride });
+                if (dupC && String(dupC._id) !== String(client._id)) {
+                    return res.status(409).json({ error: 'Cet email est deja utilise par un autre client' });
+                }
+                client.email = clientEmailOverride;
+            }
             await client.save();
         }
 
@@ -3854,9 +3933,22 @@ app.post('/api/purchase-requests/:id/provision-team', requireAuth, requireFieldO
             maintenanceAgentId: String(maintenance.maintenanceAgentId),
         });
 
+        let credentialsEmail = { sent: false, reason: 'smtp_not_configured' };
+        try {
+            credentialsEmail = await sendClientCredentialsEmail({
+                to: client.email,
+                clientName: client.name,
+                plainPassword: clientPassword,
+            });
+        } catch (mailErr) {
+            console.error('[mail] credentials:', mailErr.message);
+            credentialsEmail = { sent: false, reason: 'send_failed', detail: mailErr.message };
+        }
+
         return res.json({
             ok: true,
             purchaseRequestId: String(doc._id),
+            credentialsEmail,
             client: { id: String(client._id), clientId: clientKey, name: client.name, location: client.location, email: client.email },
             machine: { id: String(machine._id), name: machine.name, companyId: machine.companyId },
             technician: { id: String(technician._id), technicianId: technician.technicianId, name: technician.name, email: technician.email, location: technician.location },

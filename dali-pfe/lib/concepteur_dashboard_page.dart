@@ -259,6 +259,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     final clientNameCtrl = TextEditingController(
       text: (req['requesterName'] ?? '').toString(),
     );
+    final clientEmailCtrl = TextEditingController(
+      text: (req['requesterEmail'] ?? '').toString(),
+    );
     final clientPwdCtrl = TextEditingController();
     final clientLocCtrl = TextEditingController(
       text: (req['googleMapsUrl'] ?? req['location'] ?? '').toString(),
@@ -289,6 +292,14 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     TextField(
                       controller: clientNameCtrl,
                       decoration: const InputDecoration(labelText: 'Client - Nom'),
+                    ),
+                    TextField(
+                      controller: clientEmailCtrl,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'Client - Email (connexion)',
+                        hintText: 'ex: client@domaine.com',
+                      ),
                     ),
                     TextField(
                       controller: clientPwdCtrl,
@@ -370,9 +381,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     }
 
     try {
-      await ApiService.provisionPurchaseRequestTeam(reqId, {
+      final result = await ApiService.provisionPurchaseRequestTeam(reqId, {
         'reviewedByName': 'Concepteur',
         'clientName': clientNameCtrl.text.trim(),
+        'clientEmail': clientEmailCtrl.text.trim(),
         'clientPassword': clientPwdCtrl.text.trim(),
         'clientLocation': clientLocCtrl.text.trim(),
         'technicianName': techNameCtrl.text.trim(),
@@ -386,10 +398,25 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       if (!mounted) return;
       await _fetchPurchaseRequests();
       await _fetchMachines();
+      final mail = result['credentialsEmail'];
+      var mailHint = '';
+      if (mail is Map<String, dynamic>) {
+        if (mail['sent'] == true) {
+          mailHint = ' Identifiants envoyes par email au client.';
+        } else if (mail['reason'] == 'smtp_not_configured') {
+          mailHint =
+              ' SMTP non configure : ajoutez SMTP_* dans .env pour envoyer le mot de passe par email.';
+        } else if (mail['reason'] == 'synthetic_email_skip') {
+          mailHint =
+              ' Email technique (@dali-pfe.local) : renseignez un email reel pour l envoi.';
+        } else if (mail['reason'] == 'smtp_credentials_missing') {
+          mailHint = ' SMTP incomplet (SMTP_USER / SMTP_PASS).';
+        }
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Provision terminee: client, technicien et maintenance crees.',
+            'Provision terminee: client, technicien et maintenance crees.$mailHint',
           ),
           backgroundColor: Colors.green,
         ),
