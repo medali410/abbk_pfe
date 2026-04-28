@@ -32,8 +32,8 @@ class ClientDashboardPage extends StatefulWidget {
 
 class _ClientDashboardPageState extends State<ClientDashboardPage>
     with SingleTickerProviderStateMixin {
-  // Sidebar nav index: 0=Dashboard, 1=Machines, 2=IA, 3=Team, 4=Docs
-  int _navIndex = 1;
+  // Sidebar nav index: 0=Home, 1=Machines, 2=IA, 3=Team, 4=Docs
+  int _navIndex = 0;
   /// Machine choisie pour l’onglet Analyse IA (null = liste de sélection).
   Map<String, dynamic>? _iaSelectedMachine;
   /// Machine choisie pour Documents techniques.
@@ -64,6 +64,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   final Map<String, double> _realtimeFrictions = {};
   final Map<String, double> _realtimePressures = {};
   Timer? _controlTicker;
+  Timer? _machinesAutoRefreshTimer;
 
   double _toDouble(dynamic value, [double fallback = 0.0]) {
     if (value == null) return fallback;
@@ -89,6 +90,10 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     _controlTicker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
+    _machinesAutoRefreshTimer = Timer.periodic(
+      const Duration(seconds: 25),
+      (_) => _refreshMachines(),
+    );
   }
 
   Future<void> _initRenderers() async {
@@ -122,6 +127,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   @override
   void dispose() {
     _controlTicker?.cancel();
+    _machinesAutoRefreshTimer?.cancel();
     _shimmerController.dispose();
     _endCallLocally();
     _localRenderer.dispose();
@@ -252,6 +258,22 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       if (mounted && _isCallUiOpen) {
         Navigator.of(context, rootNavigator: true).pop();
         _isCallUiOpen = false;
+      }
+    });
+
+    _socket.on('purchase_request_provisioned', (data) {
+      if (!mounted || data is! Map) return;
+      final payload = Map<String, dynamic>.from(data);
+      final refreshedClientId =
+          (payload['clientId'] ?? payload['linkedClientId'] ?? '').toString();
+      final currentClientId =
+          (widget.clientId ??
+                  widget.clientData?['clientId'] ??
+                  widget.clientData?['id'] ??
+                  '')
+              .toString();
+      if (refreshedClientId.isNotEmpty && refreshedClientId == currentClientId) {
+        _refreshMachines();
       }
     });
   }
@@ -918,7 +940,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             ),
           ),
           // Nav items
-          _navItem(Icons.dashboard, 'Tableau de bord', 0),
+          _navItem(Icons.dashboard, 'Home', 0),
           _navItem(Icons.precision_manufacturing, 'Mes Machines', 1),
           _navItem(Icons.auto_awesome, 'Analyse IA', 2),
           _navItem(Icons.groups, 'Équipe Assignée', 3),

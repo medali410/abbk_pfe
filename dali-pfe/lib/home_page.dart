@@ -4,6 +4,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'client_dashboard_page.dart';
+import 'login_page.dart';
 import 'machine_detail_pro_page.dart';
 import 'services/api_service.dart';
 
@@ -17,6 +19,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   late Future<List<Map<String, dynamic>>> _machinesFuture;
   bool _animateIn = false;
+  bool _canBuyAsClient = false;
   String _searchQuery = '';
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _homeSectionKey = GlobalKey();
@@ -29,6 +32,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _machinesFuture = ApiService.getMachinesForHomeCatalog();
+    _hydrateAuthState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() {
@@ -48,6 +52,16 @@ class _HomePageState extends State<HomePage> {
       _machinesFuture = ApiService.getMachinesForHomeCatalog();
     });
     await _machinesFuture;
+  }
+
+  Future<void> _hydrateAuthState() async {
+    await ApiService.loadSavedAuth();
+    if (!mounted) return;
+    final role = (ApiService.savedUserRole ?? '').toLowerCase().trim();
+    final token = (ApiService.authToken ?? '').trim();
+    setState(() {
+      _canBuyAsClient = token.isNotEmpty && role == 'client';
+    });
   }
 
   @override
@@ -291,8 +305,68 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
         const Spacer(),
+        if (_canBuyAsClient)
+          Container(
+            margin: const EdgeInsets.only(right: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0x2238A169),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: const Color(0x6659D18C)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.verified_user_rounded,
+                  size: 14,
+                  color: Color(0xFF8BE9B3),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Client connecte',
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFFBEEFD4),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ElevatedButton.icon(
-          onPressed: () => Navigator.pushNamed(context, '/login'),
+          onPressed: () async {
+            if (_canBuyAsClient &&
+                (ApiService.savedClientId ?? '').trim().isNotEmpty) {
+              if (!context.mounted) return;
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder:
+                      (_) => ClientDashboardPage(
+                        clientName:
+                            (ApiService.savedClientName ?? 'Espace client')
+                                .trim(),
+                        clientId: (ApiService.savedClientId ?? '').trim(),
+                        clientData: {
+                          'name': (ApiService.savedClientName ?? '').trim(),
+                          'email': (ApiService.savedClientEmail ?? '').trim(),
+                          'location':
+                              (ApiService.savedClientLocation ?? '').trim(),
+                        },
+                      ),
+                ),
+              );
+              return;
+            }
+            final result = await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(builder: (_) => const LoginPage()),
+            );
+            if (result == true) {
+              await _hydrateAuthState();
+            }
+          },
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFFFF6E00),
             foregroundColor: Colors.white,
@@ -310,7 +384,7 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           icon: const Icon(Icons.login_rounded),
-          label: const Text('Connexion'),
+          label: Text(_canBuyAsClient ? 'Mon compte' : 'Connexion'),
         ),
       ],
     );
@@ -772,7 +846,24 @@ class _HomePageState extends State<HomePage> {
         mainAxisSpacing: 14,
         childAspectRatio: crossAxisCount == 1 ? 1.18 : 1.02,
       ),
-      itemBuilder: (_, i) => _MachineCard(machine: machines[i]),
+      itemBuilder:
+          (_, i) => _MachineCard(
+            machine: machines[i],
+            canBuy: _canBuyAsClient,
+            onRequireLogin: () async {
+              final result = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(
+                  builder:
+                      (_) =>
+                          const LoginPage(returnToHomeAfterClientLogin: true),
+                ),
+              );
+              if (result == true) {
+                await _hydrateAuthState();
+              }
+            },
+          ),
     );
   }
 
@@ -1013,9 +1104,15 @@ class _StickyHeaderDelegate extends SliverPersistentHeaderDelegate {
 }
 
 class _MachineCard extends StatefulWidget {
-  const _MachineCard({required this.machine});
+  const _MachineCard({
+    required this.machine,
+    required this.canBuy,
+    this.onRequireLogin,
+  });
 
   final Map<String, dynamic> machine;
+  final bool canBuy;
+  final Future<void> Function()? onRequireLogin;
 
   @override
   State<_MachineCard> createState() => _MachineCardState();
@@ -1231,7 +1328,13 @@ class _MachineCardState extends State<_MachineCard> {
                   Expanded(
                     child: ElevatedButton(
                       onPressed:
-                          () => _buyMachine(context, machineId: machineId),
+                          widget.canBuy
+                              ? () => _buyMachine(context, machineId: machineId)
+                              : () async {
+                                if (widget.onRequireLogin != null) {
+                                  await widget.onRequireLogin!.call();
+                                }
+                              },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFFF6E00),
                         foregroundColor: Colors.white,
@@ -1248,7 +1351,7 @@ class _MachineCardState extends State<_MachineCard> {
                           const Color(0xFFFF6E00).withOpacity(0.4),
                         ),
                       ),
-                      child: const Text('Acheter'),
+                      child: Text(widget.canBuy ? 'Acheter' : 'Se connecter'),
                     ),
                   ),
                 ],
@@ -1336,6 +1439,13 @@ class _MachineCardState extends State<_MachineCard> {
     final locationCtrl = TextEditingController();
     final mapCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
+    final linkedClientId = (ApiService.savedClientId ?? '').trim();
+
+    if (linkedClientId.isNotEmpty) {
+      nameCtrl.text = (ApiService.savedClientName ?? '').trim();
+      emailCtrl.text = (ApiService.savedClientEmail ?? '').trim();
+      locationCtrl.text = (ApiService.savedClientLocation ?? '').trim();
+    }
 
     final approved = await showDialog<bool>(
       context: context,
@@ -1406,10 +1516,17 @@ class _MachineCardState extends State<_MachineCard> {
       );
       return;
     }
+    if (locationCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('La localisation est obligatoire.')),
+      );
+      return;
+    }
     try {
       await ApiService.createPurchaseRequest({
         'machineId': machineId,
         'machineName': (widget.machine['name'] ?? '').toString(),
+        if (linkedClientId.isNotEmpty) 'linkedClientId': linkedClientId,
         'requesterName': nameCtrl.text.trim(),
         'requesterEmail': emailCtrl.text.trim(),
         'requesterPhone': phoneCtrl.text.trim(),

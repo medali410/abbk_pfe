@@ -6,7 +6,9 @@ import 'client_dashboard_page.dart';
 import 'services/api_service.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({super.key, this.returnToHomeAfterClientLogin = false});
+
+  final bool returnToHomeAfterClientLogin;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -158,7 +160,7 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                                   const SizedBox(height: 16),
                                   Text(
-                                    'Super admin / équipe : vos identifiants internes. Client : email et mot de passe fournis par l\'administrateur.',
+                                    'Super admin / équipe : identifiants internes. Client : connexion avec email / mot de passe, ou première inscription via « Inscription client » ou les boutons ci-dessous.',
                                     style: GoogleFonts.inter(
                                       fontSize: 10,
                                       color: const Color(0xFFA0A0B0),
@@ -167,7 +169,33 @@ class _LoginPageState extends State<LoginPage> {
                                     ),
                                     textAlign: TextAlign.center,
                                   ),
-                                  const SizedBox(height: 48),
+                                  const SizedBox(height: 28),
+
+                                  _buildClientSocialSection(context),
+
+                                  const SizedBox(height: 28),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Divider(color: Colors.white.withOpacity(0.15)),
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                                        child: Text(
+                                          'OU',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 10,
+                                            color: const Color(0xFFA0A0B0),
+                                            letterSpacing: 3,
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: Divider(color: Colors.white.withOpacity(0.15)),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 28),
 
                                   // Email Input
                                   _buildTextField(
@@ -325,6 +353,16 @@ class _LoginPageState extends State<LoginPage> {
                                               } else {
                                                 final clientName = response['name'] ?? 'Enterprise Corp';
                                                 final clientId = response['clientId'] ?? response['id'] ?? '';
+                                                await ApiService.saveClientSession(
+                                                  clientId: clientId.toString(),
+                                                  clientName: clientName.toString(),
+                                                  clientEmail: (response['email'] ?? email).toString(),
+                                                  clientLocation: (response['location'] ?? '').toString(),
+                                                );
+                                                if (widget.returnToHomeAfterClientLogin) {
+                                                  Navigator.pop(context, true);
+                                                  return;
+                                                }
                                                 Navigator.pushReplacement(
                                                   context,
                                                   MaterialPageRoute(
@@ -491,6 +529,466 @@ class _LoginPageState extends State<LoginPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Boutons type « Continuer avec Google / Apple / téléphone » (OAuth à brancher : Firebase, backend).
+  Widget _buildClientSocialSection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'CLIENT — CONNEXION RAPIDE',
+          style: GoogleFonts.inter(
+            fontSize: 10,
+            color: const Color(0xFFA0A0B0),
+            fontWeight: FontWeight.w600,
+            letterSpacing: 2.4,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 16),
+        _socialConnectPill(
+          context: context,
+          leading: _googleGLogo(),
+          label: 'Continuer avec Google',
+          onTap: () => _onSocialLoginTap(context, 'google'),
+        ),
+        const SizedBox(height: 12),
+        _socialConnectPill(
+          context: context,
+          leading: const Icon(Icons.tablet_mac, color: Color(0xFF000000), size: 22),
+          label: 'Continuer avec Apple',
+          onTap: () => _onSocialLoginTap(context, 'apple'),
+        ),
+        const SizedBox(height: 12),
+        _socialConnectPill(
+          context: context,
+          leading: const Icon(Icons.phone_outlined, color: Color(0xFF1a1a1a), size: 22),
+          label: 'Continuer avec un numéro de téléphone',
+          twoLines: true,
+          onTap: () => _onSocialLoginTap(context, 'phone'),
+        ),
+        const SizedBox(height: 16),
+        TextButton.icon(
+          onPressed: () => _onSocialLoginTap(context, 'email'),
+          icon: const Icon(Icons.person_add_alt_1, color: Color(0xFFFF8F3F), size: 18),
+          label: Text(
+            'Inscription client — première connexion (email & adresse)',
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFFFF8F3F),
+              letterSpacing: 0.3,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _googleGLogo() {
+    return SizedBox(
+      width: 22,
+      height: 22,
+      child: Image.network(
+        'https://www.google.com/images/branding/googleg/1x/googleg_standard_color_128dp.png',
+        errorBuilder: (_, __, ___) => Text(
+          'G',
+          style: GoogleFonts.inter(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: const Color(0xFF4285F4),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _onSocialLoginTap(BuildContext context, String kind) async {
+    final nameCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    final passCtrl = TextEditingController();
+    final passConfirmCtrl = TextEditingController();
+    final locationCtrl = TextEditingController();
+    final codeCtrl = TextEditingController();
+
+    String dialogTitle() {
+      if (kind == 'phone') return 'Créer un compte client (Téléphone)';
+      if (kind == 'email') return 'Inscription client — première connexion';
+      return 'Créer un compte client (${kind == 'google' ? 'Google' : 'Apple'})';
+    }
+
+    var codeSentFlag = false;
+    var sendingCodeFlag = false;
+
+    final submit = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF171733),
+              title: Text(
+                dialogTitle(),
+                style: GoogleFonts.inter(color: Colors.white),
+              ),
+              content: SizedBox(
+                width: 460,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (kind == 'email')
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Text(
+                            'Renseignez vos informations, cliquez sur « Envoyer le code », puis saisissez les 6 chiffres reçus par email avant « Créer le compte » (envoi réel : SMTP requis dans .env du serveur).',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.white.withOpacity(0.75),
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      TextField(
+                        controller: nameCtrl,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          labelText: kind == 'email' ? 'Nom ou entreprise' : 'Nom complet',
+                        ),
+                      ),
+                      TextField(
+                        controller: emailCtrl,
+                        style: const TextStyle(color: Colors.white),
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: InputDecoration(
+                          labelText:
+                              kind == 'phone'
+                                  ? 'Email (optionnel)'
+                                  : kind == 'email'
+                                      ? 'Email (connexion)'
+                                      : 'Email (obligatoire)',
+                        ),
+                      ),
+                      if (kind == 'phone')
+                        TextField(
+                          controller: phoneCtrl,
+                          style: const TextStyle(color: Colors.white),
+                          keyboardType: TextInputType.phone,
+                          decoration: const InputDecoration(
+                            labelText: 'Numero téléphone',
+                          ),
+                        ),
+                      TextField(
+                        controller: passCtrl,
+                        style: const TextStyle(color: Colors.white),
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Mot de passe (min 6 caractères)',
+                        ),
+                      ),
+                      TextField(
+                        controller: passConfirmCtrl,
+                        style: const TextStyle(color: Colors.white),
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Confirmer le mot de passe',
+                        ),
+                      ),
+                      TextField(
+                        controller: locationCtrl,
+                        style: const TextStyle(color: Colors.white),
+                        keyboardType: kind == 'email' ? TextInputType.streetAddress : TextInputType.text,
+                        maxLines: kind == 'email' ? 2 : 1,
+                        decoration: InputDecoration(
+                          labelText:
+                              kind == 'email'
+                                  ? 'Adresse (rue, code postal, ville)'
+                                  : 'Localisation (optionnel)',
+                          hintText:
+                              kind == 'email'
+                                  ? 'Ex : 12 rue des Artisans, 1000 Tunis'
+                                  : null,
+                        ),
+                      ),
+                      if (kind == 'email') ...[
+                        const SizedBox(height: 14),
+                        OutlinedButton.icon(
+                          onPressed:
+                              sendingCodeFlag
+                                  ? null
+                                  : () async {
+                                    final name = nameCtrl.text.trim();
+                                    final em = emailCtrl.text.trim();
+                                    if (name.isEmpty) {
+                                      ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                        const SnackBar(content: Text('Indiquez d’abord le nom ou l’entreprise.')),
+                                      );
+                                      return;
+                                    }
+                                    if (!em.contains('@')) {
+                                      ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                        const SnackBar(content: Text('Indiquez un email valide pour recevoir le code.')),
+                                      );
+                                      return;
+                                    }
+                                    setModalState(() => sendingCodeFlag = true);
+                                    try {
+                                      await ApiService.sendClientSignupCode(
+                                        email: em,
+                                        name: name,
+                                      );
+                                      codeSentFlag = true;
+                                      if (dialogContext.mounted) {
+                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Code envoyé : vérifiez votre boîte mail (et les spams).'),
+                                            backgroundColor: Colors.green,
+                                          ),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      if (dialogContext.mounted) {
+                                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              e.toString().replaceAll('Exception: ', ''),
+                                            ),
+                                            backgroundColor: Colors.red,
+                                          ),
+                                        );
+                                      }
+                                    } finally {
+                                      if (dialogContext.mounted) {
+                                        setModalState(() => sendingCodeFlag = false);
+                                      }
+                                    }
+                                  },
+                          icon:
+                              sendingCodeFlag
+                                  ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFFF8F3F)),
+                                  )
+                                  : const Icon(Icons.mark_email_unread_outlined, color: Color(0xFFFF8F3F)),
+                          label: Text(
+                            sendingCodeFlag ? 'Envoi en cours…' : 'Envoyer le code par email (6 chiffres)',
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Color(0xFFFF8F3F)),
+                          ),
+                        ),
+                        if (codeSentFlag)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              'Code envoyé. Saisissez les 6 chiffres ci-dessous.',
+                              style: GoogleFonts.inter(fontSize: 11, color: Colors.greenAccent.shade100),
+                            ),
+                          ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: codeCtrl,
+                          style: const TextStyle(color: Colors.white, letterSpacing: 6, fontSize: 22),
+                          keyboardType: TextInputType.number,
+                          maxLength: 6,
+                          textAlign: TextAlign.center,
+                          decoration: const InputDecoration(
+                            counterText: '',
+                            labelText: 'Code à 6 chiffres (email)',
+                            hintText: '••••••',
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Annuler'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (kind == 'email') {
+                      final digits = codeCtrl.text.trim();
+                      if (digits.length != 6 || int.tryParse(digits) == null) {
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(
+                            content: Text('Saisissez le code à 6 chiffres reçu par email.'),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                        return;
+                      }
+                    }
+                    Navigator.pop(dialogContext, true);
+                  },
+                  child: const Text('Créer le compte'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (submit != true) return;
+
+    if (nameCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nom requis')),
+      );
+      return;
+    }
+    if (passCtrl.text.trim().length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Mot de passe minimum 6 caractères')),
+      );
+      return;
+    }
+    if (passCtrl.text.trim() != passConfirmCtrl.text.trim()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Les deux mots de passe ne correspondent pas')),
+      );
+      return;
+    }
+    if (kind != 'phone' && !emailCtrl.text.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Email valide requis')),
+      );
+      return;
+    }
+    if (kind == 'email' && locationCtrl.text.trim().length < 4) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Adresse trop courte : indiquez au moins rue et ville.'),
+        ),
+      );
+      return;
+    }
+    if (kind == 'email') {
+      final digits = codeCtrl.text.trim();
+      if (digits.length != 6 || int.tryParse(digits) == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Code à 6 chiffres invalide.')),
+        );
+        return;
+      }
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      final response = await ApiService.clientSelfRegister({
+        'provider': kind,
+        'name': nameCtrl.text.trim(),
+        'email': emailCtrl.text.trim(),
+        'phone': phoneCtrl.text.trim(),
+        'password': passCtrl.text.trim(),
+        'location': locationCtrl.text.trim(),
+        if (kind == 'email') 'address': locationCtrl.text.trim(),
+        if (kind == 'email') 'verificationCode': codeCtrl.text.trim(),
+      });
+      if (!context.mounted) return;
+      Navigator.pop(context);
+      final role = (response['role'] ?? 'client').toString().toLowerCase();
+      final token = response['token']?.toString();
+      await ApiService.saveAuth(
+        (token != null && token.isNotEmpty) ? token : null,
+        role,
+      );
+      if (widget.returnToHomeAfterClientLogin) {
+        Navigator.pop(context, true);
+        return;
+      }
+      final clientName = response['name'] ?? nameCtrl.text.trim();
+      final clientId = response['clientId'] ?? response['id'] ?? '';
+      await ApiService.saveClientSession(
+        clientId: clientId.toString(),
+        clientName: clientName.toString(),
+        clientEmail: (response['email'] ?? emailCtrl.text.trim()).toString(),
+        clientLocation: (response['location'] ?? locationCtrl.text.trim()).toString(),
+      );
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => ClientDashboardPage(
+                clientName: clientName,
+                clientId: clientId,
+                clientData: response,
+              ),
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Création compte impossible: ${e.toString().replaceAll('Exception: ', '')}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Widget _socialConnectPill({
+    required BuildContext context,
+    required Widget leading,
+    required String label,
+    required VoidCallback onTap,
+    bool twoLines = false,
+  }) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          width: double.infinity,
+          padding: EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: twoLines ? 12 : 14,
+          ),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: const Color(0xFFE0E0E0)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              leading,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  label,
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    height: twoLines ? 1.25 : 1.2,
+                    fontWeight: FontWeight.w500,
+                    color: const Color(0xFF1a1a1a),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

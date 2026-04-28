@@ -6,11 +6,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   static const _kToken = 'api_auth_token';
   static const _kRole = 'api_user_role';
+  static const _kClientId = 'api_client_id';
+  static const _kClientName = 'api_client_name';
+  static const _kClientEmail = 'api_client_email';
+  static const _kClientLocation = 'api_client_location';
 
   static String? _authToken;
   static String? _userRole;
+  static String? _savedClientId;
+  static String? _savedClientName;
+  static String? _savedClientEmail;
+  static String? _savedClientLocation;
 
   static String? get authToken => _authToken;
+  static String? get savedClientId => _savedClientId;
+  static String? get savedClientName => _savedClientName;
+  static String? get savedClientEmail => _savedClientEmail;
+  static String? get savedClientLocation => _savedClientLocation;
 
   /// Rôle issu du dernier login (persisté), ex. `conception`, `technician`.
   static String? get savedUserRole => _userRole;
@@ -34,6 +46,10 @@ class ApiService {
     final p = await SharedPreferences.getInstance();
     _authToken = p.getString(_kToken);
     _userRole = p.getString(_kRole);
+    _savedClientId = p.getString(_kClientId);
+    _savedClientName = p.getString(_kClientName);
+    _savedClientEmail = p.getString(_kClientEmail);
+    _savedClientLocation = p.getString(_kClientLocation);
   }
 
   static Future<void> saveAuth(String? token, String role) async {
@@ -56,9 +72,51 @@ class ApiService {
   static Future<void> clearAuth() async {
     _authToken = null;
     _userRole = null;
+    _savedClientId = null;
+    _savedClientName = null;
+    _savedClientEmail = null;
+    _savedClientLocation = null;
     final p = await SharedPreferences.getInstance();
     await p.remove(_kToken);
     await p.remove(_kRole);
+    await p.remove(_kClientId);
+    await p.remove(_kClientName);
+    await p.remove(_kClientEmail);
+    await p.remove(_kClientLocation);
+  }
+
+  static Future<void> saveClientSession({
+    required String clientId,
+    required String clientName,
+    String clientEmail = '',
+    String clientLocation = '',
+  }) async {
+    _savedClientId = clientId.trim();
+    _savedClientName = clientName.trim();
+    _savedClientEmail = clientEmail.trim();
+    _savedClientLocation = clientLocation.trim();
+
+    final p = await SharedPreferences.getInstance();
+    if (_savedClientId != null && _savedClientId!.isNotEmpty) {
+      await p.setString(_kClientId, _savedClientId!);
+    } else {
+      await p.remove(_kClientId);
+    }
+    if (_savedClientName != null && _savedClientName!.isNotEmpty) {
+      await p.setString(_kClientName, _savedClientName!);
+    } else {
+      await p.remove(_kClientName);
+    }
+    if (_savedClientEmail != null && _savedClientEmail!.isNotEmpty) {
+      await p.setString(_kClientEmail, _savedClientEmail!);
+    } else {
+      await p.remove(_kClientEmail);
+    }
+    if (_savedClientLocation != null && _savedClientLocation!.isNotEmpty) {
+      await p.setString(_kClientLocation, _savedClientLocation!);
+    } else {
+      await p.remove(_kClientLocation);
+    }
   }
 
   static Map<String, String> _jsonHeaders({bool withAuth = false}) {
@@ -328,6 +386,36 @@ class ApiService {
     } else {
       throw Exception('HTTP ${response.statusCode}: ${response.body}');
     }
+  }
+
+  static Future<void> sendClientSignupCode({
+    required String email,
+    String? name,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/client-signup/send-code'),
+      headers: _jsonHeaders(),
+      body: json.encode({
+        'email': email.trim().toLowerCase(),
+        if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+      }),
+    );
+    if (response.statusCode == 200) return;
+    _throwApiError(response, 'Envoi du code par email impossible');
+  }
+
+  static Future<Map<String, dynamic>> clientSelfRegister(
+    Map<String, dynamic> data,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/client-self-register'),
+      headers: _jsonHeaders(),
+      body: json.encode(data),
+    );
+    if (response.statusCode == 201) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    _throwApiError(response, 'Creation de compte client impossible');
   }
 
   static Future<Map<String, dynamic>> createPurchaseRequest(

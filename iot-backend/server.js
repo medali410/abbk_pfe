@@ -17,11 +17,20 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dali-pfe-dev-secret-change-me';
 const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d';
+
+/** Mot de passe client auto si la validation est faite sans saisie (min 6 si renseigné). */
+function generateProvisionPassword() {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let out = '';
+    for (let i = 0; i < 14; i += 1) out += chars[crypto.randomInt(0, chars.length)];
+    return out;
+}
 
 function signAuthToken(payload) {
     return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES });
@@ -289,6 +298,7 @@ const DiagnosticIntervention = require('./src/models/DiagnosticIntervention');
 const Mission = require('./src/models/Mission');
 const PurchaseRequest = require('./src/models/PurchaseRequest');
 const InterventionArchive = require('./src/models/InterventionArchive');
+const ClientSignupVerification = require('./src/models/ClientSignupVerification');
 const scenarioService = require('./src/services/scenarioService');
 const { startTempseMarcheService } = require('./src/services/tempsMarcheService');
 const { startControleService } = require('./src/services/controleService');
@@ -400,6 +410,49 @@ async function sendClientCredentialsEmail({ to, clientName, plainPassword }) {
 <li><strong>Mot de passe</strong> : ${_escapeHtmlMail(plainPassword)}</li>
 </ul>
 <p><a href="${_escapeHtmlMail(loginUrl)}">Ouvrir la page de connexion</a></p>`;
+    await transporter.sendMail({ from, to, subject, text, html });
+    return { sent: true };
+}
+
+/**
+ * Envoie le code d’inscription client (6 chiffres). Même exigence SMTP que [sendClientCredentialsEmail].
+ */
+async function sendSignupVerificationEmail({ to, code, displayName }) {
+    const host = String(process.env.SMTP_HOST || '').trim();
+    if (!host) {
+        return { sent: false, reason: 'smtp_not_configured' };
+    }
+    if (_isSyntheticClientEmail(to)) {
+        return { sent: false, reason: 'synthetic_email_skip' };
+    }
+    let nodemailer;
+    try {
+        nodemailer = require('nodemailer');
+    } catch {
+        return { sent: false, reason: 'nodemailer_missing' };
+    }
+    const port = parseInt(String(process.env.SMTP_PORT || '587'), 10) || 587;
+    const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
+    const user = String(process.env.SMTP_USER || '').trim();
+    const pass = String(process.env.SMTP_PASS || '').trim();
+    const from = String(process.env.MAIL_FROM || user || 'noreply@localhost').trim();
+    if (!user || !pass) {
+        return { sent: false, reason: 'smtp_credentials_missing' };
+    }
+    const transporter = nodemailer.createTransport({ host, port, secure, auth: { user, pass } });
+    const who = _escapeHtmlMail(displayName || 'client');
+    const subject = 'Votre code d’inscription DALI (6 chiffres)';
+    const text = [
+        `Bonjour,`,
+        '',
+        `Votre code de validation : ${code}`,
+        '',
+        'Ce code expire dans 10 minutes. Si vous n’avez pas demandé d’inscription, ignorez ce message.',
+    ].join('\n');
+    const html = `<p>Bonjour <strong>${who}</strong>,</p>
+<p>Votre code de validation : <strong style="font-size:22px;letter-spacing:4px">${_escapeHtmlMail(code)}</strong></p>
+<p>Ce code expire dans <strong>10 minutes</strong>.</p>
+<p>Si vous n’avez pas demandé d’inscription, ignorez ce message.</p>`;
     await transporter.sendMail({ from, to, subject, text, html });
     return { sent: true };
 }
@@ -1947,6 +2000,171 @@ app.post('/api/login', async (req, res) => {
         return res.status(401).json({ message: 'Identifiants invalides' });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Envoie un code à 6 chiffres par email pour finaliser l’inscription client (provider email).
+ * Nécessite SMTP configuré (.env).
+ */
+app.post('/api/client-signup/send-code', async (req, res) => {
+    try {
+        const rawEmail = String(req.body?.email || '').trim().toLowerCase();
+        const nameHint = String(req.body?.name || '').trim();
+        if (!rawEmail || !rawEmail.includes('@')) {
+            return res.status(400).json({ error: 'Email valide requis' });
+        }
+        const [dupUser, dupClient, dupTech, dupConcepteur, dupMaint] = await Promise.all([
+            User.findOne({ email: rawEmail }),
+            Client.findOne({ email: rawEmail }),
+            Technician.findOne({ email: rawEmail }),
+            Concepteur.findOne({ email: rawEmail }),
+            MaintenanceAgent.findOne({ email: rawEmail }),
+        ]);
+        if (dupClient) {
+            return res.status(409).json({ error: 'Un compte existe deja avec cet email' });
+        }
+        if (dupUser || dupTech || dupConcepteur || dupMaint) {
+            return res.status(409).json({ error: 'Cet email est deja utilise' });
+        }
+
+        const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+        const codeHash = await bcrypt.hash(code, 10);
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+        await ClientSignupVerification.findOneAndUpdate(
+            { email: rawEmail },
+            { email: rawEmail, codeHash, expiresAt },
+            { upsert: true, new: true }
+        );
+
+        const mailResult = await sendSignupVerificationEmail({
+            to: rawEmail,
+            code,
+            displayName: nameHint || rawEmail,
+        });
+
+        if (!mailResult.sent) {
+            await ClientSignupVerification.deleteMany({ email: rawEmail });
+            const reason = mailResult.reason || 'send_failed';
+            const messages = {
+                smtp_not_configured:
+                    'Envoi impossible : configurez SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS (et MAIL_FROM) dans .env',
+                smtp_credentials_missing: 'SMTP incomplet : SMTP_USER et SMTP_PASS obligatoires',
+                synthetic_email_skip: 'Adresse email non valide pour reception du code',
+                nodemailer_missing: 'Dependance nodemailer manquante (npm install nodemailer)',
+            };
+            return res.status(503).json({
+                error: messages[reason] || 'Envoi du code impossible',
+                reason,
+            });
+        }
+
+        return res.json({ ok: true, sent: true });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Inscription client simplifiée (mode rapide pour boutons Google/Apple/Téléphone côté UI).
+ * Remarque: ce n'est pas un vrai OAuth; il sert à rendre le parcours compte client immédiatement utilisable.
+ */
+app.post('/api/client-self-register', async (req, res) => {
+    try {
+        const provider = String(req.body?.provider || 'email').trim().toLowerCase();
+        const name = String(req.body?.name || '').trim();
+        const rawEmail = String(req.body?.email || '').trim().toLowerCase();
+        const phone = String(req.body?.phone || '').trim();
+        const password = String(req.body?.password || '').trim();
+        const location = String(req.body?.location || '').trim();
+        const address = String(req.body?.address || '').trim();
+        const verificationCode = String(req.body?.verificationCode ?? req.body?.code ?? '').trim();
+
+        if (!name) return res.status(400).json({ error: 'Nom requis' });
+        if (!password || password.length < 6) {
+            return res.status(400).json({ error: 'Mot de passe requis (min 6)' });
+        }
+        const knownProvider = ['google', 'apple', 'phone', 'email'].includes(provider) ? provider : 'email';
+        let email = rawEmail;
+        if (!email && knownProvider === 'phone') {
+            const digits = phone.replace(/\D/g, '');
+            if (digits.length < 8) {
+                return res.status(400).json({ error: 'Numero telephone invalide' });
+            }
+            email = `phone.${digits}@client.local`;
+        }
+        if (!email || !email.includes('@')) {
+            return res.status(400).json({ error: 'Email requis (ou numero telephone valide)' });
+        }
+
+        if (knownProvider === 'email') {
+            if (!/^\d{6}$/.test(verificationCode)) {
+                return res.status(400).json({
+                    error: 'Code a 6 chiffres requis : utilisez « Envoyer le code » puis saisissez le code recu par email',
+                });
+            }
+            const pending = await ClientSignupVerification.findOne({ email });
+            if (!pending || !pending.expiresAt || pending.expiresAt.getTime() < Date.now()) {
+                await ClientSignupVerification.deleteMany({ email });
+                return res.status(400).json({
+                    error: 'Code expire ou absent : cliquez sur « Envoyer le code par email » et reessayez',
+                });
+            }
+            const codeOk = await bcrypt.compare(verificationCode, pending.codeHash);
+            if (!codeOk) {
+                return res.status(400).json({ error: 'Code incorrect' });
+            }
+            await ClientSignupVerification.deleteMany({ email });
+        }
+
+        const [dupUser, dupClient, dupTech, dupConcepteur, dupMaint] = await Promise.all([
+            User.findOne({ email }),
+            Client.findOne({ email }),
+            Technician.findOne({ email }),
+            Concepteur.findOne({ email }),
+            MaintenanceAgent.findOne({ email }),
+        ]);
+        if (dupUser || dupTech || dupConcepteur || dupMaint) {
+            return res.status(409).json({ error: 'Cet email est deja utilise' });
+        }
+
+        let client = dupClient;
+        if (!client) {
+            const hash = await bcrypt.hash(password, 10);
+            const clientId = `CLI-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+            const locResolved = (location || address || '').trim() || 'Inconnu';
+            const addrResolved = (address || location || '').trim();
+            client = await Client.create({
+                clientId,
+                name,
+                email,
+                password: hash,
+                location: locResolved,
+                address: addrResolved,
+                motorType: 'ac-induction',
+                machines: 0,
+                techs: 0,
+                alerts: 0,
+                health: 1.0,
+            });
+        } else {
+            return res.status(409).json({ error: 'Un client existe deja avec cet email' });
+        }
+
+        const out = client.toJSON();
+        out.role = 'client';
+        out.clientId = client.clientId;
+        out.id = client._id.toString();
+        out.provider = knownProvider;
+        out.token = signAuthToken({
+            sub: client._id.toString(),
+            role: 'client',
+            clientId: client.clientId ? String(client.clientId) : undefined,
+        });
+        return res.status(201).json(out);
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
     }
 });
 
@@ -3722,12 +3940,23 @@ app.post('/api/purchase-requests', async (req, res) => {
         const location = String(req.body?.location || '').trim();
         const googleMapsUrl = normalizeGoogleMapsUrl(req.body?.googleMapsUrl);
         const note = String(req.body?.note || '').trim();
+        const linkedClientId = String(req.body?.linkedClientId || '').trim();
 
         if (!machineId) return res.status(400).json({ error: 'machineId requis' });
         if (!requesterName) return res.status(400).json({ error: 'Nom demandeur requis' });
 
         const machine = await Machine.findById(machineId);
         if (!machine) return res.status(404).json({ error: 'Machine introuvable' });
+        if (linkedClientId) {
+            const linkedClient =
+                await Client.findOne({ clientId: linkedClientId }) ||
+                (mongoose.Types.ObjectId.isValid(linkedClientId)
+                    ? await Client.findById(linkedClientId)
+                    : null);
+            if (!linkedClient) {
+                return res.status(400).json({ error: 'linkedClientId invalide' });
+            }
+        }
 
         const doc = await PurchaseRequest.create({
             machineId,
@@ -3738,6 +3967,7 @@ app.post('/api/purchase-requests', async (req, res) => {
             location,
             googleMapsUrl,
             note,
+            linkedClientId,
             status: 'PENDING',
         });
 
@@ -3813,7 +4043,7 @@ app.post('/api/purchase-requests/:id/provision-team', requireAuth, requireFieldO
         if (!machine) return res.status(404).json({ error: 'Machine introuvable pour cette demande' });
 
         const clientName = String(req.body?.clientName || doc.requesterName || '').trim();
-        const clientPassword = String(req.body?.clientPassword || '').trim();
+        const clientPasswordRaw = String(req.body?.clientPassword || '').trim();
         const clientLocation = String(req.body?.clientLocation || doc.googleMapsUrl || doc.location || '').trim();
         const clientEmailOverride = String(req.body?.clientEmail || '').trim().toLowerCase();
 
@@ -3827,7 +4057,13 @@ app.post('/api/purchase-requests/:id/provision-team', requireAuth, requireFieldO
         const maintenanceLocation = String(req.body?.maintenanceLocation || '').trim();
 
         if (!clientName) return res.status(400).json({ error: 'Nom client requis' });
-        if (clientPassword.length < 6) return res.status(400).json({ error: 'Mot de passe client (min 6)' });
+        if (clientPasswordRaw.length > 0 && clientPasswordRaw.length < 6) {
+            return res.status(400).json({
+                error: 'Mot de passe client : minimum 6 caractères, ou laissez vide pour génération automatique',
+            });
+        }
+        const clientPassword =
+            clientPasswordRaw.length >= 6 ? clientPasswordRaw : generateProvisionPassword();
         if (!technicianName || !technicianName.includes(' ')) return res.status(400).json({ error: 'Nom technicien complet requis' });
         if (technicianPassword.length < 6) return res.status(400).json({ error: 'Mot de passe technicien (min 6)' });
         if (!maintenanceFirstName || !maintenanceLastName) return res.status(400).json({ error: 'Nom/Prénom maintenance requis' });
@@ -3948,6 +4184,7 @@ app.post('/api/purchase-requests/:id/provision-team', requireAuth, requireFieldO
         return res.json({
             ok: true,
             purchaseRequestId: String(doc._id),
+            clientPasswordAutoGenerated: clientPasswordRaw.length === 0,
             credentialsEmail,
             client: { id: String(client._id), clientId: clientKey, name: client.name, location: client.location, email: client.email },
             machine: { id: String(machine._id), name: machine.name, companyId: machine.companyId },
