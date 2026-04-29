@@ -118,7 +118,17 @@ class MyApp extends StatelessWidget {
         '/': (context) => const SessionEntry(),
         '/login': (context) => const LoginPage(),
         '/dashboard': (context) => const DashboardPage(),
-        '/client-dashboard': (context) => const ClientDashboardPage(),
+        '/client-dashboard': (context) => ClientDashboardPage(
+              clientName: (ApiService.savedClientName ?? 'Espace client').trim(),
+              clientId: (ApiService.savedClientId ?? '').trim(),
+              clientData: {
+                'clientId': (ApiService.savedClientId ?? '').trim(),
+                'id': (ApiService.savedClientId ?? '').trim(),
+                'name': (ApiService.savedClientName ?? 'Espace client').trim(),
+                'email': (ApiService.savedClientEmail ?? '').trim(),
+                'location': (ApiService.savedClientLocation ?? '').trim(),
+              },
+            ),
         '/add-client': (context) => const AddClientPage(),
         '/team': (context) => const ProjectTeamPage(),
         '/technician-profile': (context) => const TechnicianProfilePage(),

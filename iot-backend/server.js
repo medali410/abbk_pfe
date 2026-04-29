@@ -56,6 +56,7 @@ function normalizeAuthRole(role) {
     const r = String(role || '').toLowerCase();
     if (r === 'super_admin') return 'superadmin';
     if (r === 'company_admin') return 'admin';
+    if (r === 'concepteur') return 'conception';
     return r;
 }
 
@@ -4031,7 +4032,7 @@ app.patch('/api/purchase-requests/:id/status', requireAuth, requireFieldOperator
 app.post('/api/purchase-requests/:id/provision-team', requireAuth, requireFieldOperator, async (req, res) => {
     try {
         const role = String(req.auth?.role || '').toLowerCase();
-        if (!['conception', 'admin', 'superadmin'].includes(role)) {
+        if (!['conception', 'concepteur', 'admin', 'superadmin'].includes(role)) {
             return res.status(403).json({ error: 'Action réservée au concepteur ou admin' });
         }
 

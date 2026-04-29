@@ -38,6 +38,12 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   List<Map<String, dynamic>> _allMachines = [];
   List<Map<String, dynamic>> _purchaseRequests = [];
   List<Map<String, dynamic>> _archives = [];
+  final Set<String> _reviewedRequestIds = <String>{};
+  Future<List<Map<String, dynamic>>>? _clientsFuture;
+  Future<List<Map<String, dynamic>>>? _selectedClientMachinesFuture;
+  String? _selectedCatalogClientId;
+  final TextEditingController _clientSearchController = TextEditingController();
+  String _clientSearchQuery = '';
   bool _loading = true;
   bool _loadingRequests = false;
   bool _loadingArchives = false;
@@ -86,6 +92,32 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
         v.startsWith(r'\\') ||
         v.startsWith('/');
   }
+
+  String _formatDateTime(dynamic value) {
+    final s = value?.toString().trim() ?? '';
+    if (s.isEmpty) return '';
+    final dt = DateTime.tryParse(s);
+    if (dt == null) return s;
+    final local = dt.toLocal();
+    final y = local.year.toString().padLeft(4, '0');
+    final m = local.month.toString().padLeft(2, '0');
+    final d = local.day.toString().padLeft(2, '0');
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    return '$y-$m-$d $hh:$mm';
+  }
+
+  String _clientIdOf(Map<String, dynamic> c) =>
+      (c['clientId'] ?? c['id'] ?? c['_id'] ?? '').toString();
+
+  String _clientNameOf(Map<String, dynamic> c) =>
+      (c['name'] ?? c['clientName'] ?? 'Client').toString();
+
+  String _machineIdOf(Map<String, dynamic> m) =>
+      (m['machineId'] ?? m['id'] ?? m['_id'] ?? '').toString();
+
+  String _machineNameOf(Map<String, dynamic> m) =>
+      (m['name'] ?? 'Machine').toString();
 
   Widget _buildMachineImageWidget(
     String rawImageValue, {
@@ -222,6 +254,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     _fetchMachines();
     _fetchPurchaseRequests();
     _fetchArchives();
+    _clientsFuture = ApiService.getClients();
   }
 
   Future<void> _fetchPurchaseRequests() async {
@@ -229,13 +262,129 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     try {
       final rows = await ApiService.getPurchaseRequests();
       if (!mounted) return;
-      setState(() => _purchaseRequests = rows);
+      setState(() {
+        _purchaseRequests = rows;
+        final currentIds =
+            rows
+                .map((r) => (r['id'] ?? r['_id'] ?? '').toString())
+                .where((id) => id.isNotEmpty)
+                .toSet();
+        _reviewedRequestIds.removeWhere((id) => !currentIds.contains(id));
+      });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _purchaseRequests = []);
+      setState(() {
+        _purchaseRequests = [];
+        _reviewedRequestIds.clear();
+      });
     } finally {
       if (mounted) setState(() => _loadingRequests = false);
     }
+  }
+
+  Future<void> _showPurchaseRequestMachinePreview(Map<String, dynamic> req) async {
+    final reqId = (req['id'] ?? req['_id'] ?? '').toString();
+    if (reqId.isEmpty) return;
+    final machineId = (req['machineId'] ?? '').toString();
+    final machineName = (req['machineName'] ?? machineId).toString();
+    final requester = (req['requesterName'] ?? 'Client').toString();
+    final purchaseAtLabel = _formatDateTime(req['createdAt'] ?? req['purchaseAt']);
+
+    Map<String, dynamic>? machineInfo;
+    if (machineId.isNotEmpty) {
+      try {
+        machineInfo = await ApiService.getMachineInfo(machineId);
+      } catch (_) {
+        machineInfo = null;
+      }
+    }
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: sidebarColor,
+            title: Text(
+              'Détails de la machine',
+              style: GoogleFonts.inter(color: textColor),
+            ),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      machineName.isNotEmpty ? machineName : 'Machine',
+                      style: GoogleFonts.spaceGrotesk(
+                        color: textColor,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'ID machine: ${machineId.isNotEmpty ? machineId : '—'}',
+                      style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Client: $requester',
+                      style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Date achat: ${purchaseAtLabel.isNotEmpty ? purchaseAtLabel : '—'}',
+                      style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Localisation: ${(req['googleMapsUrl'] ?? req['location'] ?? '—').toString()}',
+                      style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
+                    ),
+                    const SizedBox(height: 16),
+                    if (machineInfo != null) ...[
+                      Text(
+                        'Type: ${(machineInfo['type'] ?? machineInfo['category'] ?? '—').toString()}',
+                        style: GoogleFonts.inter(color: textColor, fontSize: 13),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Statut: ${(machineInfo['status'] ?? machineInfo['state'] ?? '—').toString()}',
+                        style: GoogleFonts.inter(color: textColor, fontSize: 13),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Description: ${(machineInfo['description'] ?? machineInfo['note'] ?? '—').toString()}',
+                        style: GoogleFonts.inter(color: textColor, fontSize: 13),
+                      ),
+                    ] else
+                      Text(
+                        'Infos complètes non disponibles depuis l\'API. Les données de la commande sont affichées.',
+                        style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.black,
+                ),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _reviewedRequestIds.add(reqId);
+    });
   }
 
   Future<void> _fetchArchives() async {
@@ -252,9 +401,16 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     }
   }
 
-  Future<void> _validateAndProvisionTeam(Map<String, dynamic> req) async {
+  Future<void> _validateAndProvisionTeam(
+    Map<String, dynamic> req, {
+    bool requireManualInputs = true,
+  }) async {
     final reqId = (req['id'] ?? req['_id'] ?? '').toString();
     if (reqId.isEmpty) return;
+
+    final machineName = (req['machineName'] ?? req['machineId'] ?? '').toString();
+    final machineId = (req['machineId'] ?? '').toString();
+    final purchaseAtLabel = _formatDateTime(req['createdAt'] ?? req['purchaseAt']);
 
     final clientNameCtrl = TextEditingController(
       text: (req['requesterName'] ?? '').toString(),
@@ -267,18 +423,24 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       text: (req['googleMapsUrl'] ?? req['location'] ?? '').toString(),
     );
 
-    final techNameCtrl = TextEditingController();
-    final techPwdCtrl = TextEditingController();
-    final techLocCtrl = TextEditingController();
+    final techNameCtrl = TextEditingController(text: 'Technicien Terrain');
+    final techPwdCtrl = TextEditingController(text: 'tech123');
+    final techLocCtrl = TextEditingController(
+      text: (req['googleMapsUrl'] ?? req['location'] ?? '').toString(),
+    );
 
-    final maintNameCtrl = TextEditingController();
-    final maintPwdCtrl = TextEditingController();
-    final maintLocCtrl = TextEditingController();
+    final maintNameCtrl = TextEditingController(text: 'Maintenance Agent');
+    final maintPwdCtrl = TextEditingController(text: 'maint123');
+    final maintLocCtrl = TextEditingController(
+      text: (req['googleMapsUrl'] ?? req['location'] ?? '').toString(),
+    );
 
-    final submit = await showDialog<bool>(
-      context: context,
-      builder:
-          (ctx) => AlertDialog(
+    final submit =
+        requireManualInputs
+            ? await showDialog<bool>(
+              context: context,
+              builder:
+                  (ctx) => AlertDialog(
             backgroundColor: sidebarColor,
             title: Text(
               'Valider la demande',
@@ -289,6 +451,54 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               child: SingleChildScrollView(
                 child: Column(
                   children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: cardColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withOpacity(0.08)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Machine',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: mutedTextColor,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            machineName.isNotEmpty ? machineName : '—',
+                            style: GoogleFonts.spaceGrotesk(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              color: textColor,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Date achat: ${purchaseAtLabel.isNotEmpty ? purchaseAtLabel : '—'}',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: textColor.withOpacity(0.9),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'ID machine: ${machineId.isNotEmpty ? machineId : '—'}',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: textColor.withOpacity(0.9),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     TextField(
                       controller: clientNameCtrl,
                       decoration: const InputDecoration(labelText: 'Client - Nom'),
@@ -303,8 +513,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     ),
                     TextField(
                       controller: clientPwdCtrl,
+                      obscureText: true,
                       decoration: const InputDecoration(
                         labelText: 'Client - Mot de passe',
+                        hintText: 'Optionnel : vide = mot de passe généré et envoyé par email',
                       ),
                     ),
                     TextField(
@@ -362,11 +574,12 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               ),
               ElevatedButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Creer'),
+                child: const Text('Valider'),
               ),
             ],
-          ),
-    );
+                  ),
+            )
+            : true;
     if (submit != true) return;
 
     final fullMaint = maintNameCtrl.text.trim();
@@ -398,7 +611,28 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       if (!mounted) return;
       await _fetchPurchaseRequests();
       await _fetchMachines();
+
+      // Après validation, on prépare immédiatement l'écran Client Catalog.
+      final clientKey = (result['client'] is Map<String, dynamic>
+              ? (result['client']['clientId'] ?? '').toString()
+              : '') as String;
+      final createdMachineId = (result['machine'] is Map<String, dynamic>
+              ? (result['machine']['id'] ??
+                      result['machine']['machineId'] ??
+                      '')
+                  .toString()
+              : '') as String;
+      if (clientKey.trim().isNotEmpty) {
+        setState(() {
+          selectedMenu = 'CLIENT CATALOG';
+          _clientsFuture = ApiService.getClients();
+          _selectedCatalogClientId = clientKey.trim();
+          _selectedClientMachinesFuture = ApiService.getMachinesForClient(clientKey.trim());
+        });
+      }
+
       final mail = result['credentialsEmail'];
+      final autoPwd = result['clientPasswordAutoGenerated'] == true;
       var mailHint = '';
       if (mail is Map<String, dynamic>) {
         if (mail['sent'] == true) {
@@ -413,6 +647,13 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           mailHint = ' SMTP incomplet (SMTP_USER / SMTP_PASS).';
         }
       }
+      if (autoPwd && mailHint.isEmpty) {
+        mailHint =
+            ' Mot de passe client genere automatiquement (voir email ou logs serveur si SMTP absent).';
+      } else if (autoPwd) {
+        mailHint =
+            '$mailHint Mot de passe client genere automatiquement.';
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -421,6 +662,76 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           backgroundColor: Colors.green,
         ),
       );
+
+      // Résumé (pour que le concepteur voie les informations créées)
+      final client = result['client'];
+      final technician = result['technician'];
+      final maintenance = result['maintenance'];
+      final clientEmail = (client is Map<String, dynamic> ? client['email'] : null)?.toString() ?? '';
+      final techEmail = (technician is Map<String, dynamic> ? technician['email'] : null)?.toString() ?? '';
+      final maintEmail = (maintenance is Map<String, dynamic> ? maintenance['email'] : null)?.toString() ?? '';
+      final clientNameRes = (client is Map<String, dynamic> ? client['name'] : null)?.toString() ?? '';
+      final machineNameRes = (result['machine'] is Map<String, dynamic> ? result['machine']['name'] : null)?.toString() ?? '';
+
+      if (clientKey.trim().isNotEmpty && (clientNameRes.isNotEmpty || createdMachineId.isNotEmpty)) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: sidebarColor,
+            title: Text(
+              'Provision terminée',
+              style: GoogleFonts.inter(color: textColor),
+            ),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Client: $clientNameRes',
+                      style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    Text('Email client: ${clientEmail.isNotEmpty ? clientEmail : '—'}',
+                        style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12)),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Machine: $machineNameRes',
+                      style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    Text('ID machine: ${createdMachineId.isNotEmpty ? createdMachineId : '—'}',
+                        style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12)),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Technicien: ${(technician is Map<String, dynamic> ? technician['name'] : null)?.toString() ?? ''}',
+                      style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    Text('Email technicien: ${techEmail.isNotEmpty ? techEmail : '—'}',
+                        style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12)),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Maintenance: ${(maintenance is Map<String, dynamic> ? maintenance['firstName'] : null)?.toString() ?? ''} ${(maintenance is Map<String, dynamic> ? maintenance['lastName'] : null)?.toString() ?? ''}',
+                      style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    Text('Email maintenance: ${maintEmail.isNotEmpty ? maintEmail : '—'}',
+                        style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12)),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -650,7 +961,17 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
   Widget _buildMainContent() {
     return RefreshIndicator(
-      onRefresh: _fetchMachines,
+      onRefresh: () async {
+        // Refresh context-aware: machines dashboard vs client catalog.
+        if (selectedMenu == 'CLIENT CATALOG') {
+          setState(() => _clientsFuture = ApiService.getClients());
+          try {
+            await _clientsFuture;
+          } catch (_) {}
+          return;
+        }
+        await _fetchMachines();
+      },
       color: primaryColor,
       backgroundColor: cardColor,
       child: SingleChildScrollView(
@@ -658,24 +979,358 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildPurchaseRequestsPanel(),
-            const SizedBox(height: 20),
-            _buildArchivesPanel(),
-            const SizedBox(height: 20),
-            _buildStatsGrid(),
-            const SizedBox(height: 32),
-            _buildMainSectionHeader(),
-            const SizedBox(height: 24),
-            _buildFilterBar(),
-            const SizedBox(height: 24),
-            if (_filteredMachines.isEmpty)
-              _buildEmptyView()
-            else
-              _buildMachineGrid(),
-            const SizedBox(height: 32),
-            _buildPagination(),
+            if (selectedMenu == 'CLIENT CATALOG')
+              _buildClientCatalogPanel()
+            else ...[
+              _buildPurchaseRequestsPanel(),
+              const SizedBox(height: 20),
+              _buildArchivesPanel(),
+              const SizedBox(height: 20),
+              _buildStatsGrid(),
+              const SizedBox(height: 32),
+              _buildMainSectionHeader(),
+              const SizedBox(height: 24),
+              _buildFilterBar(),
+              const SizedBox(height: 24),
+              if (_filteredMachines.isEmpty)
+                _buildEmptyView()
+              else
+                _buildMachineGrid(),
+              const SizedBox(height: 32),
+              _buildPagination(),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildClientCatalogPanel() {
+    final width = MediaQuery.of(context).size.width;
+    final isDesktop = width >= 1050;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: sidebarColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.menu_book_rounded, color: primaryColor),
+              const SizedBox(width: 8),
+              Text(
+                'Client Catalog',
+                style: GoogleFonts.spaceGrotesk(
+                  color: textColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const Spacer(),
+              SizedBox(
+                width: isDesktop ? 340 : 260,
+                child: TextField(
+                  controller: _clientSearchController,
+                  onChanged: (v) => setState(() => _clientSearchQuery = v),
+                  decoration: InputDecoration(
+                    hintText: 'Rechercher par nom, ID ou email...',
+                    hintStyle: GoogleFonts.inter(
+                      color: mutedTextColor.withOpacity(0.6),
+                      fontSize: 13,
+                    ),
+                    filled: true,
+                    fillColor: cardColor,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                  ),
+                  style: GoogleFonts.inter(color: textColor, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _clientsFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 48),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (snapshot.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Text(
+                    'Erreur chargement clients: ${snapshot.error}',
+                    style: GoogleFonts.inter(color: alertColor),
+                  ),
+                );
+              }
+
+              final allClients = snapshot.data ?? const <Map<String, dynamic>>[];
+              final q = _clientSearchQuery.toLowerCase().trim();
+
+              final filtered = allClients.where((c) {
+                if (q.isEmpty) return true;
+                final id = _clientIdOf(c).toLowerCase();
+                final name = _clientNameOf(c).toLowerCase();
+                final email = (c['email'] ?? '').toString().toLowerCase();
+                return id.contains(q) || name.contains(q) || email.contains(q);
+              }).toList();
+
+              if (filtered.isEmpty) {
+                return Text(
+                  'Aucun client trouvé.',
+                  style: GoogleFonts.inter(color: mutedTextColor),
+                );
+              }
+
+              final selectedName = _selectedCatalogClientId == null
+                  ? ''
+                  : _clientNameOf(
+                      allClients.firstWhere(
+                        (c) => _clientIdOf(c) == _selectedCatalogClientId,
+                        orElse: () => filtered.first,
+                      ),
+                    );
+
+              Widget clientsList() {
+                return ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, i) {
+                    final c = filtered[i];
+                    final cid = _clientIdOf(c);
+                    final selected = cid.isNotEmpty && cid == _selectedCatalogClientId;
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () {
+                        if (cid.isEmpty) return;
+                        setState(() {
+                          _selectedCatalogClientId = cid;
+                          _selectedClientMachinesFuture =
+                              ApiService.getMachinesForClient(cid);
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: selected ? primaryColor.withOpacity(0.08) : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: selected ? primaryColor.withOpacity(0.45) : Colors.white.withOpacity(0.06),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _clientNameOf(c),
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: selected ? primaryColor : textColor,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'ID: $cid',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: mutedTextColor,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            if ((c['email'] ?? '').toString().trim().isNotEmpty)
+                              Text(
+                                (c['email'] ?? '').toString(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  color: mutedTextColor,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              }
+
+              Widget machinesPanel() {
+                final cid = _selectedCatalogClientId ?? '';
+                if (cid.isEmpty) {
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: cardColor.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white.withOpacity(0.08)),
+                    ),
+                    child: Text(
+                      'Cliquez sur un client pour voir ses machines.',
+                      style: GoogleFonts.inter(color: mutedTextColor),
+                    ),
+                  );
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Machines de ${selectedName.isNotEmpty ? selectedName : 'Client'}',
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: textColor,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    FutureBuilder<List<Map<String, dynamic>>>(
+                      future: _selectedClientMachinesFuture,
+                      builder: (context, mSnap) {
+                        if (mSnap.connectionState == ConnectionState.waiting) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 30),
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+                        if (mSnap.hasError) {
+                          return Text(
+                            'Erreur machines: ${mSnap.error}',
+                            style: GoogleFonts.inter(color: alertColor),
+                          );
+                        }
+                        final machines = mSnap.data ?? const <Map<String, dynamic>>[];
+                        if (machines.isEmpty) {
+                          return Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: cardColor.withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.white.withOpacity(0.08)),
+                            ),
+                            child: Text(
+                              'Aucune machine achetée pour ce client.',
+                              style: GoogleFonts.inter(color: mutedTextColor),
+                            ),
+                          );
+                        }
+
+                        return ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: machines.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 12),
+                          itemBuilder: (context, i) {
+                            final m = machines[i];
+                            final mid = _machineIdOf(m);
+                            final name = _machineNameOf(m);
+                            final location = (m['location'] ?? '').toString();
+                            return Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: cardColor.withOpacity(0.55),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color: primaryColor.withOpacity(0.10),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: const Icon(Icons.precision_manufacturing, color: primaryColor),
+                                      ),
+                                      const SizedBox(width: 14),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              name,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: GoogleFonts.inter(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.bold,
+                                                color: textColor,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              'ID: $mid',
+                                              style: GoogleFonts.inter(
+                                                fontSize: 12,
+                                                color: mutedTextColor,
+                                              ),
+                                            ),
+                                            if (location.trim().isNotEmpty)
+                                              Text(
+                                                location,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 12,
+                                                  color: mutedTextColor,
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                );
+              }
+
+              return isDesktop
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(width: 380, child: clientsList()),
+                        const SizedBox(width: 18),
+                        Expanded(child: machinesPanel()),
+                      ],
+                    )
+                  : Column(
+                      children: [
+                        clientsList(),
+                        const SizedBox(height: 18),
+                        machinesPanel(),
+                      ],
+                    );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -727,6 +1382,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             ..._purchaseRequests.take(8).map((r) {
               final status = (r['status'] ?? 'PENDING').toString();
               final pending = status == 'PENDING';
+              final reqId = (r['id'] ?? r['_id'] ?? '').toString();
+              final viewed = reqId.isNotEmpty && _reviewedRequestIds.contains(reqId);
               return Container(
                 margin: const EdgeInsets.only(top: 10),
                 padding: const EdgeInsets.all(12),
@@ -765,14 +1422,24 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                           : (status == 'REJECTED' ? alertColor : primaryColor),
                     ),
                     const SizedBox(width: 8),
+                    if (pending && !viewed)
+                      OutlinedButton(
+                        onPressed: () => _showPurchaseRequestMachinePreview(r),
+                        child: const Text('Voir'),
+                      ),
+                    if (pending) const SizedBox(width: 8),
                     if (pending)
                       TextButton(
                         onPressed: () => _rejectRequest(r),
                         child: const Text('Rejeter'),
                       ),
-                    if (pending)
+                    if (pending && viewed)
                       ElevatedButton(
-                        onPressed: () => _validateAndProvisionTeam(r),
+                        onPressed:
+                            () => _validateAndProvisionTeam(
+                              r,
+                              requireManualInputs: false,
+                            ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: primaryColor,
                           foregroundColor: Colors.black,

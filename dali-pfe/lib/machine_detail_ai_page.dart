@@ -1771,7 +1771,16 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
               })));
             },
             icon: const Icon(Icons.person_add_rounded, size: 14, color: _orange),
-            label: Text('Ajouter', style: GoogleFonts.spaceGrotesk(fontSize: 11, color: _orange, fontWeight: FontWeight.w600)),
+            label: Text('Ajouter Technicien', style: GoogleFonts.spaceGrotesk(fontSize: 11, color: _orange, fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 6),
+          OutlinedButton.icon(
+            onPressed: _openConfigureMaintenanceMan,
+            icon: const Icon(Icons.engineering_rounded, size: 14),
+            label: Text(
+              'Ajouter Maintenance Man',
+              style: GoogleFonts.spaceGrotesk(fontSize: 11, fontWeight: FontWeight.w600),
+            ),
           ),
         ]),
         const SizedBox(height: 12),

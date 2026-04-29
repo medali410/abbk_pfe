@@ -8,6 +8,7 @@ import 'ai_analysis_page.dart';
 import 'services/api_service.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'machine_detail_pro_page.dart';
 import 'dart:async';
 
 // ─────────────────────────────────────────────────────────────
@@ -66,6 +67,11 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   Timer? _controlTicker;
   Timer? _machinesAutoRefreshTimer;
 
+  // Public catalogue (same data as HomePage) shown inside the client dashboard (tab index=0).
+  Future<List<Map<String, dynamic>>>? _publicCatalogFuture;
+  final TextEditingController _publicCatalogSearchController = TextEditingController();
+  String _publicCatalogSearchQuery = '';
+
   double _toDouble(dynamic value, [double fallback = 0.0]) {
     if (value == null) return fallback;
     if (value is num) return value.toDouble();
@@ -85,6 +91,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
 
     _refreshMachines();
+    _publicCatalogFuture = ApiService.getMachinesForHomeCatalog();
     _initSocket();
     _initRenderers();
     _controlTicker = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -129,6 +136,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     _controlTicker?.cancel();
     _machinesAutoRefreshTimer?.cancel();
     _shimmerController.dispose();
+    _publicCatalogSearchController.dispose();
     _endCallLocally();
     _localRenderer.dispose();
     _remoteRenderer.dispose();
@@ -332,6 +340,22 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       (m['name'] ?? 'Machine').toString();
 
   Widget _buildNavMainContent(bool isDesktop) {
+    if (_navIndex == 0) {
+      return _buildClientPublicCatalog(isDesktop);
+    }
+    if (_navIndex == 1) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildAIHeader(),
+          const SizedBox(height: 24),
+          _buildKPIRow(isDesktop),
+          const SizedBox(height: 32),
+          _buildMachineListSection(isDesktop),
+          const SizedBox(height: 80),
+        ],
+      );
+    }
     if (_navIndex == 2) {
       if (_iaSelectedMachine == null) {
         return _buildMachinePickerCard(
@@ -377,17 +401,271 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       }
       return _buildDocumentsTechnicalSection(isDesktop);
     }
+    // Fallback.
+    return _buildMachineListSection(isDesktop);
+  }
+
+  Widget _buildClientPublicCatalog(bool isDesktop) {
+    final width = MediaQuery.of(context).size.width;
+    final isTablet = width >= 760;
+    final crossAxisCount = isDesktop ? 3 : (isTablet ? 2 : 1);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildAIHeader(),
-        const SizedBox(height: 24),
-        _buildKPIRow(isDesktop),
-        const SizedBox(height: 32),
-        _buildMachineListSection(isDesktop),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Catalogue machines',
+                style: GoogleFonts.inter(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  color: _onSurface,
+                  letterSpacing: -0.3,
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            SizedBox(
+              width: isDesktop ? 340 : 260,
+              child: TextField(
+                controller: _publicCatalogSearchController,
+                onChanged: (v) => setState(() => _publicCatalogSearchQuery = v),
+                decoration: InputDecoration(
+                  hintText: 'Rechercher par nom, ID ou marque...',
+                  hintStyle: GoogleFonts.inter(
+                    color: _onSurfaceVariant.withOpacity(0.6),
+                    fontSize: 13,
+                  ),
+                  filled: true,
+                  fillColor: _surfaceContainerLow,
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+
+        FutureBuilder<List<Map<String, dynamic>>>(
+          future: _publicCatalogFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 60),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (snapshot.hasError) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Text(
+                  'Erreur chargement catalogue: ${snapshot.error}',
+                  style: GoogleFonts.inter(color: _error),
+                ),
+              );
+            }
+
+            final allMachines = snapshot.data ?? const <Map<String, dynamic>>[];
+            final q = _publicCatalogSearchQuery.toLowerCase().trim();
+            final filtered = allMachines.where((m) {
+              if (q.isEmpty) return true;
+              final machineId = (m['machineId'] ?? m['_id'] ?? m['id'] ?? '').toString().toLowerCase();
+              final name = (m['name'] ?? m['model'] ?? '').toString().toLowerCase();
+              final brand = (m['brand'] ?? m['marque'] ?? '').toString().toLowerCase();
+              return machineId.contains(q) || name.contains(q) || brand.contains(q);
+            }).toList();
+
+            if (filtered.isEmpty) {
+              return _buildCatalogEmptyState();
+            }
+
+            return GridView.builder(
+              itemCount: filtered.length,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxisCount,
+                crossAxisSpacing: 14,
+                mainAxisSpacing: 14,
+                childAspectRatio: crossAxisCount == 1 ? 1.18 : 1.02,
+              ),
+              itemBuilder: (context, i) {
+                final machine = filtered[i];
+                final machineId = (machine['machineId'] ?? machine['_id'] ?? machine['id'] ?? '').toString();
+                return _ClientPublicMachineCard(
+                  machine: machine,
+                  canBuy: true,
+                  onBuy: () => _buyMachineFromClientHome(
+                    context,
+                    machineId: machineId,
+                    machine: machine,
+                  ),
+                );
+              },
+            );
+          },
+        ),
         const SizedBox(height: 80),
       ],
     );
+  }
+
+  Widget _buildCatalogEmptyState() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: _surfaceContainerLow.withOpacity(0.6),
+        border: Border.all(color: _outlineVariant.withOpacity(0.35)),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.inventory_2_outlined, color: _secondary, size: 34),
+          const SizedBox(height: 12),
+          Text(
+            'Aucune machine disponible pour le moment.',
+            style: GoogleFonts.inter(color: _onSurface, fontSize: 14),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _buyMachineFromClientHome(
+    BuildContext context, {
+    required String machineId,
+    required Map<String, dynamic> machine,
+  }) async {
+    if (machineId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Machine invalide.')),
+      );
+      return;
+    }
+
+    final nameCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    final locationCtrl = TextEditingController();
+    final mapCtrl = TextEditingController();
+    final noteCtrl = TextEditingController();
+
+    final linkedClientId = (widget.clientId ?? ApiService.savedClientId ?? '').trim();
+    if (linkedClientId.isNotEmpty) {
+      nameCtrl.text = (ApiService.savedClientName ?? '').trim();
+      emailCtrl.text = (ApiService.savedClientEmail ?? '').trim();
+      locationCtrl.text = (ApiService.savedClientLocation ?? '').trim();
+    }
+
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Demande d\'achat'),
+        backgroundColor: _surfaceContainerHigh,
+        content: SizedBox(
+          width: 430,
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(labelText: 'Nom complet'),
+                ),
+                TextField(
+                  controller: emailCtrl,
+                  decoration: const InputDecoration(labelText: 'Email (optionnel)'),
+                ),
+                TextField(
+                  controller: phoneCtrl,
+                  decoration: const InputDecoration(labelText: 'Telephone (optionnel)'),
+                ),
+                TextField(
+                  controller: locationCtrl,
+                  decoration: const InputDecoration(labelText: 'Localisation'),
+                ),
+                TextField(
+                  controller: mapCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Lien Google Maps (optionnel)',
+                  ),
+                ),
+                TextField(
+                  controller: noteCtrl,
+                  minLines: 2,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: 'Note'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Envoyer'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+    if (approved != true) return;
+
+    if (nameCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Le nom est obligatoire.')),
+      );
+      return;
+    }
+    if (locationCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('La localisation est obligatoire.')),
+      );
+      return;
+    }
+
+    try {
+      await ApiService.createPurchaseRequest({
+        'machineId': machineId,
+        'machineName': (machine['name'] ?? '').toString(),
+        if (linkedClientId.isNotEmpty) 'linkedClientId': linkedClientId,
+        'requesterName': nameCtrl.text.trim(),
+        'requesterEmail': emailCtrl.text.trim(),
+        'requesterPhone': phoneCtrl.text.trim(),
+        'location': locationCtrl.text.trim(),
+        'googleMapsUrl': mapCtrl.text.trim(),
+        'note': noteCtrl.text.trim(),
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Demande envoyee au Concepteur pour validation et creation du client.',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Echec envoi demande: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Widget _buildSubpageHeader({
@@ -999,11 +1277,13 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => setState(() {
-          _navIndex = index;
-          if (index == 2) _iaSelectedMachine = null;
-          if (index == 4) _docSelectedMachine = null;
-        }),
+        onTap: () {
+          setState(() {
+            _navIndex = index;
+            if (index == 2) _iaSelectedMachine = null;
+            if (index == 4) _docSelectedMachine = null;
+          });
+        },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
           decoration: active
@@ -2318,6 +2598,270 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           fontSize: 12,
           letterSpacing: 0.5,
         ),
+      ),
+    );
+  }
+}
+
+class _ClientPublicMachineCard extends StatelessWidget {
+  const _ClientPublicMachineCard({
+    required this.machine,
+    required this.canBuy,
+    required this.onBuy,
+  });
+
+  final Map<String, dynamic> machine;
+  final bool canBuy;
+  final VoidCallback onBuy;
+
+  bool _looksLikeNetworkImage(String value) {
+    final v = value.trim().toLowerCase();
+    return v.startsWith('http://') || v.startsWith('https://');
+  }
+
+  bool _looksLikeDataImage(String value) {
+    final v = value.trim().toLowerCase();
+    return v.startsWith('data:image/');
+  }
+
+  String _normalizeMachineImageValue(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return '';
+    if (_looksLikeNetworkImage(trimmed) || _looksLikeDataImage(trimmed)) {
+      return trimmed;
+    }
+    final hasExtension =
+        RegExp(r'\.[a-z0-9]{2,5}$', caseSensitive: false).hasMatch(trimmed);
+    return hasExtension ? trimmed : '$trimmed.png';
+  }
+
+  String _normalizeStatus(String raw) {
+    final value = raw.toLowerCase().trim();
+    if (value.contains('maintenance')) return 'maintenance';
+    if (value.contains('indispo') || value.contains('offline')) {
+      return 'indisponible';
+    }
+    return 'disponible';
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'maintenance':
+        return const Color(0xFFFFB74D);
+      case 'indisponible':
+        return const Color(0xFFE57373);
+      default:
+        return const Color(0xFF81C784);
+    }
+  }
+
+  String _statusLabel(String status) {
+    switch (status) {
+      case 'maintenance':
+        return 'EN MAINTENANCE';
+      case 'indisponible':
+        return 'INDISPONIBLE';
+      default:
+        return 'DISPONIBLE';
+    }
+  }
+
+  Widget _fallbackBanner() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF2B365A), Color(0xFF222B49)],
+        ),
+      ),
+      child: const Center(
+        child: Icon(
+          Icons.precision_manufacturing_rounded,
+          color: Color(0xFFC7D4F0),
+          size: 34,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final machineId =
+        (machine['machineId'] ?? machine['_id'] ?? machine['id'] ?? '')
+            .toString();
+    final name =
+        (machine['name'] ?? machine['model'] ?? machineId).toString();
+    final brand = (machine['brand'] ?? machine['marque'] ?? '').toString();
+    final description = (machine['description'] ?? machine['type'] ?? 'Machine industrielle')
+        .toString();
+    final price = (machine['price'] ?? machine['prix'] ?? '').toString();
+    final imageUrl = _normalizeMachineImageValue(
+      (machine['imageUrl'] ?? machine['image'] ?? machine['photo'] ?? '')
+          .toString(),
+    );
+    final status = _normalizeStatus(
+      (machine['status'] ?? machine['etat'] ?? machine['state'] ?? 'disponible')
+          .toString(),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xE61B2238), Color(0xE6151B2E)],
+        ),
+        border: Border.all(
+          color: const Color(0x3DFFFFFF),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF000000).withOpacity(0.18),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: AspectRatio(
+              aspectRatio: 16 / 7.2,
+              child: imageUrl.isEmpty
+                  ? _fallbackBanner()
+                  : (_looksLikeDataImage(imageUrl)
+                      ? Image.memory(
+                          base64Decode(imageUrl.split(',').last),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _fallbackBanner(),
+                        )
+                      : Image.network(
+                          imageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _fallbackBanner(),
+                        )),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: _statusColor(status),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                _statusLabel(status),
+                style: GoogleFonts.inter(
+                  color: _statusColor(status),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            name.isEmpty ? 'Machine' : name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.inter(
+              color: Colors.white,
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            machineId.isEmpty ? 'ID: -' : 'ID: $machineId',
+            style: GoogleFonts.inter(
+              color: const Color(0xFFA7B1C6),
+              fontSize: 12,
+            ),
+          ),
+          if (brand.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              'Marque: $brand',
+              style: GoogleFonts.inter(
+                color: const Color(0xFFA7B1C6),
+                fontSize: 12,
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Text(
+            description,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.inter(
+              color: const Color(0xFFD5DDF0),
+              fontSize: 13,
+              height: 1.35,
+            ),
+          ),
+          const Spacer(),
+          if (price.isNotEmpty)
+            Text(
+              'Prix: $price',
+              style: GoogleFonts.inter(
+                color: const Color(0xFFFFBE86),
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MachineDetailProPage(machine: machine),
+                      ),
+                    );
+                  },
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0x557AA7E8)),
+                    foregroundColor: const Color(0xFFD7E7FF),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text('Voir detail'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: canBuy ? onBuy : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF6E00),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: Text(canBuy ? 'Acheter' : 'Se connecter'),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
