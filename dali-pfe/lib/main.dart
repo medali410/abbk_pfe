@@ -61,6 +61,14 @@ class _SessionEntryState extends State<SessionEntry> {
       });
       return;
     }
+    if (role == 'client' && (ApiService.savedClientId ?? '').trim().isNotEmpty) {
+      _redirectScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed('/client-dashboard');
+      });
+      return;
+    }
   }
 
   @override

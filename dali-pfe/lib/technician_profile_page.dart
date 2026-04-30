@@ -696,13 +696,14 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
         .map((e) => e.toString())
         .where((e) => e.isNotEmpty)
         .toList();
+    final String companyIdForMachines = (args?['companyId'] ?? '').toString().trim();
     _ensureTechnicianChat(args ?? {}, name);
 
     return Scaffold(
       backgroundColor: _bg,
       body: Row(
         children: [
-          if (isDesktop) _buildSidebar(name, assignedMachineIds),
+          if (isDesktop) _buildSidebar(name, assignedMachineIds, companyIdForMachines),
           Expanded(
             child: Stack(
               children: [
@@ -730,6 +731,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                             id,
                             name,
                             assignedMachineIds,
+                            companyIdForMachines,
                             isConceptionViewer,
                           ),
                         ],
@@ -765,7 +767,119 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     );
   }
 
-  Widget _buildSidebar(String name, List<String> assignedMachineIds) {
+  Future<void> _showMachineFleetList(
+    String technicianDisplayName,
+    List<String> assignedMachineIds,
+    String companyIdForMachines,
+  ) async {
+    final hostContext = context;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: _surfaceContainerLow,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.precision_manufacturing_outlined, color: _secondary, size: 26),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Machine Fleet',
+                  style: GoogleFonts.spaceGrotesk(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 440,
+            height: 400,
+            child: FutureBuilder<({List<String> ids, List<Map<String, dynamic>> machines})>(
+              future: _loadMachinesForProfileSection(assignedMachineIds, companyIdForMachines),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                }
+                if (snapshot.hasError) {
+                  return Text(
+                    'Impossible de charger la liste.',
+                    style: GoogleFonts.inter(color: _error),
+                  );
+                }
+                final machines = snapshot.data?.machines ?? const <Map<String, dynamic>>[];
+                if (machines.isEmpty) {
+                  return Center(
+                    child: Text(
+                      'Aucune machine assignée à ce périmètre.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(color: _onSurfaceVariant, height: 1.4),
+                    ),
+                  );
+                }
+                return ListView.separated(
+                  itemCount: machines.length,
+                  separatorBuilder: (_, __) => Divider(height: 1, color: Colors.white.withOpacity(0.08)),
+                  itemBuilder: (context, i) {
+                    final m = machines[i];
+                    final machineId = _machineIdFromDoc(m);
+                    final machineName = (m['name'] ?? machineId).toString();
+                    final status = (m['status'] ?? '—').toString();
+                    final client = (m['companyId'] ?? '').toString();
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: _surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.precision_manufacturing, color: _secondary, size: 22),
+                      ),
+                      title: Text(
+                        machineName,
+                        style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                      ),
+                      subtitle: Text(
+                        [if (machineId.isNotEmpty) machineId, status, if (client.isNotEmpty) client].join(' · '),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 11),
+                      ),
+                      onTap: () {
+                        Navigator.pop(dialogContext);
+                        if (machineId.isEmpty || !mounted) return;
+                        Navigator.pushNamed(
+                          hostContext,
+                          '/mission-control',
+                          arguments: {
+                            'techId': machineId,
+                            'name': technicianDisplayName,
+                            'machineName': machineName,
+                          },
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text('Fermer', style: GoogleFonts.inter(color: _onSurfaceVariant)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSidebar(String name, List<String> assignedMachineIds, String companyIdForMachines) {
     return Container(
       width: 256,
       color: _surfaceContainerLow,
@@ -791,15 +905,17 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Marc Lefebvre',
+                        name,
                         style: GoogleFonts.spaceGrotesk(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       Text(
-                        'Senior Technician - Zone B',
+                        'Technicien',
                         style: GoogleFonts.spaceGrotesk(
                           color: _onSurfaceVariant.withOpacity(0.7),
                           fontSize: 10,
@@ -815,7 +931,11 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           const Divider(color: Colors.white10),
           _buildSidebarTile(Icons.analytics_outlined, 'Overview'),
           _buildSidebarTile(Icons.route_outlined, 'Live Location'),
-          _buildSidebarTile(Icons.precision_manufacturing_outlined, 'Machine Fleet'),
+          _buildSidebarTile(
+            Icons.precision_manufacturing_outlined,
+            'Machine Fleet',
+            onTap: () => _showMachineFleetList(name, assignedMachineIds, companyIdForMachines),
+          ),
           _buildSidebarTile(Icons.history_edu, 'Service Logs', isActive: true),
           _buildSidebarTile(Icons.description_outlined, 'Documents'),
           _buildSidebarTile(Icons.calendar_month_outlined, 'Calendrier de Contrôle', onTap: () {
@@ -1184,6 +1304,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     String technicianId,
     String technicianName,
     List<String> assignedMachineIds,
+    String companyIdForMachines,
     bool isConceptionProfile,
   ) {
     if (isDesktop) {
@@ -1205,11 +1326,18 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             flex: 8,
             child: Column(
               children: [
-                _buildMachinesSection(context, assignedMachineIds, isConceptionProfile, technicianId, technicianName),
+                _buildMachinesSection(
+                  context,
+                  assignedMachineIds,
+                  companyIdForMachines,
+                  isConceptionProfile,
+                  technicianId,
+                  technicianName,
+                ),
                 const SizedBox(height: 32),
                 _buildPerformanceSection(),
                 const SizedBox(height: 24),
-                _buildTechnicianHistorySection(assignedMachineIds),
+                _buildTechnicianHistorySection(assignedMachineIds, companyIdForMachines),
                 const SizedBox(height: 24),
                 _buildClientTechnicianMessengerZone(),
               ],
@@ -1224,11 +1352,18 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           const SizedBox(height: 24),
           _buildLocationCard(),
           const SizedBox(height: 24),
-          _buildMachinesSection(context, assignedMachineIds, isConceptionProfile, technicianId, technicianName),
+          _buildMachinesSection(
+            context,
+            assignedMachineIds,
+            companyIdForMachines,
+            isConceptionProfile,
+            technicianId,
+            technicianName,
+          ),
           const SizedBox(height: 24),
           _buildPerformanceSection(),
           const SizedBox(height: 24),
-          _buildTechnicianHistorySection(assignedMachineIds),
+          _buildTechnicianHistorySection(assignedMachineIds, companyIdForMachines),
           const SizedBox(height: 24),
           _buildClientTechnicianMessengerZone(),
         ],
@@ -1357,145 +1492,223 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     );
   }
 
-  Widget _buildMachinesSection(BuildContext context, List<String> assignedMachineIds, bool isConceptionProfile, String technicianId, String technicianName) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  String _machineIdFromDoc(Map<String, dynamic> m) {
+    return (m['id'] ?? m['_id'] ?? m['machineId'] ?? '').toString();
+  }
+
+  /// Identifiants machines (Mongo `id` / `_id`) : explicites sur le technicien, sinon tout le parc du client.
+  Future<List<String>> _resolveAssignedMachineIds(
+    List<String> fromArgs,
+    String companyId,
+  ) async {
+    final ids = fromArgs.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    if (ids.isNotEmpty) return ids;
+    if (companyId.isEmpty) return ids;
+    try {
+      final cm = await ApiService.getMachinesForClient(companyId);
+      final fromClient = cm.map(_machineIdFromDoc).where((e) => e.isNotEmpty).toList();
+      if (fromClient.isNotEmpty) return fromClient;
+    } catch (_) {}
+    bool sameCompany(Map<String, dynamic> m) =>
+        (m['companyId'] ?? '').toString().trim() == companyId;
+    try {
+      final all = await ApiService.getAllMachinesFromMongo();
+      final fromAll = all.where(sameCompany).map(_machineIdFromDoc).where((e) => e.isNotEmpty).toList();
+      if (fromAll.isNotEmpty) return fromAll;
+    } catch (_) {}
+    try {
+      final std = await ApiService.getMachines();
+      return std.where(sameCompany).map(_machineIdFromDoc).where((e) => e.isNotEmpty).toList();
+    } catch (_) {
+      return ids;
+    }
+  }
+
+  Future<({List<String> ids, List<Map<String, dynamic>> machines})> _loadMachinesForProfileSection(
+    List<String> assignedMachineIds,
+    String companyId,
+  ) async {
+    final ids = await _resolveAssignedMachineIds(assignedMachineIds, companyId);
+    final machines = await _loadAssignedMachinesWithRisk(ids);
+    return (ids: ids, machines: machines);
+  }
+
+  Widget _buildMachinesSection(
+    BuildContext context,
+    List<String> assignedMachineIds,
+    String companyIdForMachines,
+    bool isConceptionProfile,
+    String technicianId,
+    String technicianName,
+  ) {
+    return FutureBuilder<({List<String> ids, List<Map<String, dynamic>> machines})>(
+      future: _loadMachinesForProfileSection(assignedMachineIds, companyIdForMachines),
+      builder: (context, snapshot) {
+        final controlledMachines = snapshot.data?.machines ?? const <Map<String, dynamic>>[];
+        final resolvedCount = snapshot.data?.ids.length ?? assignedMachineIds.length;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'UNITÉS SOUS SUPERVISION',
-                  style: GoogleFonts.spaceGrotesk(
-                    color: _tertiary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 2,
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'UNITÉS SOUS SUPERVISION',
+                      style: GoogleFonts.spaceGrotesk(
+                        color: _tertiary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isConceptionProfile
+                          ? 'Machines assignées à ce compte conception'
+                          : 'Machines assignées à ce technicien',
+                      style: TextStyle(color: _onSurfaceVariant, fontSize: 13),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  isConceptionProfile
-                      ? 'Machines assignées à ce compte conception'
-                      : 'Machines assignées à ce technicien',
-                  style: TextStyle(color: _onSurfaceVariant, fontSize: 13),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '$resolvedCount machine(s)',
+                      style: GoogleFonts.spaceGrotesk(color: _secondary, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                    IconButton(
+                      tooltip: 'Liste des machines',
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                      icon: const Icon(Icons.view_list, color: _secondary, size: 22),
+                      onPressed: () => _showMachineFleetList(
+                        technicianName,
+                        assignedMachineIds,
+                        companyIdForMachines,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-            Text(
-              '${assignedMachineIds.length} machine(s)',
-              style: GoogleFonts.spaceGrotesk(color: _secondary, fontSize: 11, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        FutureBuilder<List<Map<String, dynamic>>>(
-          future: _loadAssignedMachinesWithRisk(assignedMachineIds),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: Padding(
-                padding: EdgeInsets.all(16),
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ));
-            }
-            if (snapshot.hasError) {
-              return Text(
+            const SizedBox(height: 24),
+            if (snapshot.connectionState == ConnectionState.waiting)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            else if (snapshot.hasError)
+              Text(
                 'Impossible de charger les machines assignées',
                 style: GoogleFonts.inter(color: _error),
-              );
-            }
-
-            final controlledMachines = snapshot.data ?? const <Map<String, dynamic>>[];
-
-            if (controlledMachines.isEmpty) {
-              return Text(
+              )
+            else if (controlledMachines.isEmpty)
+              Text(
                 isConceptionProfile
                     ? 'Aucune machine actuellement assignée à ce concepteur.'
                     : 'Aucune machine actuellement assignée à ce technicien.',
                 style: GoogleFonts.inter(color: _onSurfaceVariant),
-              );
-            }
+              )
+            else
+              _buildMachinesGridContent(
+                context,
+                controlledMachines,
+                technicianId,
+                technicianName,
+              ),
+          ],
+        );
+      },
+    );
+  }
 
-            final critical = controlledMachines.where((m) {
-              final risk = (m['_riskPercent'] as int?) ?? 0;
-              final status = (m['status'] ?? '').toString().toUpperCase();
-              final requiresStop = m['_requiresStop'] == true;
-              return requiresStop || risk > 60 || status == 'PANNE';
-            }).toList();
+  Widget _buildMachinesGridContent(
+    BuildContext context,
+    List<Map<String, dynamic>> controlledMachines,
+    String technicianId,
+    String technicianName,
+  ) {
+    final critical = controlledMachines.where((m) {
+      final risk = (m['_riskPercent'] as int?) ?? 0;
+      final status = (m['status'] ?? '').toString().toUpperCase();
+      final requiresStop = m['_requiresStop'] == true;
+      return requiresStop || risk > 60 || status == 'PANNE';
+    }).toList();
 
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (critical.isNotEmpty)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: _error.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: _error.withOpacity(0.45)),
+            ),
+            child: Row(
               children: [
-                if (critical.isNotEmpty)
-                  Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.only(bottom: 14),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: _error.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: _error.withOpacity(0.45)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.warning_amber_rounded, color: _error, size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Notification panne: ${critical.length} machine(s) en alerte (IA > 60% ou panne détectée).',
-                            style: GoogleFonts.inter(color: _error, fontWeight: FontWeight.w700, fontSize: 12),
-                          ),
-                        ),
-                      ],
-                    ),
+                const Icon(Icons.warning_amber_rounded, color: _error, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Notification panne: ${critical.length} machine(s) en alerte (IA > 60% ou panne détectée).',
+                    style: GoogleFonts.inter(color: _error, fontWeight: FontWeight.w700, fontSize: 12),
                   ),
-                LayoutBuilder(builder: (context, constraints) {
-                  return GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: constraints.maxWidth > 600 ? 2 : 1,
-                    mainAxisSpacing: 24,
-                    crossAxisSpacing: 24,
-                    childAspectRatio: 1.5,
-                    children: controlledMachines.map((m) {
-                      final machineId = (m['id'] ?? m['_id'] ?? m['machineId'] ?? '').toString();
-                      final machineName = (m['name'] ?? 'Machine').toString();
-                      final status = (m['status'] ?? '').toString();
-                      final risk = (m['_riskPercent'] as int?) ?? _machineHealthFromStatus(status);
-                      final requiresStop = m['_requiresStop'] == true;
-                      final isAlert = requiresStop || risk > 60 || status.toUpperCase() == 'PANNE';
-                      final riskNote = (m['_riskLabel'] ?? '').toString();
-
-                      return _buildMachineCard(
-                        Icons.precision_manufacturing,
-                        machineName,
-                        (m['companyId'] ?? 'Client').toString(),
-                        risk,
-                        isAlert ? _error : (status.toUpperCase() == 'RUNNING' ? _secondary : _error),
-                        isAlert: isAlert,
-                        alertText: riskNote,
-                        onTap: () {
-                          if (machineId.isEmpty) return;
-                          
-                          // Redirection vers le Mission Control (Terminal de haute technologie)
-                          Navigator.pushNamed(
-                            context,
-                            '/mission-control',
-                            arguments: {
-                              'techId': machineId, // Utilise l'ID de la machine pour capter les messages
-                              'name': technicianName, // Nom du technicien
-                              'machineName': machineName,
-                            },
-                          );
-                        },
-                      );
-                    }).toList(),
-                  );
-                }),
+                ),
               ],
+            ),
+          ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            return GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: constraints.maxWidth > 600 ? 2 : 1,
+              mainAxisSpacing: 24,
+              crossAxisSpacing: 24,
+              childAspectRatio: 1.5,
+              children: controlledMachines.map((m) {
+                final machineId = _machineIdFromDoc(m);
+                final machineName = (m['name'] ?? 'Machine').toString();
+                final status = (m['status'] ?? '').toString();
+                final risk = (m['_riskPercent'] as int?) ?? _machineHealthFromStatus(status);
+                final requiresStop = m['_requiresStop'] == true;
+                final isAlert = requiresStop || risk > 60 || status.toUpperCase() == 'PANNE';
+                final riskNote = (m['_riskLabel'] ?? '').toString();
+
+                return _buildMachineCard(
+                  Icons.precision_manufacturing,
+                  machineName,
+                  (m['companyId'] ?? 'Client').toString(),
+                  risk,
+                  isAlert ? _error : (status.toUpperCase() == 'RUNNING' ? _secondary : _error),
+                  isAlert: isAlert,
+                  alertText: riskNote,
+                  onTap: () {
+                    if (machineId.isEmpty) return;
+
+                    Navigator.pushNamed(
+                      context,
+                      '/mission-control',
+                      arguments: {
+                        'techId': machineId,
+                        'name': technicianName,
+                        'machineName': machineName,
+                      },
+                    );
+                  },
+                );
+              }).toList(),
             );
           },
         ),
@@ -1504,15 +1717,30 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   }
 
   Future<List<Map<String, dynamic>>> _loadAssignedMachinesWithRisk(List<String> assignedMachineIds) async {
-    final allMachines = await ApiService.getMachines();
-    final assignedSet = assignedMachineIds.toSet();
+    final mergedById = <String, Map<String, dynamic>>{};
+    void mergeIn(List<Map<String, dynamic>> list) {
+      for (final m in list) {
+        final id = _machineIdFromDoc(m);
+        if (id.isNotEmpty) mergedById[id] = m;
+      }
+    }
+
+    try {
+      mergeIn(await ApiService.getAllMachinesFromMongo());
+    } catch (_) {}
+    try {
+      mergeIn(await ApiService.getMachines());
+    } catch (_) {}
+
+    final allMachines = mergedById.values.toList();
+    final assignedSet = assignedMachineIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
     final controlledMachines = allMachines.where((m) {
-      final machineId = (m['id'] ?? m['_id'] ?? m['machineId'] ?? '').toString();
+      final machineId = _machineIdFromDoc(m);
       return assignedSet.contains(machineId);
     }).toList();
 
     for (final m in controlledMachines) {
-      final machineId = (m['id'] ?? m['_id'] ?? m['machineId'] ?? '').toString();
+      final machineId = _machineIdFromDoc(m);
       if (machineId.isEmpty) continue;
       try {
         final latest = await ApiService.getLatestTelemetry(machineId);
@@ -1556,7 +1784,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     return 75;
   }
 
-  Widget _buildTechnicianHistorySection(List<String> assignedMachineIds) {
+  Widget _buildTechnicianHistorySection(List<String> assignedMachineIds, String companyIdForMachines) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1579,15 +1807,22 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                 ),
               ),
               const Spacer(),
-              Text(
-                '${assignedMachineIds.length} machine(s) liées',
-                style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 11),
+              FutureBuilder<List<String>>(
+                future: _resolveAssignedMachineIds(assignedMachineIds, companyIdForMachines),
+                builder: (context, snap) {
+                  final n = snap.data?.length ?? assignedMachineIds.length;
+                  return Text(
+                    '$n machine(s) liées',
+                    style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 11),
+                  );
+                },
               ),
             ],
           ),
           const SizedBox(height: 10),
           FutureBuilder<List<Map<String, dynamic>>>(
-            future: _loadTechnicianHistoryRows(assignedMachineIds),
+            future: _resolveAssignedMachineIds(assignedMachineIds, companyIdForMachines)
+                .then(_loadTechnicianHistoryRows),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Padding(

@@ -74,9 +74,15 @@ function requireSuperAdmin(req, res, next) {
     return res.status(403).json({ error: 'Action réservée au super administrateur' });
 }
 
+function requireSuperAdminOrConception(req, res, next) {
+    const r = req.auth?.role;
+    if (r === 'superadmin' || r === 'conception') return next();
+    return res.status(403).json({ error: 'Action réservée au super administrateur ou à la conception' });
+}
+
 function requireFleetManager(req, res, next) {
     const r = req.auth?.role;
-    if (r === 'superadmin' || r === 'admin') return next();
+    if (r === 'superadmin' || r === 'admin' || r === 'conception') return next();
     return res.status(403).json({ error: 'Accès refusé' });
 }
 
@@ -512,6 +518,8 @@ async function companyMatchesAuth(auth, companyKey) {
 
 async function assertFleetCompanyAccess(req, res, companyKey) {
     if (req.auth.role === 'superadmin') return true;
+    /** Conception : périmètre catalogue complet (tous clients / techniciens / agents maintenance). */
+    if (req.auth.role === 'conception') return true;
     if (req.auth.role !== 'admin') {
         res.status(403).json({ error: 'Accès refusé' });
         return false;
@@ -526,6 +534,8 @@ async function assertFleetCompanyAccess(req, res, companyKey) {
 async function clientWritableByAuth(auth, clientDoc) {
     if (!clientDoc) return false;
     if (auth.role === 'superadmin') return true;
+    /** Même périmètre que assertFleetCompanyAccess pour le catalogue client. */
+    if (auth.role === 'conception') return true;
     if (auth.role !== 'admin') return false;
     if (!auth.companyId) return false;
     const aliases = await buildCompanyAliasSet(String(auth.companyId));
@@ -1923,6 +1933,11 @@ app.post('/api/login', async (req, res) => {
         }
 
         if (client) {
+            if (client.loginDisabled) {
+                return res.status(403).json({
+                    message: 'Connexion désactivée pour ce compte client. Contactez votre administrateur.',
+                });
+            }
             const okC = await verifyClientPassword(password, client.password);
             if (okC) {
                 if (client.password && !client.password.startsWith('$2')) {
@@ -2181,16 +2196,38 @@ app.get('/api/maintenance/workspace', requireAuth, async (req, res) => {
             return res.status(404).json({ error: 'Compte maintenance introuvable' });
         }
 
-        const machineIds = (agent.machineIds || []).map(String);
+        const machineIds = (agent.machineIds || []).map(String).filter(Boolean);
         let machineDocs = [];
         if (machineIds.length > 0) {
             machineDocs = await Machine.find({ _id: { $in: machineIds } })
                 .select('_id name companyId status maintenanceControlActive maintenanceControlBy maintenanceControlStartedAt maintenanceControlEndsAt')
                 .lean();
-        } else if (agent.clientId) {
-            machineDocs = await Machine.find({ companyId: String(agent.clientId) })
+        }
+        const clientKey = agent.clientId != null ? String(agent.clientId).trim() : '';
+        if (machineDocs.length === 0 && clientKey) {
+            const aliases = await buildCompanyAliasSet(clientKey);
+            machineDocs = await Machine.find({
+                companyId: { $in: Array.from(aliases) },
+                _id: { $exists: true, $nin: [null, ''] },
+            })
                 .select('_id name companyId status maintenanceControlActive maintenanceControlBy maintenanceControlStartedAt maintenanceControlEndsAt')
+                .sort({ updatedAt: -1, createdAt: -1 })
                 .lean();
+        }
+        // Dernier recours dev : un seul client en base — aligner le périmètre machines (agents mal reliés au clientId).
+        if (machineDocs.length === 0 && !clientKey) {
+            const soloClients = await Client.find({}, { _id: 1, clientId: 1 }).lean().limit(2);
+            if (soloClients.length === 1) {
+                const ck = soloClients[0].clientId ? String(soloClients[0].clientId) : String(soloClients[0]._id);
+                const aliases = await buildCompanyAliasSet(ck);
+                machineDocs = await Machine.find({
+                    companyId: { $in: Array.from(aliases) },
+                    _id: { $exists: true, $nin: [null, ''] },
+                })
+                    .select('_id name companyId status maintenanceControlActive maintenanceControlBy maintenanceControlStartedAt maintenanceControlEndsAt')
+                    .sort({ updatedAt: -1, createdAt: -1 })
+                    .lean();
+            }
         }
 
         const rows = [];
@@ -3068,7 +3105,7 @@ app.get('/api/maintenance-agents', async (req, res) => {
     }
 });
 
-app.post('/api/maintenance-agents', requireAuth, requireSuperAdmin, async (req, res) => {
+app.post('/api/maintenance-agents', requireAuth, requireSuperAdminOrConception, async (req, res) => {
     try {
         const firstName = String(req.body.firstName || '').trim();
         const lastName = String(req.body.lastName || '').trim();
@@ -3146,7 +3183,7 @@ app.post('/api/maintenance-agents', requireAuth, requireSuperAdmin, async (req, 
     }
 });
 
-app.put('/api/maintenance-agents/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+app.put('/api/maintenance-agents/:id', requireAuth, requireFleetManager, async (req, res) => {
     try {
         const param = String(req.params.id);
         let doc = await MaintenanceAgent.findOne({ maintenanceAgentId: param });
@@ -3156,6 +3193,7 @@ app.put('/api/maintenance-agents/:id', requireAuth, requireSuperAdmin, async (re
         if (!doc) {
             return res.status(404).json({ error: 'Agent introuvable' });
         }
+        if (!(await assertFleetCompanyAccess(req, res, String(doc.clientId || '')))) return;
 
         if (req.body.firstName !== undefined) {
             doc.firstName = String(req.body.firstName || '').trim();
@@ -3243,7 +3281,7 @@ app.put('/api/maintenance-agents/:id', requireAuth, requireSuperAdmin, async (re
     }
 });
 
-app.delete('/api/maintenance-agents/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+app.delete('/api/maintenance-agents/:id', requireAuth, requireFleetManager, async (req, res) => {
     try {
         const param = String(req.params.id);
         let doc = await MaintenanceAgent.findOne({ maintenanceAgentId: param });
@@ -3253,6 +3291,7 @@ app.delete('/api/maintenance-agents/:id', requireAuth, requireSuperAdmin, async 
         if (!doc) {
             return res.status(404).json({ error: 'Agent introuvable' });
         }
+        if (!(await assertFleetCompanyAccess(req, res, String(doc.clientId || '')))) return;
         await MaintenanceAgent.deleteOne({ _id: doc._id });
         res.json({ ok: true });
     } catch (err) {
@@ -4197,7 +4236,67 @@ app.post('/api/purchase-requests/:id/provision-team', requireAuth, requireFieldO
     }
 });
 
-app.get('/api/clients', async (req, res) => {
+/**
+ * Synthèse des comptes client (login email, mot de passe défini, blocage, collisions d’email avec autres rôles).
+ * Réservé super-admin / admin / conception.
+ */
+app.get('/api/clients/login-survey', requireAuth, requireFleetManager, async (req, res) => {
+    try {
+        const clients = await Client.find().lean();
+        const emails = [
+            ...new Set(
+                clients
+                    .map((c) => String(c.email || '').trim().toLowerCase())
+                    .filter((e) => e.includes('@'))
+            ),
+        ];
+        let userHits = [];
+        let techHits = [];
+        let concepteurHits = [];
+        let maintHits = [];
+        if (emails.length > 0) {
+            [userHits, techHits, concepteurHits, maintHits] = await Promise.all([
+                User.find({ email: { $in: emails } }).select('email').lean(),
+                Technician.find({ email: { $in: emails } }).select('email').lean(),
+                Concepteur.find({ email: { $in: emails } }).select('email').lean(),
+                MaintenanceAgent.find({ email: { $in: emails } }).select('email').lean(),
+            ]);
+        }
+        const asSet = (rows) =>
+            new Set(rows.map((r) => String(r.email || '').trim().toLowerCase()).filter(Boolean));
+        const sUser = asSet(userHits);
+        const sTech = asSet(techHits);
+        const sConc = asSet(concepteurHits);
+        const sMaint = asSet(maintHits);
+
+        const rows = clients.map((c) => {
+            const em = String(c.email || '').trim().toLowerCase();
+            const collisions = [];
+            if (em) {
+                if (sUser.has(em)) collisions.push('admin_user');
+                if (sTech.has(em)) collisions.push('technician');
+                if (sConc.has(em)) collisions.push('concepteur');
+                if (sMaint.has(em)) collisions.push('maintenance');
+            }
+            const hasPw = !!(c.password && String(c.password).trim());
+            return {
+                id: String(c._id),
+                clientId: c.clientId,
+                name: c.name,
+                email: c.email || '',
+                loginDisabled: Boolean(c.loginDisabled),
+                hasLoginPassword: hasPw,
+                identityCollisions: collisions,
+            };
+        });
+        res.set('Cache-Control', 'no-store');
+        res.json({ clients: rows, generatedAt: new Date().toISOString() });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/clients', requireAuth, requireFleetManager, async (req, res) => {
     try {
         const clients = await Client.find();
         if (clients.length === 0) {
@@ -4205,13 +4304,14 @@ app.get('/api/clients', async (req, res) => {
             const companies = await Company.find();
             return res.json(companies.map(c => ({ ...c.toJSON(), id: c._id, clientId: c._id })));
         }
+        res.set('Cache-Control', 'no-store');
         res.json(clients);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-app.post('/api/clients', requireAuth, requireSuperAdmin, async (req, res) => {
+app.post('/api/clients', requireAuth, requireSuperAdminOrConception, async (req, res) => {
     console.log('📝 Tentative d\'ajout de client:', { ...req.body, password: req.body.password ? '[mask]' : '' });
     try {
         const data = { ...req.body };
@@ -4288,7 +4388,7 @@ app.put('/api/clients/:id', requireAuth, requireFleetManager, async (req, res) =
             if (!(await clientWritableByAuth(req.auth, targetClient))) {
                 return res.status(403).json({ error: 'Accès refusé' });
             }
-        } else if (req.auth.role !== 'superadmin') {
+        } else if (!['superadmin', 'conception'].includes(req.auth.role)) {
             return res.status(403).json({ error: 'Accès refusé' });
         }
 
@@ -4337,18 +4437,28 @@ app.put('/api/clients/:id', requireAuth, requireFleetManager, async (req, res) =
     }
 });
 
-app.delete('/api/clients/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+app.delete('/api/clients/:id', requireAuth, requireFleetManager, async (req, res) => {
     try {
-        let client = await Client.findOneAndDelete({ clientId: req.params.id });
-        
-        if (!client) {
-            // Fallback pour Company
-            client = await Company.findByIdAndDelete(req.params.id);
+        const paramId = String(req.params.id);
+        let client = await Client.findOne({ clientId: paramId });
+        if (!client && mongoose.Types.ObjectId.isValid(paramId)) {
+            client = await Client.findById(paramId);
         }
-        
-        if (!client) return res.status(404).json({ error: 'Client non trouvé' });
-        console.log(`🗑️ Client supprimé : ${client.name}`);
-        res.json({ message: 'Client supprimé avec succès' });
+        if (client) {
+            if (!(await clientWritableByAuth(req.auth, client))) {
+                return res.status(403).json({ error: 'Accès refusé' });
+            }
+            await Client.deleteOne({ _id: client._id });
+            console.log(`🗑️ Client supprimé : ${client.name}`);
+            return res.json({ message: 'Client supprimé avec succès' });
+        }
+        if (!['superadmin', 'conception'].includes(req.auth.role)) {
+            return res.status(403).json({ error: 'Accès refusé' });
+        }
+        const company = await Company.findByIdAndDelete(paramId);
+        if (!company) return res.status(404).json({ error: 'Client non trouvé' });
+        console.log(`🗑️ Société supprimée : ${paramId}`);
+        res.json({ message: 'Entité supprimée avec succès' });
     } catch (err) {
         console.error('❌ Erreur Suppression Client:', err.message);
         res.status(500).json({ error: err.message });

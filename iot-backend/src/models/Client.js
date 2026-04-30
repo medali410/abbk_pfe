@@ -9,6 +9,8 @@ const clientSchema = new mongoose.Schema({
     // Identifiants tableau de bord client (définis par le super admin) — email unique
     email: { type: String, trim: true, lowercase: true, sparse: true, unique: true },
     password: { type: String },
+    /** Si true, le compte ne peut plus se connecter via POST /api/login (rôle client). */
+    loginDisabled: { type: Boolean, default: false },
     status: { type: String, default: 'operational' }, // operational, optimal, warning, critical
     lastSync: { type: String, default: 'il y a qq instants' },
     machines: { type: Number, default: 0 },

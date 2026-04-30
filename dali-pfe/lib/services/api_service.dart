@@ -366,13 +366,28 @@ class ApiService {
   // -------------------------
 
   static Future<List<Map<String, dynamic>>> getClients() async {
-    final response = await http.get(Uri.parse('$baseUrl/clients'));
+    final response = await http.get(
+      Uri.parse('$baseUrl/clients'),
+      headers: await jsonHeadersAuthorized(),
+    );
     if (response.statusCode == 200) {
       List<dynamic> body = json.decode(response.body);
       return body.map((dynamic item) => item as Map<String, dynamic>).toList();
     } else {
       throw Exception('Erreur lors du chargement des clients: ${response.statusCode}');
     }
+  }
+
+  /// Rapport pour super-admin / admin / conception : email, mot de passe défini, blocage, collisions d’identité.
+  static Future<Map<String, dynamic>> getClientLoginSurvey() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/clients/login-survey'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    _throwApiError(response, 'Chargement du rapport connexions clients impossible');
   }
 
   static Future<Map<String, dynamic>> addClient(Map<String, dynamic> data) async {
@@ -581,10 +596,11 @@ class ApiService {
   // -------------------------
 
   static Future<Map<String, dynamic>> login(String email, String password) async {
+    final emailNorm = email.trim().toLowerCase();
     final response = await http.post(
       Uri.parse('$baseUrl/login'),
       headers: {'Content-Type': 'application/json'},
-      body: json.encode({'email': email, 'password': password}),
+      body: json.encode({'email': emailNorm, 'password': password}),
     );
 
     if (response.statusCode == 200) {

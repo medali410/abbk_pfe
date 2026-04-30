@@ -8,6 +8,9 @@ import 'package:image/image.dart' as img;
 import 'services/api_service.dart';
 import 'machine_detail_ai_page.dart';
 import 'add_machine_page.dart';
+import 'add_client_page.dart';
+import 'add_technician_page.dart';
+import 'add_maintenance_agent_page.dart';
 
 class ConcepteurDashboardPage extends StatefulWidget {
   const ConcepteurDashboardPage({super.key});
@@ -44,6 +47,17 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   String? _selectedCatalogClientId;
   final TextEditingController _clientSearchController = TextEditingController();
   String _clientSearchQuery = '';
+  Future<List<Map<String, dynamic>>>? _techniciansFuture;
+  String? _selectedTechnicianId;
+  final TextEditingController _technicianSearchController =
+      TextEditingController();
+  String _technicianSearchQuery = '';
+  Future<List<Map<String, dynamic>>>? _maintenanceAgentsFuture;
+  Future<Map<String, dynamic>>? _clientLoginSurveyFuture;
+  String? _selectedMaintenanceAgentId;
+  final TextEditingController _maintenanceSearchController =
+      TextEditingController();
+  String _maintenanceSearchQuery = '';
   bool _loading = true;
   bool _loadingRequests = false;
   bool _loadingArchives = false;
@@ -112,6 +126,296 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
   String _clientNameOf(Map<String, dynamic> c) =>
       (c['name'] ?? c['clientName'] ?? 'Client').toString();
+
+  Set<String> _clientLinkedIdKeys(Map<String, dynamic> client) {
+    final s = <String>{};
+    for (final k in ['clientId', 'id', '_id']) {
+      final v = (client[k] ?? '').toString().trim();
+      if (v.isNotEmpty) s.add(v);
+    }
+    final id = _clientIdOf(client);
+    if (id.isNotEmpty) s.add(id);
+    return s;
+  }
+
+  bool _linkedIdMatches(String a, String b) {
+    final x = a.trim();
+    final y = b.trim();
+    if (x.isEmpty || y.isEmpty) return false;
+    if (x == y) return true;
+    if (x.length >= 12 && y.length >= 12 && (x.contains(y) || y.contains(x))) {
+      return true;
+    }
+    return false;
+  }
+
+  List<Map<String, dynamic>> _techniciansForClientKeys(
+    List<Map<String, dynamic>> techs,
+    Set<String> clientKeys,
+  ) {
+    return techs.where((t) {
+      final comp = (t['companyId'] ?? '').toString().trim();
+      if (comp.isEmpty) return false;
+      for (final k in clientKeys) {
+        if (_linkedIdMatches(comp, k)) return true;
+      }
+      return false;
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> _maintenanceAgentsForClientKeys(
+    List<Map<String, dynamic>> agents,
+    Set<String> clientKeys,
+  ) {
+    return agents.where((a) {
+      final aid = (a['clientId'] ?? '').toString().trim();
+      if (aid.isEmpty) return false;
+      for (final k in clientKeys) {
+        if (_linkedIdMatches(aid, k)) return true;
+      }
+      return false;
+    }).toList();
+  }
+
+  Widget _catalogEditDeleteRow({
+    required VoidCallback onEdit,
+    required VoidCallback onDelete,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 6, 4, 4),
+      child: Material(
+        color: Colors.transparent,
+        child: Row(
+          children: [
+            OutlinedButton(
+              onPressed: onEdit,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: primaryColor,
+                side: BorderSide(color: primaryColor.withOpacity(0.65)),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                minimumSize: const Size(72, 36),
+                tapTargetSize: MaterialTapTargetSize.padded,
+                visualDensity: VisualDensity.compact,
+              ),
+              child: Text(
+                'Modifier',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            OutlinedButton(
+              onPressed: onDelete,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: alertColor,
+                side: BorderSide(color: alertColor.withOpacity(0.65)),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                minimumSize: const Size(72, 36),
+                tapTargetSize: MaterialTapTargetSize.padded,
+                visualDensity: VisualDensity.compact,
+              ),
+              child: Text(
+                'Effacer',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _confirmDeleteDialog(String title, String body) async {
+    final r = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: sidebarColor,
+        title: Text(
+          title,
+          style: GoogleFonts.inter(
+            color: textColor,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Text(
+          body,
+          style: GoogleFonts.inter(color: mutedTextColor, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              'Annuler',
+              style: GoogleFonts.inter(color: mutedTextColor),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              'Effacer',
+              style: GoogleFonts.inter(
+                color: alertColor,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return r == true;
+  }
+
+  Future<void> _reloadClientsTechniciansMaintenance() async {
+    if (!mounted) return;
+    setState(() {
+      _clientsFuture = ApiService.getClients();
+      _techniciansFuture = ApiService.getTechnicians();
+      _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
+    });
+  }
+
+  Future<void> _openEditClient(Map<String, dynamic> c) async {
+    final r = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (ctx) => AddClientPage(
+          initialData: Map<String, dynamic>.from(c),
+          onBack: () => Navigator.of(ctx).pop(true),
+        ),
+      ),
+    );
+    if (r == true && mounted) await _reloadClientsTechniciansMaintenance();
+  }
+
+  Future<void> _deleteClientEntity(Map<String, dynamic> c) async {
+    final id = _clientIdOf(c);
+    if (id.isEmpty) return;
+    final name = _clientNameOf(c);
+    final ok = await _confirmDeleteDialog(
+      'Supprimer le client ?',
+      'Le client « $name » ($id) sera supprimé définitivement. Continuer ?',
+    );
+    if (!ok || !mounted) return;
+    try {
+      await ApiService.deleteClient(id);
+      if (!mounted) return;
+      if (_selectedCatalogClientId == id) {
+        setState(() {
+          _selectedCatalogClientId = null;
+          _selectedClientMachinesFuture = null;
+        });
+      }
+      await _reloadClientsTechniciansMaintenance();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Client supprimé : $name'),
+          backgroundColor: successColor,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Suppression impossible: $e'),
+          backgroundColor: alertColor,
+        ),
+      );
+    }
+  }
+
+  Future<void> _openEditTechnician(Map<String, dynamic> t) async {
+    final r = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (ctx) => AddTechnicianPage(
+          initialData: Map<String, dynamic>.from(t),
+          onBack: () => Navigator.of(ctx).pop(true),
+        ),
+      ),
+    );
+    if (r == true && mounted) await _reloadClientsTechniciansMaintenance();
+  }
+
+  Future<void> _deleteTechnicianEntity(Map<String, dynamic> t) async {
+    final id = _technicianIdOf(t);
+    if (id.isEmpty) return;
+    final name = _technicianNameOf(t);
+    final ok = await _confirmDeleteDialog(
+      'Supprimer le technicien ?',
+      '« $name » ($id) sera supprimé définitivement.',
+    );
+    if (!ok || !mounted) return;
+    try {
+      await ApiService.deleteTechnician(id);
+      if (!mounted) return;
+      if (_selectedTechnicianId == id) {
+        setState(() => _selectedTechnicianId = null);
+      }
+      await _reloadClientsTechniciansMaintenance();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Technicien supprimé : $name'),
+          backgroundColor: successColor,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Suppression impossible: $e'),
+          backgroundColor: alertColor,
+        ),
+      );
+    }
+  }
+
+  Future<void> _openEditMaintenanceAgent(Map<String, dynamic> a) async {
+    final r = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (ctx) => AddMaintenanceAgentPage(
+          initialData: Map<String, dynamic>.from(a),
+          onEmbeddedBack: () => Navigator.of(ctx).pop(true),
+        ),
+      ),
+    );
+    if (r == true && mounted) await _reloadClientsTechniciansMaintenance();
+  }
+
+  Future<void> _deleteMaintenanceAgentEntity(Map<String, dynamic> a) async {
+    final id = _maintenanceAgentIdOf(a);
+    if (id.isEmpty) return;
+    final name = _maintenanceAgentNameOf(a);
+    final ok = await _confirmDeleteDialog(
+      'Supprimer l\'agent maintenance ?',
+      '« $name » ($id) sera supprimé définitivement.',
+    );
+    if (!ok || !mounted) return;
+    try {
+      await ApiService.deleteMaintenanceAgent(id);
+      if (!mounted) return;
+      if (_selectedMaintenanceAgentId == id) {
+        setState(() => _selectedMaintenanceAgentId = null);
+      }
+      await _reloadClientsTechniciansMaintenance();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Agent supprimé : $name'),
+          backgroundColor: successColor,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Suppression impossible: $e'),
+          backgroundColor: alertColor,
+        ),
+      );
+    }
+  }
 
   String _machineIdOf(Map<String, dynamic> m) =>
       (m['machineId'] ?? m['id'] ?? m['_id'] ?? '').toString();
@@ -255,6 +559,276 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     _fetchPurchaseRequests();
     _fetchArchives();
     _clientsFuture = ApiService.getClients();
+    _techniciansFuture = ApiService.getTechnicians();
+    _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
+  }
+
+  void _onSidebarSelect(String title) {
+    setState(() {
+      selectedMenu = title;
+      if (title == 'TECHNICIANS') {
+        _techniciansFuture = ApiService.getTechnicians();
+      } else if (title == 'MAINTENANCE') {
+        _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
+      } else if (title == 'CLIENT CATALOG') {
+        _clientsFuture = ApiService.getClients();
+        _techniciansFuture = ApiService.getTechnicians();
+        _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
+      } else if (title == 'SETTINGS') {
+        _clientLoginSurveyFuture = ApiService.getClientLoginSurvey();
+      }
+    });
+  }
+
+  String _technicianIdOf(Map<String, dynamic> t) =>
+      (t['technicianId'] ?? t['id'] ?? t['_id'] ?? '').toString();
+
+  String _technicianNameOf(Map<String, dynamic> t) =>
+      (t['name'] ?? 'Technicien').toString();
+
+  bool _machineMatchesAssignedId(Map<String, dynamic> m, String assignedId) {
+    final n = assignedId.trim();
+    if (n.isEmpty) return false;
+    for (final key in ['machineId', 'id', '_id']) {
+      final v = (m[key] ?? '').toString().trim();
+      if (v.isNotEmpty && v == n) return true;
+    }
+    return false;
+  }
+
+  List<Map<String, dynamic>> _machinesForAssignedMachineIds(
+    Map<String, dynamic> doc,
+  ) {
+    final raw = doc['machineIds'];
+    final ids = <String>[];
+    if (raw is List) {
+      for (final e in raw) {
+        final s = e.toString().trim();
+        if (s.isNotEmpty) ids.add(s);
+      }
+    }
+    if (ids.isEmpty) return [];
+    final matchedAssignedIds = <String>{};
+    final resolved = <Map<String, dynamic>>[];
+    final seenMachineKeys = <String>{};
+    for (final m in _allMachines) {
+      for (final id in ids) {
+        if (_machineMatchesAssignedId(m, id)) {
+          matchedAssignedIds.add(id);
+          final key = _machineIdOf(m);
+          final dedupe = key.isNotEmpty ? key : id;
+          if (!seenMachineKeys.contains(dedupe)) {
+            seenMachineKeys.add(dedupe);
+            resolved.add(m);
+          }
+          break;
+        }
+      }
+    }
+    for (final id in ids) {
+      if (!matchedAssignedIds.contains(id)) {
+        resolved.add({
+          '_unresolvedMachineId': id,
+          'name': 'Machine (réf.)',
+          'machineId': id,
+        });
+      }
+    }
+    return resolved;
+  }
+
+  String _maintenanceAgentIdOf(Map<String, dynamic> a) =>
+      (a['maintenanceAgentId'] ?? a['id'] ?? a['_id'] ?? '').toString();
+
+  String _maintenanceAgentNameOf(Map<String, dynamic> a) {
+    final explicit = (a['name'] ?? '').toString().trim();
+    if (explicit.isNotEmpty) return explicit;
+    final full = (a['fullName'] ?? '').toString().trim();
+    if (full.isNotEmpty) return full;
+    final fn = (a['firstName'] ?? '').toString().trim();
+    final ln = (a['lastName'] ?? '').toString().trim();
+    final joined = '$fn $ln'.trim();
+    return joined.isNotEmpty ? joined : 'Agent maintenance';
+  }
+
+  Map<String, dynamic>? _findClientForTechnician(
+    List<Map<String, dynamic>> clients,
+    Map<String, dynamic> tech,
+  ) {
+    final companyId = (tech['companyId'] ?? '').toString().trim();
+    if (companyId.isEmpty) return null;
+    return _findClientForMaintenanceAgent(clients, companyId, '');
+  }
+
+  Map<String, dynamic>? _findClientForMaintenanceAgent(
+    List<Map<String, dynamic>> clients,
+    String clientIdRaw,
+    String clientNameHint,
+  ) {
+    final idRaw = clientIdRaw.trim();
+    final nameNorm = clientNameHint.trim().toLowerCase();
+    Map<String, dynamic>? nameMatch;
+    for (final c in clients) {
+      final bid = _clientIdOf(c);
+      if (idRaw.isNotEmpty && bid.isNotEmpty && bid == idRaw) return c;
+      final oid = (c['_id'] ?? '').toString();
+      if (idRaw.isNotEmpty &&
+          oid.isNotEmpty &&
+          (oid == idRaw || oid.endsWith(idRaw) || idRaw.endsWith(oid))) {
+        return c;
+      }
+      if (idRaw.isNotEmpty &&
+          bid.isNotEmpty &&
+          (bid.contains(idRaw) || idRaw.contains(bid))) {
+        return c;
+      }
+      if (nameNorm.isNotEmpty) {
+        final n = _clientNameOf(c).toLowerCase().trim();
+        if (n == nameNorm) nameMatch = c;
+      }
+    }
+    return nameMatch;
+  }
+
+  Widget _maintenanceSectionTitle(String label, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, color: primaryColor, size: 20),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: GoogleFonts.spaceGrotesk(
+            color: textColor,
+            fontWeight: FontWeight.w800,
+            fontSize: 14,
+            letterSpacing: 0.3,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _maintenanceEmptyPane({
+    required IconData icon,
+    required String message,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardColor.withOpacity(0.45),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: mutedTextColor.withOpacity(0.5), size: 28),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              message,
+              style: GoogleFonts.inter(
+                color: mutedTextColor,
+                fontSize: 13,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _maintenanceClientDetailCard(Map<String, dynamic> client) {
+    final cid = _clientIdOf(client);
+    final email = (client['email'] ?? '').toString().trim();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardColor.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primaryColor.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _clientNameOf(client),
+            style: GoogleFonts.inter(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'ID: $cid',
+            style: GoogleFonts.inter(fontSize: 12, color: mutedTextColor),
+          ),
+          if (email.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              email,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(fontSize: 12, color: mutedTextColor),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _maintenanceClientFallbackCard(String clientId, String clientName) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardColor.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Référence client',
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: mutedTextColor,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (clientName.isNotEmpty)
+            Text(
+              clientName,
+              style: GoogleFonts.inter(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: textColor,
+              ),
+            ),
+          if (clientId.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              'ID: $clientId',
+              style: GoogleFonts.inter(fontSize: 12, color: mutedTextColor),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Text(
+            'Fiche catalogue non résolue (client absent de la liste chargée).',
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              color: mutedTextColor.withOpacity(0.85),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _fetchPurchaseRequests() async {
@@ -626,6 +1200,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
         setState(() {
           selectedMenu = 'CLIENT CATALOG';
           _clientsFuture = ApiService.getClients();
+          _techniciansFuture = ApiService.getTechnicians();
+          _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
           _selectedCatalogClientId = clientKey.trim();
           _selectedClientMachinesFuture = ApiService.getMachinesForClient(clientKey.trim());
         });
@@ -964,9 +1540,46 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       onRefresh: () async {
         // Refresh context-aware: machines dashboard vs client catalog.
         if (selectedMenu == 'CLIENT CATALOG') {
-          setState(() => _clientsFuture = ApiService.getClients());
+          setState(() {
+            _clientsFuture = ApiService.getClients();
+            _techniciansFuture = ApiService.getTechnicians();
+            _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
+          });
           try {
             await _clientsFuture;
+          } catch (_) {}
+          try {
+            await _techniciansFuture;
+          } catch (_) {}
+          try {
+            await _maintenanceAgentsFuture;
+          } catch (_) {}
+          return;
+        }
+        if (selectedMenu == 'TECHNICIANS') {
+          setState(() => _techniciansFuture = ApiService.getTechnicians());
+          try {
+            await _techniciansFuture;
+          } catch (_) {}
+          await _fetchMachines();
+          return;
+        }
+        if (selectedMenu == 'MAINTENANCE') {
+          setState(
+            () => _maintenanceAgentsFuture = ApiService.getMaintenanceAgents(),
+          );
+          try {
+            await _maintenanceAgentsFuture;
+          } catch (_) {}
+          await _fetchMachines();
+          return;
+        }
+        if (selectedMenu == 'SETTINGS') {
+          setState(() {
+            _clientLoginSurveyFuture = ApiService.getClientLoginSurvey();
+          });
+          try {
+            await _clientLoginSurveyFuture;
           } catch (_) {}
           return;
         }
@@ -981,6 +1594,12 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           children: [
             if (selectedMenu == 'CLIENT CATALOG')
               _buildClientCatalogPanel()
+            else if (selectedMenu == 'TECHNICIANS')
+              _buildTechniciansPanel()
+            else if (selectedMenu == 'MAINTENANCE')
+              _buildMaintenanceAgentsPanel()
+            else if (selectedMenu == 'SETTINGS')
+              _buildClientLoginSurveyPanel()
             else ...[
               _buildPurchaseRequestsPanel(),
               const SizedBox(height: 20),
@@ -1005,9 +1624,157 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     );
   }
 
+  Widget _buildClientLoginSurveyPanel() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: sidebarColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.verified_user_outlined, color: primaryColor),
+              const SizedBox(width: 8),
+              Text(
+                'Contrôle des connexions clients',
+                style: GoogleFonts.spaceGrotesk(
+                  color: textColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Liste des comptes client : email de login, mot de passe défini, blocage, '
+            'et conflits éventuels avec un autre rôle (même email).',
+            style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
+          ),
+          const SizedBox(height: 16),
+          FutureBuilder<Map<String, dynamic>>(
+            future: _clientLoginSurveyFuture ?? ApiService.getClientLoginSurvey(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32),
+                  child: Center(child: CircularProgressIndicator(color: primaryColor)),
+                );
+              }
+              if (snapshot.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Text(
+                    'Erreur : ${snapshot.error}',
+                    style: GoogleFonts.inter(color: alertColor, fontSize: 13),
+                  ),
+                );
+              }
+              final data = snapshot.data ?? {};
+              final raw = data['clients'];
+              final List<Map<String, dynamic>> rows = [];
+              if (raw is List) {
+                for (final e in raw) {
+                  if (e is Map<String, dynamic>) rows.add(e);
+                }
+              }
+              if (rows.isEmpty) {
+                return Text(
+                  'Aucun client en base.',
+                  style: GoogleFonts.inter(color: mutedTextColor, fontSize: 13),
+                );
+              }
+              String collisionLabel(dynamic v) {
+                if (v is! List || v.isEmpty) return '—';
+                return v.map((e) => e.toString()).join(', ');
+              }
+
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  headingRowColor: WidgetStateProperty.all(cardColor),
+                  dataRowMinHeight: 48,
+                  columns: [
+                    DataColumn(
+                      label: Text('Client', style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w600)),
+                    ),
+                    DataColumn(
+                      label: Text('ID', style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w600)),
+                    ),
+                    DataColumn(
+                      label: Text('Email login', style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w600)),
+                    ),
+                    DataColumn(
+                      label: Text('Mot de passe', style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w600)),
+                    ),
+                    DataColumn(
+                      label: Text('Blocage', style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w600)),
+                    ),
+                    DataColumn(
+                      label: Text('Collisions rôles', style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w600)),
+                    ),
+                  ],
+                  rows: rows.map((r) {
+                    final name = (r['name'] ?? '').toString();
+                    final cid = (r['clientId'] ?? '').toString();
+                    final email = (r['email'] ?? '').toString();
+                    final hasPw = r['hasLoginPassword'] == true;
+                    final disabled = r['loginDisabled'] == true;
+                    final col = collisionLabel(r['identityCollisions']);
+                    return DataRow(
+                      cells: [
+                        DataCell(Text(name, style: GoogleFonts.inter(color: textColor, fontSize: 13))),
+                        DataCell(Text(cid, style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12))),
+                        DataCell(Text(email.isEmpty ? '—' : email, style: GoogleFonts.inter(color: textColor, fontSize: 12))),
+                        DataCell(
+                          Text(
+                            hasPw ? 'Défini' : 'Manquant',
+                            style: GoogleFonts.inter(
+                              color: hasPw ? successColor : alertColor,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            disabled ? 'Oui' : 'Non',
+                            style: GoogleFonts.inter(
+                              color: disabled ? alertColor : mutedTextColor,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            col,
+                            style: GoogleFonts.inter(
+                              color: col == '—' ? mutedTextColor : alertColor,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  }).toList(),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildClientCatalogPanel() {
     final width = MediaQuery.of(context).size.width;
     final isDesktop = width >= 1050;
+    final fourCol = width >= 1440;
+    final wide = width >= 1020;
 
     return Container(
       width: double.infinity,
@@ -1058,8 +1825,13 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             ],
           ),
           const SizedBox(height: 16),
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: _clientsFuture,
+          FutureBuilder<List<dynamic>>(
+            future: Future.wait<dynamic>([
+              _clientsFuture ?? ApiService.getClients(),
+              _techniciansFuture ?? ApiService.getTechnicians(),
+              (_maintenanceAgentsFuture ?? ApiService.getMaintenanceAgents())
+                  .catchError((_) => <Map<String, dynamic>>[]),
+            ]),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Padding(
@@ -1071,16 +1843,28 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 24),
                   child: Text(
-                    'Erreur chargement clients: ${snapshot.error}',
+                    'Erreur chargement catalogue: ${snapshot.error}',
                     style: GoogleFonts.inter(color: alertColor),
                   ),
                 );
               }
 
-              final allClients = snapshot.data ?? const <Map<String, dynamic>>[];
+              final raw = snapshot.data ?? const <dynamic>[];
+              final allClients = (raw.isNotEmpty ? raw[0] : const <dynamic>[])
+                  as List<dynamic>;
+              final allTechs = (raw.length > 1 ? raw[1] : const <dynamic>[])
+                  as List<dynamic>;
+              final allAgents = (raw.length > 2 ? raw[2] : const <dynamic>[])
+                  as List<dynamic>;
+              final clientRows =
+                  allClients.cast<Map<String, dynamic>>();
+              final technicianRows =
+                  allTechs.cast<Map<String, dynamic>>();
+              final maintenanceRows =
+                  allAgents.cast<Map<String, dynamic>>();
               final q = _clientSearchQuery.toLowerCase().trim();
 
-              final filtered = allClients.where((c) {
+              final filtered = clientRows.where((c) {
                 if (q.isEmpty) return true;
                 final id = _clientIdOf(c).toLowerCase();
                 final name = _clientNameOf(c).toLowerCase();
@@ -1098,11 +1882,34 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               final selectedName = _selectedCatalogClientId == null
                   ? ''
                   : _clientNameOf(
-                      allClients.firstWhere(
+                      clientRows.firstWhere(
                         (c) => _clientIdOf(c) == _selectedCatalogClientId,
                         orElse: () => filtered.first,
                       ),
                     );
+
+              Map<String, dynamic>? selectedClientRow() {
+                final sid = _selectedCatalogClientId;
+                if (sid == null || sid.isEmpty) return null;
+                try {
+                  return clientRows.firstWhere(
+                    (c) => _clientIdOf(c) == sid,
+                  );
+                } catch (_) {
+                  return null;
+                }
+              }
+
+              Set<String> selectedClientKeys() {
+                final sid = (_selectedCatalogClientId ?? '').trim();
+                final keys = <String>{};
+                if (sid.isNotEmpty) keys.add(sid);
+                final row = selectedClientRow();
+                if (row != null) {
+                  keys.addAll(_clientLinkedIdKeys(row));
+                }
+                return keys;
+              }
 
               Widget clientsList() {
                 return ListView.separated(
@@ -1114,93 +1921,333 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     final c = filtered[i];
                     final cid = _clientIdOf(c);
                     final selected = cid.isNotEmpty && cid == _selectedCatalogClientId;
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: () {
-                        if (cid.isEmpty) return;
-                        setState(() {
-                          _selectedCatalogClientId = cid;
-                          _selectedClientMachinesFuture =
-                              ApiService.getMachinesForClient(cid);
-                        });
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: selected ? primaryColor.withOpacity(0.08) : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: selected ? primaryColor.withOpacity(0.45) : Colors.white.withOpacity(0.06),
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: selected ? primaryColor.withOpacity(0.08) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: selected ? primaryColor.withOpacity(0.45) : Colors.white.withOpacity(0.06),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          InkWell(
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(11),
+                            ),
+                            onTap: () {
+                              if (cid.isEmpty) return;
+                              setState(() {
+                                _selectedCatalogClientId = cid;
+                                _selectedClientMachinesFuture =
+                                    ApiService.getMachinesForClient(cid);
+                              });
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _clientNameOf(c),
+                                    style: GoogleFonts.inter(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: selected ? primaryColor : textColor,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'ID: $cid',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      color: mutedTextColor,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  if ((c['email'] ?? '').toString().trim().isNotEmpty)
+                                    Text(
+                                      (c['email'] ?? '').toString(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 12,
+                                        color: mutedTextColor,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
                           ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _clientNameOf(c),
-                              style: GoogleFonts.inter(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: selected ? primaryColor : textColor,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'ID: $cid',
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                color: mutedTextColor,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            if ((c['email'] ?? '').toString().trim().isNotEmpty)
-                              Text(
-                                (c['email'] ?? '').toString(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.inter(
-                                  fontSize: 12,
-                                  color: mutedTextColor,
-                                ),
-                              ),
-                          ],
-                        ),
+                          _catalogEditDeleteRow(
+                            onEdit: () => _openEditClient(c),
+                            onDelete: () => _deleteClientEntity(c),
+                          ),
+                        ],
                       ),
                     );
                   },
                 );
               }
 
+              Widget catalogTechBlock(Set<String> keys) {
+                final list =
+                    _techniciansForClientKeys(technicianRows, keys);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _maintenanceSectionTitle(
+                      'Techniciens',
+                      Icons.engineering_outlined,
+                    ),
+                    const SizedBox(height: 10),
+                    if (list.isEmpty)
+                      _maintenanceEmptyPane(
+                        icon: Icons.engineering_outlined,
+                        message:
+                            'Aucun technicien lié à ce client (companyId).',
+                      )
+                    else
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: list.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, i) {
+                          final t = list[i];
+                          final tid = _technicianIdOf(t);
+                          return Container(
+                            padding: const EdgeInsets.fromLTRB(8, 8, 8, 2),
+                            decoration: BoxDecoration(
+                              color: cardColor.withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.08),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 18,
+                                      backgroundColor:
+                                          primaryColor.withOpacity(0.12),
+                                      child: Icon(
+                                        Icons.engineering_outlined,
+                                        color: primaryColor,
+                                        size: 18,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            _technicianNameOf(t),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: textColor,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            tid,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 10,
+                                              color: mutedTextColor,
+                                            ),
+                                          ),
+                                          if ((t['email'] ?? '')
+                                              .toString()
+                                              .trim()
+                                              .isNotEmpty)
+                                            Text(
+                                              (t['email'] ?? '').toString(),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: GoogleFonts.inter(
+                                                fontSize: 10,
+                                                color: mutedTextColor,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                _catalogEditDeleteRow(
+                                  onEdit: () => _openEditTechnician(t),
+                                  onDelete: () => _deleteTechnicianEntity(t),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                  ],
+                );
+              }
+
+              Widget catalogMaintBlock(Set<String> keys) {
+                final list = _maintenanceAgentsForClientKeys(
+                  maintenanceRows,
+                  keys,
+                );
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _maintenanceSectionTitle(
+                      'Agents maintenance',
+                      Icons.build_circle_outlined,
+                    ),
+                    const SizedBox(height: 10),
+                    if (list.isEmpty)
+                      _maintenanceEmptyPane(
+                        icon: Icons.build_circle_outlined,
+                        message:
+                            'Aucun agent maintenance lié à ce client.',
+                      )
+                    else
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: list.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, i) {
+                          final a = list[i];
+                          final aid = _maintenanceAgentIdOf(a);
+                          return Container(
+                            padding: const EdgeInsets.fromLTRB(8, 8, 8, 2),
+                            decoration: BoxDecoration(
+                              color: cardColor.withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.08),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 18,
+                                      backgroundColor:
+                                          primaryColor.withOpacity(0.12),
+                                      child: Icon(
+                                        Icons.handyman_outlined,
+                                        color: primaryColor,
+                                        size: 18,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            _maintenanceAgentNameOf(a),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              color: textColor,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            aid,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 10,
+                                              color: mutedTextColor,
+                                            ),
+                                          ),
+                                          if ((a['email'] ?? '')
+                                              .toString()
+                                              .trim()
+                                              .isNotEmpty)
+                                            Text(
+                                              (a['email'] ?? '').toString(),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: GoogleFonts.inter(
+                                                fontSize: 10,
+                                                color: mutedTextColor,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                _catalogEditDeleteRow(
+                                  onEdit: () => _openEditMaintenanceAgent(a),
+                                  onDelete: () => _deleteMaintenanceAgentEntity(a),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                  ],
+                );
+              }
+
               Widget machinesPanel() {
                 final cid = _selectedCatalogClientId ?? '';
                 if (cid.isEmpty) {
-                  return Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: cardColor.withOpacity(0.5),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.white.withOpacity(0.08)),
-                    ),
-                    child: Text(
-                      'Cliquez sur un client pour voir ses machines.',
-                      style: GoogleFonts.inter(color: mutedTextColor),
-                    ),
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _maintenanceSectionTitle(
+                        'Machines',
+                        Icons.precision_manufacturing_outlined,
+                      ),
+                      const SizedBox(height: 10),
+                      _maintenanceEmptyPane(
+                        icon: Icons.touch_app_outlined,
+                        message:
+                            'Sélectionnez un client pour afficher techniciens, agents maintenance et machines.',
+                      ),
+                    ],
                   );
                 }
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Machines de ${selectedName.isNotEmpty ? selectedName : 'Client'}',
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                        color: textColor,
+                    _maintenanceSectionTitle(
+                      'Machines',
+                      Icons.precision_manufacturing_outlined,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 10),
+                      child: Text(
+                        selectedName.isNotEmpty
+                            ? 'Pour $selectedName'
+                            : 'Client sélectionné',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: mutedTextColor,
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 10),
                     FutureBuilder<List<Map<String, dynamic>>>(
                       future: _selectedClientMachinesFuture,
                       builder: (context, mSnap) {
@@ -1216,20 +2263,13 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                             style: GoogleFonts.inter(color: alertColor),
                           );
                         }
-                        final machines = mSnap.data ?? const <Map<String, dynamic>>[];
+                        final machines =
+                            mSnap.data ?? const <Map<String, dynamic>>[];
                         if (machines.isEmpty) {
-                          return Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              color: cardColor.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.white.withOpacity(0.08)),
-                            ),
-                            child: Text(
-                              'Aucune machine achetée pour ce client.',
-                              style: GoogleFonts.inter(color: mutedTextColor),
-                            ),
+                          return _maintenanceEmptyPane(
+                            icon: Icons.precision_manufacturing_outlined,
+                            message:
+                                'Aucune machine achetée pour ce client.',
                           );
                         }
 
@@ -1237,69 +2277,79 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
                           itemCount: machines.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 12),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
                           itemBuilder: (context, i) {
                             final m = machines[i];
                             final mid = _machineIdOf(m);
                             final name = _machineNameOf(m);
-                            final location = (m['location'] ?? '').toString();
+                            final location =
+                                (m['location'] ?? '').toString();
+                            final rawImg =
+                                (m['imageUrl'] ?? m['image'] ?? '')
+                                    .toString();
                             return Container(
-                              padding: const EdgeInsets.all(14),
+                              padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
                                 color: cardColor.withOpacity(0.55),
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.white.withOpacity(0.08)),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.08),
+                                ),
                               ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                              child: Row(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(10),
-                                        decoration: BoxDecoration(
-                                          color: primaryColor.withOpacity(0.10),
-                                          borderRadius: BorderRadius.circular(10),
-                                        ),
-                                        child: const Icon(Icons.precision_manufacturing, color: primaryColor),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: SizedBox(
+                                      width: 72,
+                                      height: 56,
+                                      child: _buildMachineImageWidget(
+                                        rawImg,
+                                        height: 56,
+                                        width: 72,
+                                        fit: BoxFit.cover,
                                       ),
-                                      const SizedBox(width: 14),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              name,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: GoogleFonts.inter(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold,
-                                                color: textColor,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              'ID: $mid',
-                                              style: GoogleFonts.inter(
-                                                fontSize: 12,
-                                                color: mutedTextColor,
-                                              ),
-                                            ),
-                                            if (location.trim().isNotEmpty)
-                                              Text(
-                                                location,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: GoogleFonts.inter(
-                                                  fontSize: 12,
-                                                  color: mutedTextColor,
-                                                ),
-                                              ),
-                                          ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: textColor,
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'ID: $mid',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 12,
+                                            color: mutedTextColor,
+                                          ),
+                                        ),
+                                        if (location.trim().isNotEmpty)
+                                          Text(
+                                            location,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 12,
+                                              color: mutedTextColor,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                                   ),
                                 ],
                               ),
@@ -1312,22 +2362,1156 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                 );
               }
 
-              return isDesktop
-                  ? Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(width: 380, child: clientsList()),
-                        const SizedBox(width: 18),
-                        Expanded(child: machinesPanel()),
-                      ],
-                    )
-                  : Column(
-                      children: [
-                        clientsList(),
-                        const SizedBox(height: 18),
-                        machinesPanel(),
-                      ],
+              Widget catalogDetailArea() {
+                final keys = selectedClientKeys();
+                final cid = _selectedCatalogClientId ?? '';
+                if (cid.isEmpty) {
+                  return machinesPanel();
+                }
+                if (fourCol) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 288,
+                        child: catalogTechBlock(keys),
+                      ),
+                      const SizedBox(width: 14),
+                      SizedBox(
+                        width: 288,
+                        child: catalogMaintBlock(keys),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(child: machinesPanel()),
+                    ],
+                  );
+                }
+                if (wide) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: catalogTechBlock(keys)),
+                          const SizedBox(width: 12),
+                          Expanded(child: catalogMaintBlock(keys)),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      machinesPanel(),
+                    ],
+                  );
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    catalogTechBlock(keys),
+                    const SizedBox(height: 16),
+                    catalogMaintBlock(keys),
+                    const SizedBox(height: 16),
+                    machinesPanel(),
+                  ],
+                );
+              }
+
+              if (wide) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: fourCol ? 300 : 280,
+                      child: clientsList(),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(child: catalogDetailArea()),
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  clientsList(),
+                  const SizedBox(height: 18),
+                  catalogDetailArea(),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTechniciansPanel() {
+    final width = MediaQuery.of(context).size.width;
+    final isDesktop = width >= 1050;
+    final threeCol = width >= 1240;
+    final twoCol = width >= 900;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: sidebarColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.people_outline_rounded, color: primaryColor),
+              const SizedBox(width: 8),
+              Text(
+                'Techniciens',
+                style: GoogleFonts.spaceGrotesk(
+                  color: textColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const Spacer(),
+              SizedBox(
+                width: isDesktop ? 340 : 260,
+                child: TextField(
+                  controller: _technicianSearchController,
+                  onChanged: (v) => setState(() => _technicianSearchQuery = v),
+                  decoration: InputDecoration(
+                    hintText:
+                        'Rechercher par nom, ID, email ou réf. client...',
+                    hintStyle: GoogleFonts.inter(
+                      color: mutedTextColor.withOpacity(0.6),
+                      fontSize: 13,
+                    ),
+                    filled: true,
+                    fillColor: cardColor,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                  ),
+                  style: GoogleFonts.inter(color: textColor, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _techniciansFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 48),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (snapshot.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Text(
+                    'Erreur chargement techniciens: ${snapshot.error}',
+                    style: GoogleFonts.inter(color: alertColor),
+                  ),
+                );
+              }
+
+              final allTechs = snapshot.data ?? const <Map<String, dynamic>>[];
+              final q = _technicianSearchQuery.toLowerCase().trim();
+
+              final filtered = allTechs.where((t) {
+                if (q.isEmpty) return true;
+                final id = _technicianIdOf(t).toLowerCase();
+                final name = _technicianNameOf(t).toLowerCase();
+                final email = (t['email'] ?? '').toString().toLowerCase();
+                final company =
+                    (t['companyId'] ?? '').toString().toLowerCase();
+                return id.contains(q) ||
+                    name.contains(q) ||
+                    email.contains(q) ||
+                    company.contains(q);
+              }).toList();
+
+              if (filtered.isEmpty) {
+                return Text(
+                  'Aucun technicien trouvé.',
+                  style: GoogleFonts.inter(color: mutedTextColor),
+                );
+              }
+
+              final selectedName = _selectedTechnicianId == null
+                  ? ''
+                  : _technicianNameOf(
+                      allTechs.firstWhere(
+                        (t) => _technicianIdOf(t) == _selectedTechnicianId,
+                        orElse: () => filtered.first,
+                      ),
                     );
+
+              Widget techniciansList() {
+                return ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, i) {
+                    final t = filtered[i];
+                    final tid = _technicianIdOf(t);
+                    final selected =
+                        tid.isNotEmpty && tid == _selectedTechnicianId;
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? primaryColor.withOpacity(0.08)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: selected
+                              ? primaryColor.withOpacity(0.45)
+                              : Colors.white.withOpacity(0.06),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          InkWell(
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(11),
+                            ),
+                            onTap: () {
+                              if (tid.isEmpty) return;
+                              setState(() => _selectedTechnicianId = tid);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                12,
+                                12,
+                                12,
+                                6,
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 22,
+                                    backgroundColor:
+                                        primaryColor.withOpacity(0.12),
+                                    child: Icon(
+                                      Icons.engineering_outlined,
+                                      color: primaryColor,
+                                      size: 22,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _technicianNameOf(t),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                            color: selected
+                                                ? primaryColor
+                                                : textColor,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          tid,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 11,
+                                            color: mutedTextColor,
+                                          ),
+                                        ),
+                                        if ((t['email'] ?? '')
+                                            .toString()
+                                            .trim()
+                                            .isNotEmpty) ...[
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            (t['email'] ?? '').toString(),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 11,
+                                              color: mutedTextColor
+                                                  .withOpacity(0.9),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          _catalogEditDeleteRow(
+                            onEdit: () => _openEditTechnician(t),
+                            onDelete: () => _deleteTechnicianEntity(t),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              }
+
+              Map<String, dynamic> selectedTechnicianMap() {
+                final selId = _selectedTechnicianId ?? '';
+                if (selId.isEmpty) return {};
+                return allTechs.firstWhere(
+                  (x) => _technicianIdOf(x) == selId,
+                  orElse: () => <String, dynamic>{},
+                );
+              }
+
+              Widget clientColumn() {
+                final selId = _selectedTechnicianId ?? '';
+                if (selId.isEmpty) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _maintenanceSectionTitle(
+                        'Client lié',
+                        Icons.apartment_outlined,
+                      ),
+                      const SizedBox(height: 10),
+                      _maintenanceEmptyPane(
+                        icon: Icons.person_search_outlined,
+                        message:
+                            'Sélectionnez un technicien pour afficher la fiche client (via companyId).',
+                      ),
+                    ],
+                  );
+                }
+                final tech = selectedTechnicianMap();
+                if (tech.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+                final companyId =
+                    (tech['companyId'] ?? '').toString().trim();
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _maintenanceSectionTitle(
+                      'Client lié',
+                      Icons.apartment_outlined,
+                    ),
+                    const SizedBox(height: 10),
+                    if (companyId.isEmpty)
+                      _maintenanceEmptyPane(
+                        icon: Icons.link_off_outlined,
+                        message:
+                            'Ce technicien n\'a pas de companyId : impossible de lier un client.',
+                      )
+                    else
+                      FutureBuilder<List<Map<String, dynamic>>>(
+                        future: _clientsFuture ?? ApiService.getClients(),
+                        builder: (context, snap) {
+                          if (snap.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 24),
+                              child: Center(
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            );
+                          }
+                          if (snap.hasError) {
+                            return Text(
+                              'Clients: ${snap.error}',
+                              style: GoogleFonts.inter(
+                                color: alertColor,
+                                fontSize: 12,
+                              ),
+                            );
+                          }
+                          final clients =
+                              snap.data ?? const <Map<String, dynamic>>[];
+                          final match =
+                              _findClientForTechnician(clients, tech);
+                          if (match != null) {
+                            return _maintenanceClientDetailCard(match);
+                          }
+                          return _maintenanceClientFallbackCard(
+                            companyId,
+                            '',
+                          );
+                        },
+                      ),
+                  ],
+                );
+              }
+
+              Widget machinesColumn() {
+                final selId = _selectedTechnicianId ?? '';
+                if (selId.isEmpty) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _maintenanceSectionTitle(
+                        'Machines',
+                        Icons.precision_manufacturing_outlined,
+                      ),
+                      const SizedBox(height: 10),
+                      _maintenanceEmptyPane(
+                        icon: Icons.touch_app_outlined,
+                        message:
+                            'Sélectionnez un technicien pour lister les machines contrôlées.',
+                      ),
+                    ],
+                  );
+                }
+                final tech = selectedTechnicianMap();
+                final machines = tech.isEmpty
+                    ? const <Map<String, dynamic>>[]
+                    : _machinesForAssignedMachineIds(tech);
+                final label =
+                    selectedName.isNotEmpty ? selectedName : 'Technicien';
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _maintenanceSectionTitle(
+                            'Machines assignées',
+                            Icons.precision_manufacturing_outlined,
+                          ),
+                        ),
+                        if (machines.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: primaryColor.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              '${machines.length}',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: primaryColor,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 10),
+                      child: Text(
+                        'Pour $label',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: mutedTextColor,
+                        ),
+                      ),
+                    ),
+                    if (machines.isEmpty)
+                      _maintenanceEmptyPane(
+                        icon: Icons.build_outlined,
+                        message:
+                            'Aucune machine assignée à ce technicien dans la base.',
+                      )
+                    else
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: machines.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, i) {
+                          final m = machines[i];
+                          final mid = _machineIdOf(m);
+                          final name = _machineNameOf(m);
+                          final location = (m['location'] ?? '').toString();
+                          final rawImg =
+                              (m['imageUrl'] ?? m['image'] ?? '').toString();
+                          final unresolved =
+                              (m['_unresolvedMachineId'] ?? '').toString();
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: cardColor.withOpacity(0.55),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.08),
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: SizedBox(
+                                    width: 72,
+                                    height: 56,
+                                    child: _buildMachineImageWidget(
+                                      rawImg,
+                                      height: 56,
+                                      width: 72,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.inter(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color: textColor,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'ID: ${mid.isNotEmpty ? mid : unresolved}',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: mutedTextColor,
+                                        ),
+                                      ),
+                                      if (unresolved.isNotEmpty)
+                                        Text(
+                                          'Réf. base (absente du catalogue chargé)',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 11,
+                                            color: mutedTextColor
+                                                .withOpacity(0.85),
+                                          ),
+                                        ),
+                                      if (location.trim().isNotEmpty &&
+                                          unresolved.isEmpty)
+                                        Text(
+                                          location,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 12,
+                                            color: mutedTextColor,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                  ],
+                );
+              }
+
+              Widget techniciansStackHeader() {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _maintenanceSectionTitle(
+                      'Techniciens',
+                      Icons.groups_3_outlined,
+                    ),
+                    const SizedBox(height: 10),
+                    techniciansList(),
+                  ],
+                );
+              }
+
+              if (threeCol) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(width: 292, child: techniciansStackHeader()),
+                    const SizedBox(width: 16),
+                    SizedBox(width: 320, child: clientColumn()),
+                    const SizedBox(width: 16),
+                    Expanded(child: machinesColumn()),
+                  ],
+                );
+              }
+              if (twoCol) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(width: 280, child: techniciansStackHeader()),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          clientColumn(),
+                          const SizedBox(height: 20),
+                          machinesColumn(),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  techniciansStackHeader(),
+                  const SizedBox(height: 18),
+                  clientColumn(),
+                  const SizedBox(height: 18),
+                  machinesColumn(),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMaintenanceAgentsPanel() {
+    final width = MediaQuery.of(context).size.width;
+    final isDesktop = width >= 1050;
+    final threeCol = width >= 1240;
+    final twoCol = width >= 900;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: sidebarColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.build_circle_outlined, color: primaryColor),
+              const SizedBox(width: 8),
+              Text(
+                'Agents maintenance',
+                style: GoogleFonts.spaceGrotesk(
+                  color: textColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const Spacer(),
+              SizedBox(
+                width: isDesktop ? 340 : 260,
+                child: TextField(
+                  controller: _maintenanceSearchController,
+                  onChanged: (v) => setState(() => _maintenanceSearchQuery = v),
+                  decoration: InputDecoration(
+                    hintText: 'Rechercher par nom, ID, email ou client...',
+                    hintStyle: GoogleFonts.inter(
+                      color: mutedTextColor.withOpacity(0.6),
+                      fontSize: 13,
+                    ),
+                    filled: true,
+                    fillColor: cardColor,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                  ),
+                  style: GoogleFonts.inter(color: textColor, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _maintenanceAgentsFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 48),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (snapshot.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Text(
+                    'Erreur chargement agents maintenance: ${snapshot.error}',
+                    style: GoogleFonts.inter(color: alertColor),
+                  ),
+                );
+              }
+
+              final allAgents = snapshot.data ?? const <Map<String, dynamic>>[];
+              final q = _maintenanceSearchQuery.toLowerCase().trim();
+
+              final filtered = allAgents.where((a) {
+                if (q.isEmpty) return true;
+                final id = _maintenanceAgentIdOf(a).toLowerCase();
+                final name = _maintenanceAgentNameOf(a).toLowerCase();
+                final email = (a['email'] ?? '').toString().toLowerCase();
+                final clientName =
+                    (a['clientName'] ?? '').toString().toLowerCase();
+                final clientId = (a['clientId'] ?? '').toString().toLowerCase();
+                return id.contains(q) ||
+                    name.contains(q) ||
+                    email.contains(q) ||
+                    clientName.contains(q) ||
+                    clientId.contains(q);
+              }).toList();
+
+              if (filtered.isEmpty) {
+                return Text(
+                  'Aucun agent de maintenance trouvé.',
+                  style: GoogleFonts.inter(color: mutedTextColor),
+                );
+              }
+
+              final selectedName = _selectedMaintenanceAgentId == null
+                  ? ''
+                  : _maintenanceAgentNameOf(
+                      allAgents.firstWhere(
+                        (a) =>
+                            _maintenanceAgentIdOf(a) ==
+                            _selectedMaintenanceAgentId,
+                        orElse: () => filtered.first,
+                      ),
+                    );
+
+              Widget agentsList() {
+                return ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, i) {
+                    final a = filtered[i];
+                    final aid = _maintenanceAgentIdOf(a);
+                    final selected =
+                        aid.isNotEmpty && aid == _selectedMaintenanceAgentId;
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? primaryColor.withOpacity(0.08)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: selected
+                              ? primaryColor.withOpacity(0.45)
+                              : Colors.white.withOpacity(0.06),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          InkWell(
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(11),
+                            ),
+                            onTap: () {
+                              if (aid.isEmpty) return;
+                              setState(() => _selectedMaintenanceAgentId = aid);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                12,
+                                12,
+                                12,
+                                6,
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 22,
+                                    backgroundColor:
+                                        primaryColor.withOpacity(0.12),
+                                    child: Icon(
+                                      Icons.handyman_outlined,
+                                      color: primaryColor,
+                                      size: 22,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _maintenanceAgentNameOf(a),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                            color: selected
+                                                ? primaryColor
+                                                : textColor,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          aid,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 11,
+                                            color: mutedTextColor,
+                                          ),
+                                        ),
+                                        if ((a['email'] ?? '')
+                                            .toString()
+                                            .trim()
+                                            .isNotEmpty) ...[
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            (a['email'] ?? '').toString(),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 11,
+                                              color: mutedTextColor
+                                                  .withOpacity(0.9),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          _catalogEditDeleteRow(
+                            onEdit: () => _openEditMaintenanceAgent(a),
+                            onDelete: () => _deleteMaintenanceAgentEntity(a),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              }
+
+              Map<String, dynamic> selectedAgentMap() {
+                final selId = _selectedMaintenanceAgentId ?? '';
+                if (selId.isEmpty) return {};
+                return allAgents.firstWhere(
+                  (x) => _maintenanceAgentIdOf(x) == selId,
+                  orElse: () => <String, dynamic>{},
+                );
+              }
+
+              Widget clientColumn() {
+                final selId = _selectedMaintenanceAgentId ?? '';
+                if (selId.isEmpty) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _maintenanceSectionTitle(
+                        'Client lié',
+                        Icons.apartment_outlined,
+                      ),
+                      const SizedBox(height: 10),
+                      _maintenanceEmptyPane(
+                        icon: Icons.person_search_outlined,
+                        message:
+                            'Sélectionnez un agent pour afficher la fiche client.',
+                      ),
+                    ],
+                  );
+                }
+                final agent = selectedAgentMap();
+                if (agent.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+                final cid = (agent['clientId'] ?? '').toString().trim();
+                final cname = (agent['clientName'] ?? '').toString().trim();
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _maintenanceSectionTitle(
+                      'Client lié',
+                      Icons.apartment_outlined,
+                    ),
+                    const SizedBox(height: 10),
+                    FutureBuilder<List<Map<String, dynamic>>>(
+                      future: _clientsFuture ?? ApiService.getClients(),
+                      builder: (context, snap) {
+                        if (snap.connectionState == ConnectionState.waiting) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 24),
+                            child: Center(
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          );
+                        }
+                        if (snap.hasError) {
+                          return Text(
+                            'Clients: ${snap.error}',
+                            style: GoogleFonts.inter(
+                              color: alertColor,
+                              fontSize: 12,
+                            ),
+                          );
+                        }
+                        final clients =
+                            snap.data ?? const <Map<String, dynamic>>[];
+                        final match =
+                            _findClientForMaintenanceAgent(clients, cid, cname);
+                        if (match != null) {
+                          return _maintenanceClientDetailCard(match);
+                        }
+                        return _maintenanceClientFallbackCard(cid, cname);
+                      },
+                    ),
+                  ],
+                );
+              }
+
+              Widget machinesColumn() {
+                final selId = _selectedMaintenanceAgentId ?? '';
+                if (selId.isEmpty) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _maintenanceSectionTitle(
+                        'Machines',
+                        Icons.precision_manufacturing_outlined,
+                      ),
+                      const SizedBox(height: 10),
+                      _maintenanceEmptyPane(
+                        icon: Icons.touch_app_outlined,
+                        message:
+                            'Sélectionnez un agent pour lister les machines assignées.',
+                      ),
+                    ],
+                  );
+                }
+                final agent = selectedAgentMap();
+                final machines = agent.isEmpty
+                    ? const <Map<String, dynamic>>[]
+                    : _machinesForAssignedMachineIds(agent);
+                final label =
+                    selectedName.isNotEmpty ? selectedName : 'Agent';
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _maintenanceSectionTitle(
+                            'Machines assignées',
+                            Icons.precision_manufacturing_outlined,
+                          ),
+                        ),
+                        if (machines.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: primaryColor.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              '${machines.length}',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: primaryColor,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 10),
+                      child: Text(
+                        'Pour $label',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: mutedTextColor,
+                        ),
+                      ),
+                    ),
+                    if (machines.isEmpty)
+                      _maintenanceEmptyPane(
+                        icon: Icons.build_outlined,
+                        message:
+                            'Aucune machine assignée à cet agent dans la base.',
+                      )
+                    else
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: machines.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, i) {
+                          final m = machines[i];
+                          final mid = _machineIdOf(m);
+                          final name = _machineNameOf(m);
+                          final location = (m['location'] ?? '').toString();
+                          final rawImg =
+                              (m['imageUrl'] ?? m['image'] ?? '').toString();
+                          final unresolved =
+                              (m['_unresolvedMachineId'] ?? '').toString();
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: cardColor.withOpacity(0.55),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.08),
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: SizedBox(
+                                    width: 72,
+                                    height: 56,
+                                    child: _buildMachineImageWidget(
+                                      rawImg,
+                                      height: 56,
+                                      width: 72,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.inter(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color: textColor,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'ID: ${mid.isNotEmpty ? mid : unresolved}',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: mutedTextColor,
+                                        ),
+                                      ),
+                                      if (unresolved.isNotEmpty)
+                                        Text(
+                                          'Réf. base (absente du catalogue chargé)',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 11,
+                                            color: mutedTextColor
+                                                .withOpacity(0.85),
+                                          ),
+                                        ),
+                                      if (location.trim().isNotEmpty &&
+                                          unresolved.isEmpty)
+                                        Text(
+                                          location,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 12,
+                                            color: mutedTextColor,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                  ],
+                );
+              }
+
+              Widget agentsStackHeader() {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _maintenanceSectionTitle('Agents', Icons.groups_3_outlined),
+                    const SizedBox(height: 10),
+                    agentsList(),
+                  ],
+                );
+              }
+
+              if (threeCol) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(width: 292, child: agentsStackHeader()),
+                    const SizedBox(width: 16),
+                    SizedBox(width: 320, child: clientColumn()),
+                    const SizedBox(width: 16),
+                    Expanded(child: machinesColumn()),
+                  ],
+                );
+              }
+              if (twoCol) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(width: 280, child: agentsStackHeader()),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          clientColumn(),
+                          const SizedBox(height: 20),
+                          machinesColumn(),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  agentsStackHeader(),
+                  const SizedBox(height: 18),
+                  clientColumn(),
+                  const SizedBox(height: 18),
+                  machinesColumn(),
+                ],
+              );
             },
           ),
         ],
@@ -1592,6 +3776,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           _sidebarItem(Icons.add_circle_outline, 'ADD MACHINE'),
           _sidebarItem(Icons.settings_input_component_outlined, 'COMPONENTS'),
           _sidebarItem(Icons.people_outline_rounded, 'TECHNICIANS'),
+          _sidebarItem(Icons.build_circle_outlined, 'MAINTENANCE'),
           _sidebarItem(Icons.support_agent_rounded, 'AGENTS'),
           _sidebarItem(Icons.menu_book_rounded, 'CLIENT CATALOG'),
           _sidebarItem(Icons.settings_outlined, 'SETTINGS'),
@@ -1605,7 +3790,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   Widget _sidebarItem(IconData icon, String title) {
     bool isSelected = selectedMenu == title;
     return InkWell(
-      onTap: () => setState(() => selectedMenu = title),
+      onTap: () => _onSidebarSelect(title),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
         decoration: BoxDecoration(

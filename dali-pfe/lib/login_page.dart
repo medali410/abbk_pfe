@@ -249,11 +249,20 @@ class _LoginPageState extends State<LoginPage> {
                                         borderRadius: BorderRadius.circular(8),
                                           onTap: () async {
                                             final email = _emailController.text.trim();
-                                            final password = _passwordController.text.trim();
+                                            // Ne pas trim le mot de passe (espaces significatifs côté serveur).
+                                            final password = _passwordController.text;
 
                                             if (email.isEmpty || password.isEmpty) {
                                               ScaffoldMessenger.of(context).showSnackBar(
                                                 const SnackBar(content: Text('Veuillez remplir tous les champs')),
+                                              );
+                                              return;
+                                            }
+                                            if (!email.contains('@')) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text('Indiquez une adresse email valide (avec @).'),
+                                                ),
                                               );
                                               return;
                                             }
@@ -350,12 +359,25 @@ class _LoginPageState extends State<LoginPage> {
                                                   context,
                                                   '/maintenance-dashboard',
                                                 );
-                                              } else {
-                                                final clientName = response['name'] ?? 'Enterprise Corp';
-                                                final clientId = response['clientId'] ?? response['id'] ?? '';
+                                              } else if (role == 'client') {
+                                                if ((ApiService.authToken ?? '').isEmpty) {
+                                                  ScaffoldMessenger.of(context).showSnackBar(
+                                                    const SnackBar(
+                                                      content: Text(
+                                                        'Réponse serveur sans jeton de session. Vérifiez l’URL de l’API et reconnectez-vous.',
+                                                      ),
+                                                      backgroundColor: Colors.red,
+                                                    ),
+                                                  );
+                                                  return;
+                                                }
+                                                final clientName =
+                                                    (response['name'] ?? 'Espace client').toString();
+                                                final clientId =
+                                                    (response['clientId'] ?? response['id'] ?? '').toString();
                                                 await ApiService.saveClientSession(
-                                                  clientId: clientId.toString(),
-                                                  clientName: clientName.toString(),
+                                                  clientId: clientId,
+                                                  clientName: clientName,
                                                   clientEmail: (response['email'] ?? email).toString(),
                                                   clientLocation: (response['location'] ?? '').toString(),
                                                 );
@@ -363,14 +385,18 @@ class _LoginPageState extends State<LoginPage> {
                                                   Navigator.pop(context, true);
                                                   return;
                                                 }
-                                                Navigator.pushReplacement(
+                                                if (!context.mounted) return;
+                                                Navigator.pushReplacementNamed(
                                                   context,
-                                                  MaterialPageRoute(
-                                                    builder: (context) => ClientDashboardPage(
-                                                      clientName: clientName,
-                                                      clientId: clientId,
-                                                      clientData: response,
+                                                  '/client-dashboard',
+                                                );
+                                              } else {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text(
+                                                      'Rôle de compte non reconnu : $role. Utilisez un compte client ou contactez le support.',
                                                     ),
+                                                    backgroundColor: Colors.red,
                                                   ),
                                                 );
                                               }
