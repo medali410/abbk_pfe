@@ -8,6 +8,8 @@
  *   - Client entreprise : client.demo@dali-pfe.com / DaliPfe2026!
  *   - Technicien      : tech.demo@dali-pfe.com     / DaliPfe2026!
  *   - Maintenance (concepteur, collection concepteurs) : maintenance.demo@dali-pfe.com / DaliPfe2026!
+ *   - Agent maintenance (écran « Accès maintenance », POST /api/maintenance-login) :
+ *       maintenance.agent.demo@dali-pfe.com / DaliPfe2026!
  */
 
 const mongoose = require('mongoose');
@@ -19,9 +21,11 @@ const Concepteur = require('./src/models/Concepteur');
 const Client = require('./src/models/Client');
 const Technician = require('./src/models/Technician');
 const Machine = require('./src/models/Machine');
+const MaintenanceAgent = require('./src/models/MaintenanceAgent');
 
 const CLIENT_ID = 'CLI-DEMO-001';
 const MACHINE_ID = 'MAC-DEMO-001';
+const MAINT_AGENT_ID = 'MAINT-DEMO-001';
 const DEMO_PASSWORD = 'DaliPfe2026!';
 
 async function upsertClient() {
@@ -139,6 +143,41 @@ async function upsertUser(email, username, role, extra = {}) {
     console.log('✅ Compte User:', email, '(' + role + ')');
 }
 
+async function upsertMaintenanceAgentDemo() {
+    const email = 'maintenance.agent.demo@dali-pfe.com';
+    const hash = await bcrypt.hash(DEMO_PASSWORD, 10);
+    let a = await MaintenanceAgent.findOne({ email });
+    if (!a) {
+        a = await MaintenanceAgent.create({
+            maintenanceAgentId: MAINT_AGENT_ID,
+            firstName: 'Samir',
+            lastName: 'Agent démo',
+            email,
+            password: hash,
+            address: 'Zone industrielle — Tunis, TN',
+            location: 'Équipe contrôle démo',
+            clientId: CLIENT_ID,
+            machineIds: [MACHINE_ID],
+        });
+        console.log('✅ Agent maintenance créé:', email, MAINT_AGENT_ID);
+    } else {
+        await MaintenanceAgent.updateOne(
+            { _id: a._id },
+            {
+                $set: {
+                    password: hash,
+                    firstName: 'Samir',
+                    lastName: 'Agent démo',
+                    clientId: CLIENT_ID,
+                    machineIds: [MACHINE_ID],
+                    location: 'Équipe contrôle démo',
+                },
+            }
+        );
+        console.log('✅ Agent maintenance mis à jour:', email);
+    }
+}
+
 async function upsertConcepteurDemo() {
     const email = 'maintenance.demo@dali-pfe.com';
     const username = 'maintenance_demo';
@@ -179,6 +218,7 @@ async function main() {
     await upsertClient();
     await upsertMachine();
     await upsertTechnician();
+    await upsertMaintenanceAgentDemo();
 
     await upsertUser('superadmin@dali-pfe.com', 'superadmin_demo', 'SUPER_ADMIN', {
         companyId: '',
@@ -194,6 +234,8 @@ async function main() {
     console.log('Technicien    | tech.demo@dali-pfe.com        | ' + DEMO_PASSWORD);
     console.log('Concepteur    | concepteur.demo@dali-pfe.com | ' + DEMO_PASSWORD + '  (npm run seed:dev-concepteur)');
     console.log('Maintenance   | maintenance.demo@dali-pfe.com | ' + DEMO_PASSWORD + '  (concepteurs + machines démo)');
+    console.log('\n--- Écran « Accès maintenance » (POST /api/maintenance-login) ---');
+    console.log('Agent maint.  | maintenance.agent.demo@dali-pfe.com | ' + DEMO_PASSWORD);
     console.log('Client ID (API) : ' + CLIENT_ID);
     console.log('=======================================================================\n');
 

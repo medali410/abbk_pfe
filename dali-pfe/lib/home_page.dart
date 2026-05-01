@@ -69,6 +69,8 @@ class _HomePageState extends State<HomePage> {
     final width = MediaQuery.of(context).size.width;
     final isDesktop = width >= 1100;
     final isTablet = width >= 760;
+    final stackedHeader = width < 980;
+    final stickyHeaderHeight = stackedHeader ? 132.0 : 78.0;
 
     return Scaffold(
       body: Container(
@@ -117,8 +119,8 @@ class _HomePageState extends State<HomePage> {
                           SliverPersistentHeader(
                             pinned: true,
                             delegate: _StickyHeaderDelegate(
-                              minHeight: 78,
-                              maxHeight: 78,
+                              minHeight: stickyHeaderHeight,
+                              maxHeight: stickyHeaderHeight,
                               child: Padding(
                                 padding: EdgeInsets.symmetric(
                                   horizontal: padding,
@@ -258,24 +260,174 @@ class _HomePageState extends State<HomePage> {
       color: const Color(0xFFA7B1C6),
       fontWeight: FontWeight.w500,
     );
+    final w = MediaQuery.sizeOf(context).width;
+    final showInlineNav = w >= 980;
+    final logo = Container(
+      constraints: BoxConstraints(maxWidth: w < 400 ? 120 : 190),
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Image.asset(
+        'assets/images/abbk_logo.png',
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+      ),
+    );
+
+    final navRow = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _buildNavItem(
+            label: 'Accueil',
+            sectionId: 'home',
+            baseStyle: navStyle,
+            onTap: () => _scrollToSection(_homeSectionKey),
+          ),
+          const SizedBox(width: 14),
+          _buildNavItem(
+            label: 'Machines',
+            sectionId: 'catalog',
+            baseStyle: navStyle,
+            onTap: () => _scrollToSection(_catalogSectionKey),
+          ),
+          const SizedBox(width: 14),
+          _buildNavItem(
+            label: 'Analyse',
+            sectionId: 'analytics',
+            baseStyle: navStyle,
+            onTap: () => _scrollToSection(_analyticsSectionKey),
+          ),
+          const SizedBox(width: 14),
+          _buildNavItem(
+            label: 'Support',
+            sectionId: 'footer',
+            baseStyle: navStyle,
+            onTap: () => _scrollToSection(_footerSectionKey),
+          ),
+        ],
+      ),
+    );
+
+    final clientBadge =
+        _canBuyAsClient
+            ? Container(
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0x2238A169),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: const Color(0x6659D18C)),
+              ),
+              child:
+                  w < 380
+                      ? const Icon(
+                        Icons.verified_user_rounded,
+                        size: 16,
+                        color: Color(0xFF8BE9B3),
+                      )
+                      : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.verified_user_rounded,
+                            size: 14,
+                            color: Color(0xFF8BE9B3),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Client connecte',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFFBEEFD4),
+                            ),
+                          ),
+                        ],
+                      ),
+            )
+            : const SizedBox.shrink();
+
+    final authButton = ElevatedButton.icon(
+      onPressed: () async {
+        if (_canBuyAsClient &&
+            (ApiService.savedClientId ?? '').trim().isNotEmpty) {
+          if (!context.mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder:
+                  (_) => ClientDashboardPage(
+                    clientName:
+                        (ApiService.savedClientName ?? 'Espace client').trim(),
+                    clientId: (ApiService.savedClientId ?? '').trim(),
+                    clientData: {
+                      'name': (ApiService.savedClientName ?? '').trim(),
+                      'email': (ApiService.savedClientEmail ?? '').trim(),
+                      'location':
+                          (ApiService.savedClientLocation ?? '').trim(),
+                    },
+                  ),
+            ),
+          );
+          return;
+        }
+        final result = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+        );
+        if (result == true) {
+          await _hydrateAuthState();
+        }
+      },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFFFF6E00),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        padding: EdgeInsets.symmetric(
+          horizontal: w < 360 ? 10 : 16,
+          vertical: 12,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ).copyWith(
+        overlayColor: WidgetStateProperty.all(Colors.white.withOpacity(0.12)),
+        shadowColor: WidgetStateProperty.all(
+          const Color(0xFFFF6E00).withOpacity(0.4),
+        ),
+      ),
+      icon: const Icon(Icons.login_rounded, size: 20),
+      label: Text(
+        _canBuyAsClient ? 'Mon compte' : 'Connexion',
+        style: TextStyle(fontSize: w < 360 ? 12 : 14),
+      ),
+    );
+
+    if (!showInlineNav) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Flexible(child: logo),
+              const Spacer(),
+              clientBadge,
+              authButton,
+            ],
+          ),
+          const SizedBox(height: 10),
+          navRow,
+        ],
+      );
+    }
+
     return Row(
       children: [
-        Container(
-          width: 190,
-          height: 46,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Image.asset(
-            'assets/images/abbk_logo.png',
-            fit: BoxFit.contain,
-            filterQuality: FilterQuality.high,
-          ),
-        ),
+        logo,
         const SizedBox(width: 24),
-        if (MediaQuery.of(context).size.width >= 980) ...[
+        ...[
           _buildNavItem(
             label: 'Accueil',
             sectionId: 'home',
@@ -305,87 +457,8 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
         const Spacer(),
-        if (_canBuyAsClient)
-          Container(
-            margin: const EdgeInsets.only(right: 10),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0x2238A169),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: const Color(0x6659D18C)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.verified_user_rounded,
-                  size: 14,
-                  color: Color(0xFF8BE9B3),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'Client connecte',
-                  style: GoogleFonts.inter(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFFBEEFD4),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ElevatedButton.icon(
-          onPressed: () async {
-            if (_canBuyAsClient &&
-                (ApiService.savedClientId ?? '').trim().isNotEmpty) {
-              if (!context.mounted) return;
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder:
-                      (_) => ClientDashboardPage(
-                        clientName:
-                            (ApiService.savedClientName ?? 'Espace client')
-                                .trim(),
-                        clientId: (ApiService.savedClientId ?? '').trim(),
-                        clientData: {
-                          'name': (ApiService.savedClientName ?? '').trim(),
-                          'email': (ApiService.savedClientEmail ?? '').trim(),
-                          'location':
-                              (ApiService.savedClientLocation ?? '').trim(),
-                        },
-                      ),
-                ),
-              );
-              return;
-            }
-            final result = await Navigator.push<bool>(
-              context,
-              MaterialPageRoute(builder: (_) => const LoginPage()),
-            );
-            if (result == true) {
-              await _hydrateAuthState();
-            }
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFFF6E00),
-            foregroundColor: Colors.white,
-            elevation: 0,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ).copyWith(
-            overlayColor: WidgetStateProperty.all(
-              Colors.white.withOpacity(0.12),
-            ),
-            shadowColor: WidgetStateProperty.all(
-              const Color(0xFFFF6E00).withOpacity(0.4),
-            ),
-          ),
-          icon: const Icon(Icons.login_rounded),
-          label: Text(_canBuyAsClient ? 'Mon compte' : 'Connexion'),
-        ),
+        clientBadge,
+        authButton,
       ],
     );
   }
@@ -836,34 +909,48 @@ class _HomePageState extends State<HomePage> {
     List<Map<String, dynamic>> machines, {
     required int crossAxisCount,
   }) {
-    return GridView.builder(
-      itemCount: machines.length,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        crossAxisSpacing: 14,
-        mainAxisSpacing: 14,
-        childAspectRatio: crossAxisCount == 1 ? 1.18 : 1.02,
-      ),
-      itemBuilder:
-          (_, i) => _MachineCard(
-            machine: machines[i],
-            canBuy: _canBuyAsClient,
-            onRequireLogin: () async {
-              final result = await Navigator.push<bool>(
-                context,
-                MaterialPageRoute(
-                  builder:
-                      (_) =>
-                          const LoginPage(returnToHomeAfterClientLogin: true),
-                ),
-              );
-              if (result == true) {
-                await _hydrateAuthState();
-              }
-            },
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Keep cards taller on narrow screens to avoid vertical overflow.
+        final singleColumnRatio =
+            constraints.maxWidth < 360
+                ? 0.64
+                : (constraints.maxWidth < 430 ? 0.70 : 0.76);
+        final childAspectRatio =
+            crossAxisCount == 1
+                ? singleColumnRatio
+                : (crossAxisCount == 2 ? 0.92 : 1.02);
+
+        return GridView.builder(
+          itemCount: machines.length,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            crossAxisSpacing: 14,
+            mainAxisSpacing: 14,
+            childAspectRatio: childAspectRatio,
           ),
+          itemBuilder:
+              (_, i) => _MachineCard(
+                machine: machines[i],
+                canBuy: _canBuyAsClient,
+                onRequireLogin: () async {
+                  final result = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(
+                      builder:
+                          (_) =>
+                              const LoginPage(returnToHomeAfterClientLogin: true),
+                    ),
+                  );
+                  if (result == true) {
+                    await _hydrateAuthState();
+                  }
+                },
+              ),
+        );
+      },
     );
   }
 

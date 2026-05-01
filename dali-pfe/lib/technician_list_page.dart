@@ -290,7 +290,7 @@ class _TechnicianListPageState extends State<TechnicianListPage> {
               _roleChoiceTile(
                 ctx,
                 value: 'maintenance',
-                title: 'Personnel maintenance',
+                title: 'Add Maintenance',
                 subtitle: ApiService.isSuperAdmin
                     ? 'Fiche métier Mongo (super-admin)'
                     : 'Réservé au super-administrateur',

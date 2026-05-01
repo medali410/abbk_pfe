@@ -24,6 +24,7 @@ class _AddMaintenanceAgentPageState extends State<AddMaintenanceAgentPage> {
   static const _onVariant = Color(0xFFE2BFB0);
   static const _primary = Color(0xFFFF6E00);
 
+  final _name = TextEditingController();
   final _firstName = TextEditingController();
   final _lastName = TextEditingController();
   final _email = TextEditingController();
@@ -82,6 +83,9 @@ class _AddMaintenanceAgentPageState extends State<AddMaintenanceAgentPage> {
     super.initState();
     final init = widget.initialData;
     if (init != null) {
+      final first = (init['firstName'] ?? '').toString().trim();
+      final last = (init['lastName'] ?? '').toString().trim();
+      _name.text = ([first, last].where((e) => e.isNotEmpty).join(' ')).trim();
       _firstName.text = (init['firstName'] ?? '').toString();
       _lastName.text = (init['lastName'] ?? '').toString();
       _email.text = (init['email'] ?? '').toString();
@@ -104,6 +108,7 @@ class _AddMaintenanceAgentPageState extends State<AddMaintenanceAgentPage> {
 
   @override
   void dispose() {
+    _name.dispose();
     _firstName.dispose();
     _lastName.dispose();
     _email.dispose();
@@ -176,18 +181,26 @@ class _AddMaintenanceAgentPageState extends State<AddMaintenanceAgentPage> {
   }
 
   Future<void> _submit() async {
-    final fn = _firstName.text.trim();
-    final ln = _lastName.text.trim();
-    final em = _email.text.trim();
+    final identifier = _name.text.trim();
+    final em = _email.text.trim().toLowerCase();
     final pw = _password.text;
-    if (fn.isEmpty || ln.isEmpty) {
-      _snack('Prénom et nom obligatoires', err: true);
+    if (identifier.isEmpty) {
+      _snack('Nom obligatoire', err: true);
       return;
     }
-    if (!em.contains('@')) {
-      _snack('Email invalide', err: true);
+    if (RegExp(r'\bagent\b', caseSensitive: false).hasMatch(identifier)) {
+      _snack('Le nom ne doit pas contenir "agent". Saisissez un vrai nom.', err: true);
       return;
     }
+    if (em.isEmpty || !em.contains('@')) {
+      _snack('Email (Gmail) valide obligatoire', err: true);
+      return;
+    }
+    final parts = identifier.split(RegExp(r'\s+')).where((e) => e.trim().isNotEmpty).toList();
+    final typedFirst = _firstName.text.trim();
+    final typedLast = _lastName.text.trim();
+    final fn = typedFirst.isNotEmpty ? typedFirst : (parts.isNotEmpty ? parts.first : identifier);
+    final ln = typedLast.isNotEmpty ? typedLast : (parts.length > 1 ? parts.sublist(1).join(' ') : '');
     if (!_isEdit && pw.length < 6) {
       _snack('Mot de passe : 6 caractères minimum', err: true);
       return;
@@ -201,15 +214,12 @@ class _AddMaintenanceAgentPageState extends State<AddMaintenanceAgentPage> {
       _snack('Choisissez un client', err: true);
       return;
     }
-    if (_selectedMachineIds.isEmpty) {
-      _snack('Sélectionnez au moins une machine', err: true);
-      return;
-    }
 
     setState(() => _saving = true);
     try {
       if (_isEdit) {
         final body = <String, dynamic>{
+          'name': identifier,
           'firstName': fn,
           'lastName': ln,
           'email': em,
@@ -222,6 +232,7 @@ class _AddMaintenanceAgentPageState extends State<AddMaintenanceAgentPage> {
         await ApiService.updateMaintenanceAgent(_apiUpdateId, body);
       } else {
         await ApiService.addMaintenanceAgent({
+          'name': identifier,
           'firstName': fn,
           'lastName': ln,
           'email': em,
@@ -266,7 +277,7 @@ class _AddMaintenanceAgentPageState extends State<AddMaintenanceAgentPage> {
               )
             : null,
         title: Text(
-          _isEdit ? 'Modifier personnel maintenance' : 'Nouveau personnel maintenance',
+          _isEdit ? 'Edit Maintenance' : 'Add Maintenance',
           style: GoogleFonts.inter(fontWeight: FontWeight.bold),
         ),
       ),
@@ -284,7 +295,7 @@ class _AddMaintenanceAgentPageState extends State<AddMaintenanceAgentPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Rôle : personnel maintenance',
+                  'Rôle : Add Maintenance',
                   style: GoogleFonts.spaceGrotesk(
                     color: _primary,
                     fontSize: 12,
@@ -293,22 +304,20 @@ class _AddMaintenanceAgentPageState extends State<AddMaintenanceAgentPage> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                _twoFields(),
-                const SizedBox(height: 12),
-                _field('Email', _email, keyboard: TextInputType.emailAddress),
                 _field(
-                  _isEdit ? 'Nouveau mot de passe (optionnel)' : 'Mot de passe',
-                  _password,
-                  obscure: _obscure,
-                  suffix: IconButton(
-                    icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: _onVariant),
-                    onPressed: () => setState(() => _obscure = !_obscure),
-                  ),
+                  'Nom complet maintenance',
+                  _name,
+                  hintText: 'ex: Omar Bensalem',
                 ),
-                _field('Adresse', _address, maxLines: 2),
-                _field('Localisation (ville/site ou lien Google Maps)', _location),
+                _field('Gmail', _email, keyboard: TextInputType.emailAddress, hintText: 'ex: om1@gmail.com'),
+                const SizedBox(height: 12),
+                _field('Mot de passe', _password, obscure: _obscure, suffix: IconButton(
+                  icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: _onVariant),
+                  onPressed: () => setState(() => _obscure = !_obscure),
+                )),
+                _field('Localisation (ville/site)', _location),
                 const SizedBox(height: 8),
-                Text('CLIENT', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onVariant, letterSpacing: 1.2)),
+                Text('CLIENT / CONTRÔLEUR', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onVariant, letterSpacing: 1.2)),
                 const SizedBox(height: 8),
                 if (_loadingClients)
                   const LinearProgressIndicator(minHeight: 2, color: _primary)
@@ -348,56 +357,75 @@ class _AddMaintenanceAgentPageState extends State<AddMaintenanceAgentPage> {
                       ),
                     ),
                   ),
-                const SizedBox(height: 20),
-                Text('MACHINES (client)', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onVariant, letterSpacing: 1.2)),
-                const SizedBox(height: 8),
-                if (_loadingMachines)
-                  const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator(color: _primary)))
-                else if (_clientKey == null)
-                  Text('Choisissez d’abord un client.', style: GoogleFonts.inter(fontSize: 13, color: _onVariant))
-                else if (_machines.isEmpty)
-                  Text('Aucune machine pour ce client.', style: GoogleFonts.inter(fontSize: 13, color: _onVariant))
-                else
-                  Container(
-                    constraints: const BoxConstraints(maxHeight: 220),
-                    decoration: BoxDecoration(
-                      color: _surface,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: _onVariant.withOpacity(0.2)),
-                    ),
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: _machines.length,
-                      itemBuilder: (context, i) {
-                        final m = _machines[i];
-                        final id = _machineId(m);
-                        if (id.isEmpty) return const SizedBox.shrink();
-                        final sel = _selectedMachineIds.contains(id);
-                        return CheckboxListTile(
-                          value: sel,
-                          onChanged: (v) {
-                            setState(() {
-                              if (v == true) {
-                                _selectedMachineIds.add(id);
-                              } else {
-                                _selectedMachineIds.remove(id);
-                              }
-                            });
-                          },
-                          activeColor: _primary,
-                          title: Text(
-                            _machineName(m),
-                            style: GoogleFonts.inter(color: _onSurface, fontSize: 14),
-                          ),
-                          subtitle: Text(
-                            id,
-                            style: GoogleFonts.spaceGrotesk(fontSize: 11, color: _onVariant),
-                          ),
-                        );
-                      },
+                const SizedBox(height: 18),
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  collapsedIconColor: _onVariant,
+                  iconColor: _primary,
+                  title: Text(
+                    'Optionnel (avancé)',
+                    style: GoogleFonts.inter(
+                      color: _onVariant,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
                     ),
                   ),
-                const SizedBox(height: 28),
+                  children: [
+                    _field('Prénom (optionnel)', _firstName),
+                    _field('Nom de famille (optionnel)', _lastName),
+                    _field('Adresse', _address, maxLines: 2),
+                    Text('Machines (optionnel)', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onVariant, letterSpacing: 1.2)),
+                    const SizedBox(height: 8),
+                    if (_loadingMachines)
+                      const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator(color: _primary)))
+                    else if (_clientKey == null)
+                      Text('Choisissez d’abord un client.', style: GoogleFonts.inter(fontSize: 13, color: _onVariant))
+                    else if (_machines.isEmpty)
+                      Text('Aucune machine pour ce client.', style: GoogleFonts.inter(fontSize: 13, color: _onVariant))
+                    else
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 220),
+                        decoration: BoxDecoration(
+                          color: _surface,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: _onVariant.withOpacity(0.2)),
+                        ),
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _machines.length,
+                          itemBuilder: (context, i) {
+                            final m = _machines[i];
+                            final id = _machineId(m);
+                            if (id.isEmpty) return const SizedBox.shrink();
+                            final sel = _selectedMachineIds.contains(id);
+                            return CheckboxListTile(
+                              value: sel,
+                              onChanged: (v) {
+                                setState(() {
+                                  if (v == true) {
+                                    _selectedMachineIds.add(id);
+                                  } else {
+                                    _selectedMachineIds.remove(id);
+                                  }
+                                });
+                              },
+                              activeColor: _primary,
+                              title: Text(
+                                _machineName(m),
+                                style: GoogleFonts.inter(color: _onSurface, fontSize: 14),
+                              ),
+                              subtitle: Text(
+                                id,
+                                style: GoogleFonts.spaceGrotesk(fontSize: 11, color: _onVariant),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+                const SizedBox(height: 20),
                 FilledButton(
                   onPressed: _saving ? null : _submit,
                   style: FilledButton.styleFrom(
@@ -424,6 +452,7 @@ class _AddMaintenanceAgentPageState extends State<AddMaintenanceAgentPage> {
     );
   }
 
+  // ignore: unused_element
   Widget _twoFields() {
     return Row(
       children: [
@@ -441,13 +470,15 @@ class _AddMaintenanceAgentPageState extends State<AddMaintenanceAgentPage> {
     bool obscure = false,
     Widget? suffix,
     int maxLines = 1,
+    String? hintText,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onVariant, letterSpacing: 1)),
+          if (label.trim().isNotEmpty)
+            Text(label, style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onVariant, letterSpacing: 1)),
           const SizedBox(height: 6),
           TextField(
             controller: c,
@@ -456,6 +487,8 @@ class _AddMaintenanceAgentPageState extends State<AddMaintenanceAgentPage> {
             maxLines: obscure ? 1 : maxLines,
             style: GoogleFonts.inter(color: _onSurface),
             decoration: InputDecoration(
+              hintText: hintText,
+              hintStyle: GoogleFonts.inter(color: _onVariant.withOpacity(0.65), fontSize: 13),
               filled: true,
               fillColor: _surface,
               suffixIcon: suffix,

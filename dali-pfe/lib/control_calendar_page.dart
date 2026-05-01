@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:flutter_barcode_scanner/flutter_barcode_scanner.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
@@ -551,38 +550,14 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
   }
 
   Future<void> _scanAndFinish(Map<String, dynamic> selected) async {
-    if (kIsWeb) {
-      _notifyBanner('Scan QR disponible sur mobile Android/iOS.', _warn2);
-      return;
-    }
     if (_isFinishingFromScan) return;
     setState(() => _isFinishingFromScan = true);
     try {
-      final scanResult = await FlutterBarcodeScanner.scanBarcode('#FF6E00', 'Annuler', true, ScanMode.QR);
-      if (!mounted || scanResult == '-1') return;
-      final scanned = scanResult.trim().toLowerCase();
-
-      final pending = _allControles.where((c) => !_isDone(c)).toList();
-      Map<String, dynamic> match = {};
-      final selectedId = (selected['id'] ?? selected['_id'] ?? '').toString();
-      if (selectedId.isNotEmpty) {
-        match = pending.firstWhere((c) => (c['id'] ?? c['_id']).toString() == selectedId, orElse: () => <String, dynamic>{});
-      }
-      if (match.isEmpty) {
-        match = pending.firstWhere((c) {
-          final machineId = (c['machineId'] ?? '').toString().toLowerCase();
-          final machineName = (c['machineName'] ?? '').toString().toLowerCase();
-          return machineId == scanned || machineName == scanned || scanned.contains(machineId) || scanned.contains(machineName);
-        }, orElse: () => <String, dynamic>{});
-      }
-      if (match.isEmpty) {
-        _notifyBanner('Aucun contrôle assigné trouvé pour ce QR.', _danger);
-        return;
-      }
-      await _finishControleDirect(match, notes: 'Contrôle terminé via scan QR.');
-      _notifyBanner('Contrôle marqué terminé via scanner.', _ok);
-    } catch (e) {
-      _notifyBanner('Erreur scanner: $e', _danger);
+      final isWeb = kIsWeb;
+      final message = isWeb
+          ? 'Scan QR disponible sur mobile Android/iOS.'
+          : 'Scanner temporairement indisponible sur cette version.';
+      _notifyBanner(message, _warn2);
     } finally {
       if (mounted) setState(() => _isFinishingFromScan = false);
     }

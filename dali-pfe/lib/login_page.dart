@@ -199,9 +199,9 @@ class _LoginPageState extends State<LoginPage> {
 
                                   // Email Input
                                   _buildTextField(
-                                    label: 'EMAIL PROFESSIONNEL',
+                                    label: 'IDENTIFIANT / EMAIL (AVEC @)',
                                     icon: Icons.alternate_email,
-                                    hintText: 'utilisateur@entreprise.fr',
+                                    hintText: 'technicien@terrain ou utilisateur@entreprise.fr',
                                     controller: _emailController,
                                   ),
                                   const SizedBox(height: 32),

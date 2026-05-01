@@ -28,6 +28,12 @@ String _techMachineRowId(Map<String, dynamic> m) {
   return (m['id'] ?? m['machineId'] ?? m['_id'] ?? '').toString();
 }
 
+String _fallbackTechnicianEmail(String nameWithAt) {
+  final base = nameWithAt.trim().toLowerCase().replaceAll(' ', '');
+  if (base.contains('@')) return '$base.dali-pfe.local';
+  return '${base.isEmpty ? 'technician' : base}@dali-pfe.local';
+}
+
 class _AddTechnicianPageState extends State<AddTechnicianPage> {
   static const _bg = Color(0xFF0F0F1E);
   static const _nav = Color(0xFF191934);
@@ -61,6 +67,21 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
   bool _loadingMachines = false;
   final Set<String> _selectedMachineIds = {};
   Map<String, String> _fieldErrors = {};
+
+  List<String> get _specializationItems {
+    final base = <String>[
+      'Vibration',
+      'Mécanique',
+      'Électricité',
+      'Automatisme',
+      'Analyse d\'huile',
+    ];
+    final current = _selectedSpecialization.trim();
+    if (current.isNotEmpty && !base.contains(current)) {
+      base.add(current);
+    }
+    return base;
+  }
 
   bool get _isEditMode {
     final tid = widget.initialData?['id'] ?? widget.initialData?['technicianId'];
@@ -153,11 +174,11 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
 
   Map<String, String> _validate() {
     final errors = <String, String>{};
-    if (_nameCtrl.text.trim().isEmpty || !_nameCtrl.text.trim().contains(' ')) {
-      errors['name'] = 'Nom et prénom obligatoires';
-    }
-    if (_emailCtrl.text.trim().isEmpty || !_emailCtrl.text.contains('@')) {
-      errors['email'] = 'Email invalide (@ obligatoire)';
+    final normalizedName = _nameCtrl.text.trim();
+    if (normalizedName.isEmpty) {
+      errors['name'] = 'Nom obligatoire';
+    } else if (!normalizedName.contains('@')) {
+      errors['name'] = 'Le nom technicien doit contenir le caractère @';
     }
     if (!_isEditMode) {
       if (_passCtrl.text.trim().length < 6) {
@@ -166,21 +187,8 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
     } else if (_passCtrl.text.trim().isNotEmpty && _passCtrl.text.trim().length < 6) {
       errors['password'] = 'Mot de passe min. 6 caractères';
     }
-    if (_techDescCtrl.text.trim().isEmpty) {
-      errors['technicalDescription'] = 'Description technique obligatoire';
-    }
     if (_selectedClientId == null) {
       errors['companyId'] = 'Assignation client obligatoire';
-    }
-    if (!_isEditMode) {
-      if (_machines.isEmpty) {
-        errors['machines'] =
-            'Aucune machine : ajoutez d\'abord au moins une machine pour ce client (sans technicien si c\'est la première), puis revenez créer le technicien et cochez les machines qu\'il contrôle.';
-      } else if (_selectedMachineIds.isEmpty) {
-        errors['machines'] = 'Obligatoire : cochez au moins une machine que ce technicien contrôlera.';
-      }
-    } else if (_machines.isNotEmpty && _selectedMachineIds.isEmpty) {
-      errors['machines'] = 'Cochez au moins une machine (obligatoire pour ce client).';
     }
     return errors;
   }
@@ -201,7 +209,9 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
     try {
       final payload = <String, dynamic>{
         'name': _nameCtrl.text.trim(),
-        'email': _emailCtrl.text.trim().toLowerCase(),
+        'email': _emailCtrl.text.trim().isEmpty
+            ? _fallbackTechnicianEmail(_nameCtrl.text.trim())
+            : _emailCtrl.text.trim().toLowerCase(),
         'phone': _phoneCtrl.text.trim(),
         'location': _locationCtrl.text.trim(),
         'specialization': _selectedSpecialization,
@@ -277,23 +287,7 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
                         children: [
                           _buildPageHeader(),
                           const SizedBox(height: 24),
-                          if (isDesktop)
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(flex: 8, child: _buildLeftColumn()),
-                                const SizedBox(width: 24),
-                                Expanded(flex: 4, child: _buildRightColumn()),
-                              ],
-                            )
-                          else
-                            Column(
-                              children: [
-                                _buildLeftColumn(),
-                                const SizedBox(height: 24),
-                                _buildRightColumn(),
-                              ],
-                            ),
+                          _buildLeftColumn(),
                           const SizedBox(height: 18),
                           Row(
                             children: [
@@ -453,87 +447,102 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
     return Column(
       children: [
         _cardWrap(
-          title: 'INFORMATIONS PERSONNELLES',
-          accent: _tertiary,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  color: _bg,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: _outline.withOpacity(.5), style: BorderStyle.solid),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.add_a_photo, color: _onVariant),
-                    const SizedBox(height: 8),
-                    Text('Télécharger\nphoto', textAlign: TextAlign.center, style: GoogleFonts.spaceGrotesk(color: _onVariant, fontSize: 10)),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 20),
-              Expanded(
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(child: _input('Nom complet', _nameCtrl, fieldKey: 'name', hint: 'ex: Marc Dubois')),
-                        const SizedBox(width: 16),
-                        Expanded(child: _input('Téléphone', _phoneCtrl, hint: '+33 6 00 00 00 00')),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    _input('Email professionnel', _emailCtrl, fieldKey: 'email', hint: 'm.dubois@predictivecloud.io'),
-                    const SizedBox(height: 14),
-                    _input('Localisation (ville ou lien Google Maps)', _locationCtrl, hint: 'Ex: Sfax ou https://maps.google.com/...'),
-                  ],
-                ),
-              )
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-        _cardWrap(
-          title: 'COMPÉTENCES & ACCÈS',
-          accent: _tertiary,
+          title: 'CHAMPS PRINCIPAUX',
+          accent: _primaryContainer,
           child: Column(
             children: [
               Row(
                 children: [
                   Expanded(
-                    child: _dropdown(
-                      label: 'Spécialisation',
-                      value: _selectedSpecialization,
-                      items: const ['Vibration', 'Mécanique', 'Électricité', 'Automatisme', 'Analyse d\'huile'],
-                      onChanged: (v) => setState(() => _selectedSpecialization = v ?? _selectedSpecialization),
+                    child: _input(
+                      'Nom (identifiant avec @)',
+                      _nameCtrl,
+                      fieldKey: 'name',
+                      hint: 'ex: marc@terrain',
                     ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
-                    child: _clientDropdown(),
+                    child: _input(
+                      _isEditMode
+                          ? 'Nouveau mot de passe (optionnel)'
+                          : 'Mot de passe',
+                      _passCtrl,
+                      fieldKey: 'password',
+                      isPassword: true,
+                      hint: _isEditMode
+                          ? 'Laisser vide pour conserver'
+                          : 'Minimum 6 caractères',
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 14),
-              _input(
-                'Description technique',
-                _techDescCtrl,
-                fieldKey: 'technicalDescription',
-                hint: 'Compétences techniques détaillées...',
+              Row(
+                children: [
+                  Expanded(
+                    child: _input(
+                      'Localisation',
+                      _locationCtrl,
+                      hint: 'Ex: Sfax ou site industriel',
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(child: _clientDropdown()),
+                ],
               ),
             ],
           ),
         ),
         const SizedBox(height: 20),
-        _buildMachineAssignmentSection(),
+        _cardWrap(
+          title: 'OPTIONNEL (AVANCÉ)',
+          accent: _tertiary,
+          child: ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            collapsedIconColor: _onVariant,
+            iconColor: _secondary,
+            title: Text(
+              'Afficher les champs optionnels',
+              style: GoogleFonts.inter(
+                color: _onVariant,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            children: [
+              const SizedBox(height: 8),
+              _input('Téléphone', _phoneCtrl, hint: '+33 6 00 00 00 00'),
+              const SizedBox(height: 12),
+              _input(
+                'Email professionnel (optionnel)',
+                _emailCtrl,
+                hint: 'm.dubois@predictivecloud.io',
+              ),
+              const SizedBox(height: 12),
+              _dropdown(
+                label: 'Spécialisation',
+                value: _selectedSpecialization,
+                items: _specializationItems,
+                onChanged: (v) =>
+                    setState(() => _selectedSpecialization = v ?? _selectedSpecialization),
+              ),
+              const SizedBox(height: 12),
+              _input(
+                'Description technique (optionnel)',
+                _techDescCtrl,
+                hint: 'Compétences techniques détaillées...',
+              ),
+              const SizedBox(height: 6),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
       ],
     );
   }
 
+  // ignore: unused_element
   Widget _buildMachineAssignmentSection() {
     if (_selectedClientId == null) return const SizedBox.shrink();
     return _cardWrap(
@@ -629,6 +638,7 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildRightColumn() {
     return Column(
       children: [
@@ -641,18 +651,10 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
               Text(
                 _isEditMode
                     ? 'Email ci-dessus. Nouveau mot de passe : laisser vide pour ne pas changer.'
-                    : 'Email (identifiant) et mot de passe permettent au technicien de se connecter à son espace.',
+                    : 'Le mot de passe est demandé dans les champs principaux pour un ajout rapide.',
                 style: GoogleFonts.inter(color: _onVariant.withOpacity(0.85), fontSize: 11, height: 1.35),
               ),
-              const SizedBox(height: 14),
-              _input(
-                _isEditMode ? 'Nouveau mot de passe (optionnel)' : 'Mot de passe de connexion',
-                _passCtrl,
-                fieldKey: 'password',
-                isPassword: true,
-                hint: _isEditMode ? 'Laisser vide pour conserver' : 'Minimum 6 caractères',
-              ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 10),
               _switchTile('Accès mobile', 'AUTORISER L\'APP MOBILE', _mobileAccess, (v) => setState(() => _mobileAccess = v)),
               const SizedBox(height: 12),
               _switchTile('Forcer changement', 'À LA PREMIÈRE CONNEXION', _forceChangeAtFirstLogin, (v) => setState(() => _forceChangeAtFirstLogin = v)),
@@ -797,7 +799,7 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('ASSIGNATION CLIENT', style: GoogleFonts.spaceGrotesk(color: _onVariant.withOpacity(.6), fontSize: 10, fontWeight: FontWeight.bold)),
+        Text('CLIENT / CONTRÔLEUR', style: GoogleFonts.spaceGrotesk(color: _onVariant.withOpacity(.6), fontSize: 10, fontWeight: FontWeight.bold)),
         if (_isLoadingClients)
           const Padding(
             padding: EdgeInsets.only(top: 10),
@@ -834,6 +836,97 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
               );
             }).whereType<DropdownMenuItem<String>>().toList(),
           ),
+        if (_selectedClientId != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Client sélectionné pour ce technicien.',
+              style: GoogleFonts.inter(color: _secondary, fontSize: 11),
+            ),
+          ),
+        if (_selectedClientId != null) ...[
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: _bg.withOpacity(0.35),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _outline.withOpacity(0.35)),
+            ),
+            child: _loadingMachines
+                ? Row(
+                    children: [
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Chargement des machines du client...',
+                        style: GoogleFonts.inter(color: _onVariant, fontSize: 12),
+                      ),
+                    ],
+                  )
+                : _machines.isEmpty
+                    ? Text(
+                        'Machines du client : aucune machine trouvée.',
+                        style: GoogleFonts.inter(color: _onVariant, fontSize: 12),
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Machines du client : ${_machines.length}',
+                            style: GoogleFonts.inter(
+                              color: _secondary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: _machines.take(6).map((m) {
+                              final mName = (m['name'] ?? _techMachineRowId(m))
+                                  .toString()
+                                  .trim();
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _surface,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Text(
+                                  mName.isEmpty ? 'Machine' : mName,
+                                  style: GoogleFonts.inter(
+                                    color: _on,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                          if (_machines.length > 6)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                '+${_machines.length - 6} autre(s) machine(s)',
+                                style: GoogleFonts.inter(
+                                  color: _onVariant,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+          ),
+        ],
         if (_fieldErrors['companyId'] != null)
           Padding(
             padding: const EdgeInsets.only(top: 6),

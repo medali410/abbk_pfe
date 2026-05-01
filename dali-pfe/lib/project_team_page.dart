@@ -337,7 +337,7 @@ class _ProjectTeamPageState extends State<ProjectTeamPage> {
             const SizedBox(height: 8),
             _sheetRole(ctx, 'concepteur', 'Concepteur', _secondary, Icons.architecture_outlined),
             const SizedBox(height: 8),
-            _sheetRole(ctx, 'maintenance', 'Personnel maintenance', _primary, Icons.build_circle_outlined, enabled: ApiService.isSuperAdmin),
+            _sheetRole(ctx, 'maintenance', 'Add Maintenance', _primary, Icons.build_circle_outlined, enabled: ApiService.isSuperAdmin),
           ],
         ),
       ),

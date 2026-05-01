@@ -1925,6 +1925,11 @@ app.post('/api/login', async (req, res) => {
                 email: new RegExp(`^${escapeRegExp(emailTrim)}$`, 'i')
             });
         }
+        if (!technician && emailTrim) {
+            technician = await Technician.findOne({
+                name: new RegExp(`^${escapeRegExp(emailTrim)}$`, 'i')
+            });
+        }
         let maintenanceAgent = await MaintenanceAgent.findOne({ email: emailNorm });
         if (!maintenanceAgent && emailTrim) {
             maintenanceAgent = await MaintenanceAgent.findOne({
@@ -1960,6 +1965,16 @@ app.post('/api/login', async (req, res) => {
         }
 
         if (technician) {
+            if (!emailTrim.includes('@')) {
+                return res.status(401).json({
+                    message: 'Identifiant technicien invalide : il doit contenir le caractère @.',
+                });
+            }
+            if (!String(technician.name || '').includes('@')) {
+                return res.status(401).json({
+                    message: 'Compte technicien invalide : le nom/identifiant doit contenir @.',
+                });
+            }
             const okT = await verifyClientPassword(password, technician.password);
             if (okT) {
                 if (technician.password && !technician.password.startsWith('$2')) {
@@ -3107,18 +3122,30 @@ app.get('/api/maintenance-agents', async (req, res) => {
 
 app.post('/api/maintenance-agents', requireAuth, requireSuperAdminOrConception, async (req, res) => {
     try {
-        const firstName = String(req.body.firstName || '').trim();
-        const lastName = String(req.body.lastName || '').trim();
-        const emailNorm = String(req.body.email || '').trim().toLowerCase();
+        const identifierName = String(req.body.name || '').trim();
+        let firstName = String(req.body.firstName || '').trim();
+        let lastName = String(req.body.lastName || '').trim();
+        if (identifierName) {
+            firstName = identifierName;
+            if (!lastName) lastName = 'agent';
+        }
+        const emailRaw = String(req.body.email || '').trim().toLowerCase();
         const password = String(req.body.password || '');
         const address = String(req.body.address || '').trim();
         const location = String(req.body.location || '').trim();
         const clientIdRaw = req.body.clientId != null ? String(req.body.clientId).trim() : '';
         const machineIds = normalizeMachineIdsInput(req.body.machineIds) || [];
+        const effectiveIdentifier = identifierName || `${firstName} ${lastName}`.trim();
 
-        if (!firstName || !lastName) {
-            return res.status(400).json({ error: 'Prénom et nom obligatoires' });
+        if (!effectiveIdentifier) {
+            return res.status(400).json({ error: 'Nom maintenance obligatoire' });
         }
+        if (!effectiveIdentifier.includes('@')) {
+            return res.status(400).json({ error: 'Le nom maintenance doit contenir le caractère @' });
+        }
+        const emailNorm = emailRaw.includes('@')
+            ? emailRaw
+            : `${_slugEmailPart(effectiveIdentifier, 'maintenance')}.auto@dali-pfe.local`;
         if (!emailNorm.includes('@')) {
             return res.status(400).json({ error: 'Email invalide' });
         }
@@ -3127,9 +3154,6 @@ app.post('/api/maintenance-agents', requireAuth, requireSuperAdminOrConception, 
         }
         if (!clientIdRaw) {
             return res.status(400).json({ error: 'Client obligatoire' });
-        }
-        if (machineIds.length === 0) {
-            return res.status(400).json({ error: 'Sélectionnez au moins une machine' });
         }
 
         const client = await Client.findOne({ clientId: clientIdRaw })
@@ -3141,13 +3165,15 @@ app.post('/api/maintenance-agents', requireAuth, requireSuperAdminOrConception, 
         const storedClientKey = client.clientId ? String(client.clientId) : String(client._id);
         const aliases = await buildCompanyAliasSet(storedClientKey);
 
-        for (const mid of machineIds) {
-            const m = await Machine.findById(mid);
-            if (!m) {
-                return res.status(400).json({ error: `Machine introuvable: ${mid}` });
-            }
-            if (!aliases.has(String(m.companyId))) {
-                return res.status(400).json({ error: `La machine ${mid} n'appartient pas à ce client` });
+        if (machineIds.length > 0) {
+            for (const mid of machineIds) {
+                const m = await Machine.findById(mid);
+                if (!m) {
+                    return res.status(400).json({ error: `Machine introuvable: ${mid}` });
+                }
+                if (!aliases.has(String(m.companyId))) {
+                    return res.status(400).json({ error: `La machine ${mid} n'appartient pas à ce client` });
+                }
             }
         }
 
@@ -3195,6 +3221,20 @@ app.put('/api/maintenance-agents/:id', requireAuth, requireFleetManager, async (
         }
         if (!(await assertFleetCompanyAccess(req, res, String(doc.clientId || '')))) return;
 
+        if (req.body.name !== undefined) {
+            const identifierName = String(req.body.name || '').trim();
+            if (!identifierName) {
+                return res.status(400).json({ error: 'Nom maintenance obligatoire' });
+            }
+            if (!identifierName.includes('@')) {
+                return res.status(400).json({ error: 'Le nom maintenance doit contenir le caractère @' });
+            }
+            doc.firstName = identifierName;
+            if (!String(doc.lastName || '').trim()) {
+                doc.lastName = 'agent';
+            }
+        }
+
         if (req.body.firstName !== undefined) {
             doc.firstName = String(req.body.firstName || '').trim();
         }
@@ -3203,14 +3243,16 @@ app.put('/api/maintenance-agents/:id', requireAuth, requireFleetManager, async (
         }
         if (req.body.email !== undefined) {
             const emailNorm = String(req.body.email || '').trim().toLowerCase();
-            if (!emailNorm.includes('@')) {
-                return res.status(400).json({ error: 'Email invalide' });
+            if (emailNorm.length > 0) {
+                if (!emailNorm.includes('@')) {
+                    return res.status(400).json({ error: 'Email invalide' });
+                }
+                const dup = await MaintenanceAgent.findOne({ email: emailNorm, _id: { $ne: doc._id } });
+                if (dup) {
+                    return res.status(409).json({ error: 'Cet email est déjà utilisé' });
+                }
+                doc.email = emailNorm;
             }
-            const dup = await MaintenanceAgent.findOne({ email: emailNorm, _id: { $ne: doc._id } });
-            if (dup) {
-                return res.status(409).json({ error: 'Cet email est déjà utilisé' });
-            }
-            doc.email = emailNorm;
         }
         if (req.body.password != null && String(req.body.password).length > 0) {
             const password = String(req.body.password);
@@ -3243,9 +3285,6 @@ app.put('/api/maintenance-agents/:id', requireAuth, requireFleetManager, async (
         let machineIds = (doc.machineIds || []).map(String);
         if (req.body.machineIds !== undefined) {
             machineIds = normalizeMachineIdsInput(req.body.machineIds) || [];
-            if (machineIds.length === 0) {
-                return res.status(400).json({ error: 'Sélectionnez au moins une machine' });
-            }
         }
 
         const storedClientKey = doc.clientId;
@@ -3752,7 +3791,7 @@ app.post('/api/technicians', requireAuth, requireFleetManager, async (req, res) 
         const techData = { ...req.body };
         delete techData.technicianId;
         delete techData.id;
-        const emailNorm = (techData.email || '').toString().trim().toLowerCase();
+        const emailInput = (techData.email || '').toString().trim().toLowerCase();
         const password = (techData.password || '').toString();
         const fullName = (techData.name || '').toString().trim();
         const companyId = techData.companyId;
@@ -3760,11 +3799,19 @@ app.post('/api/technicians', requireAuth, requireFleetManager, async (req, res) 
             ? techData.machineIds.map((x) => String(x)).filter(Boolean)
             : [];
 
-        if (!fullName || !fullName.includes(' ')) {
-            return res.status(400).json({ error: 'Nom et prénom obligatoires (ex: Jean Dupont)' });
+        if (!fullName) {
+            return res.status(400).json({ error: 'Nom technicien obligatoire' });
         }
-        if (!emailNorm || !emailNorm.includes('@')) {
-            return res.status(400).json({ error: 'Email invalide: le symbole @ est obligatoire' });
+        if (!fullName.includes('@')) {
+            return res.status(400).json({
+                error: 'Nom technicien invalide : le caractère @ est obligatoire (ex: technicien@terrain).'
+            });
+        }
+        const effectiveEmail = emailInput.includes('@')
+            ? emailInput
+            : `${_slugEmailPart(fullName, 'technician')}.auto@dali-pfe.local`;
+        if (!effectiveEmail.includes('@')) {
+            return res.status(400).json({ error: 'Email technicien invalide' });
         }
         if (!password || password.length < 6) {
             return res.status(400).json({ error: 'Mot de passe de connexion obligatoire (minimum 6 caractères)' });
@@ -3783,10 +3830,10 @@ app.post('/api/technicians', requireAuth, requireFleetManager, async (req, res) 
         if (!(await assertFleetCompanyAccess(req, res, companyId))) return;
 
         const [dupUser, dupClient, dupTech, dupConcepteur] = await Promise.all([
-            User.findOne({ email: emailNorm }),
-            Client.findOne({ email: emailNorm }),
-            Technician.findOne({ email: emailNorm }),
-            Concepteur.findOne({ email: emailNorm }),
+            User.findOne({ email: effectiveEmail }),
+            Client.findOne({ email: effectiveEmail }),
+            Technician.findOne({ email: effectiveEmail }),
+            Concepteur.findOne({ email: effectiveEmail }),
         ]);
         if (dupUser) {
             return res.status(409).json({ error: 'Cet email est déjà utilisé (compte administrateur)' });
@@ -3801,20 +3848,10 @@ app.post('/api/technicians', requireAuth, requireFleetManager, async (req, res) 
             return res.status(409).json({ error: 'Un technicien existe déjà avec cet email' });
         }
 
-        const aliases = await buildCompanyAliasSet(companyId);
-        const mCount = await machineCountForCompanyAliases(aliases);
-        if (mCount < 1) {
-            return res.status(400).json({
-                error: 'Ce client n\'a aucune machine : créez d\'abord au moins une machine, puis ajoutez le technicien en choisissant les équipements qu\'il contrôle.'
-            });
+        if (machineIds.length > 0) {
+            const vErr = await validateTechnicianMachineIds(machineIds, companyId);
+            if (vErr) return res.status(400).json({ error: vErr });
         }
-        if (machineIds.length < 1) {
-            return res.status(400).json({
-                error: 'Choisissez au moins une machine que ce technicien contrôlera (obligatoire).'
-            });
-        }
-        const vErr = await validateTechnicianMachineIds(machineIds, companyId);
-        if (vErr) return res.status(400).json({ error: vErr });
 
         const year = new Date().getFullYear();
         let generated;
@@ -3825,7 +3862,7 @@ app.post('/api/technicians', requireAuth, requireFleetManager, async (req, res) 
         }
         techData.technicianId = generated;
 
-        techData.email = emailNorm;
+        techData.email = effectiveEmail;
         techData.password = await bcrypt.hash(password, 10);
         techData.machineIds = machineIds;
         delete techData._id;
@@ -3867,6 +3904,19 @@ app.put('/api/technicians/:id', requireAuth, requireFleetManager, async (req, re
                 return res.status(400).json({ error: 'Mot de passe minimum 6 caractères' });
             }
             raw.password = await bcrypt.hash(String(raw.password), 10);
+        }
+
+        if (raw.name !== undefined) {
+            const updatedName = String(raw.name || '').trim();
+            if (!updatedName) {
+                return res.status(400).json({ error: 'Nom technicien obligatoire' });
+            }
+            if (!updatedName.includes('@')) {
+                return res.status(400).json({
+                    error: 'Nom technicien invalide : le caractère @ est obligatoire.',
+                });
+            }
+            raw.name = updatedName;
         }
 
         if (raw.email) {

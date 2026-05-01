@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:google_fonts/google_fonts.dart';
 import 'login_page.dart';
 import 'home_page.dart';
@@ -61,7 +61,8 @@ class _SessionEntryState extends State<SessionEntry> {
       });
       return;
     }
-    if (role == 'client' && (ApiService.savedClientId ?? '').trim().isNotEmpty) {
+    if (role == 'client' &&
+        (ApiService.savedClientId ?? '').trim().isNotEmpty) {
       _redirectScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -118,7 +119,7 @@ class MyApp extends StatelessWidget {
           children: [
             if (child != null) Positioned.fill(child: child),
             if (kDebugMode) const _ApiBaseDebugBadge(),
-            const _GlobalBackButtonOverlay(),
+            if (kIsWeb) const _GlobalBackButtonOverlay(),
           ],
         );
       },
@@ -126,8 +127,10 @@ class MyApp extends StatelessWidget {
         '/': (context) => const SessionEntry(),
         '/login': (context) => const LoginPage(),
         '/dashboard': (context) => const DashboardPage(),
-        '/client-dashboard': (context) => ClientDashboardPage(
-              clientName: (ApiService.savedClientName ?? 'Espace client').trim(),
+        '/client-dashboard':
+            (context) => ClientDashboardPage(
+              clientName:
+                  (ApiService.savedClientName ?? 'Espace client').trim(),
               clientId: (ApiService.savedClientId ?? '').trim(),
               clientData: {
                 'clientId': (ApiService.savedClientId ?? '').trim(),
@@ -210,13 +213,16 @@ class _ApiBaseDebugBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = 'API: ${ApiService.baseUrl}';
+    final maxBadgeWidth = MediaQuery.of(context).size.width - 28;
     return Positioned(
       right: 12,
       top: 10,
       child: SafeArea(
         child: IgnorePointer(
           child: Container(
-            constraints: const BoxConstraints(maxWidth: 520),
+            constraints: BoxConstraints(
+              maxWidth: maxBadgeWidth.clamp(120, 520).toDouble(),
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
               color: const Color(0xCC111827),
