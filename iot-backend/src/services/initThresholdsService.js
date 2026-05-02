@@ -1,22 +1,5 @@
 const Machine = require('../models/Machine');
-
-const seuilsAirCooled = [
-  { typeControle: 'Contrôle filtre air', intervalleHeures: 50, prochainControleHeure: 50, priorite: 'normale' },
-  { typeControle: 'Contrôle huile', intervalleHeures: 100, prochainControleHeure: 100, priorite: 'haute' },
-  { typeControle: 'Contrôle courroie', intervalleHeures: 250, prochainControleHeure: 250, priorite: 'normale' },
-  { typeControle: 'Nettoyage radiateur', intervalleHeures: 300, prochainControleHeure: 300, priorite: 'normale' },
-  { typeControle: 'Révision générale', intervalleHeures: 500, prochainControleHeure: 500, priorite: 'haute' },
-  { typeControle: 'Remplacement filtre air', intervalleHeures: 1000, prochainControleHeure: 1000, priorite: 'urgente' }
-];
-
-const seuilsWaterCooled = [
-  { typeControle: 'Contrôle niveau eau', intervalleHeures: 50, prochainControleHeure: 50, priorite: 'haute' },
-  { typeControle: 'Contrôle pompe eau', intervalleHeures: 100, prochainControleHeure: 100, priorite: 'haute' },
-  { typeControle: 'Vérification circuit eau', intervalleHeures: 200, prochainControleHeure: 200, priorite: 'normale' },
-  { typeControle: 'Changement liquide refroidissement', intervalleHeures: 500, prochainControleHeure: 500, priorite: 'haute' },
-  { typeControle: 'Contrôle joints', intervalleHeures: 750, prochainControleHeure: 750, priorite: 'normale' },
-  { typeControle: 'Révision générale', intervalleHeures: 1000, prochainControleHeure: 1000, priorite: 'urgente' }
-];
+const { ensureMotorSensorRoutineSeuil, ensureCondensateurRoutineSeuil } = require('../utils/motorSensorRoutineSeuil');
 
 const initializeExistingMachines = async () => {
   try {
@@ -46,16 +29,15 @@ const initializeExistingMachines = async () => {
         hasChanged = true;
       }
 
-      // 4. Ajouter automatiquement les seuils si le tableau est vide
+      // 4. Seuils par défaut : uniquement maintenance préventive par temps de marche
+      //    (condensateurs + routine moteur). Pas de liste filtre/huile/courroie générique.
       if (!machine.seuilsControle || machine.seuilsControle.length === 0) {
-        const defaultThresholds = machine.motorType === 'water_cooled' ? seuilsWaterCooled : seuilsAirCooled;
-        
-        // On clone les seuils pour éviter les références partagées
-        machine.seuilsControle = defaultThresholds.map(s => ({
-          ...s,
-          derniereVerificationHeure: 0
-        }));
-        
+        machine.seuilsControle = [];
+        hasChanged = true;
+      }
+
+      // 5. Remplit condensateurs (72 h) + routine capteurs moteur (168 h) si absents
+      if (ensureMotorSensorRoutineSeuil(machine) || ensureCondensateurRoutineSeuil(machine)) {
         hasChanged = true;
       }
 

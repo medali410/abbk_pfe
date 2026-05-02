@@ -10,6 +10,7 @@ class ApiService {
   static const _kClientName = 'api_client_name';
   static const _kClientEmail = 'api_client_email';
   static const _kClientLocation = 'api_client_location';
+  static const _kTechnicianProfileJson = 'api_technician_profile_json';
 
   static String? _authToken;
   static String? _userRole;
@@ -26,6 +27,10 @@ class ApiService {
 
   /// Rôle issu du dernier login (persisté), ex. `conception`, `technician`.
   static String? get savedUserRole => _userRole;
+
+  /// Profil technicien (persisté) : `_id`, `technicianId`, `companyId`, etc. — pour rechargement web / calendrier.
+  static Map<String, dynamic>? _savedTechnicianProfile;
+  static Map<String, dynamic>? get savedTechnicianProfile => _savedTechnicianProfile;
 
   static bool get isSuperAdmin =>
       (_userRole ?? '').toLowerCase() == 'superadmin';
@@ -50,6 +55,19 @@ class ApiService {
     _savedClientName = p.getString(_kClientName);
     _savedClientEmail = p.getString(_kClientEmail);
     _savedClientLocation = p.getString(_kClientLocation);
+    final techRaw = p.getString(_kTechnicianProfileJson);
+    if (techRaw != null && techRaw.isNotEmpty) {
+      try {
+        final d = json.decode(techRaw);
+        if (d is Map<String, dynamic>) {
+          _savedTechnicianProfile = d;
+        }
+      } catch (_) {
+        _savedTechnicianProfile = null;
+      }
+    } else {
+      _savedTechnicianProfile = null;
+    }
   }
 
   static Future<void> saveAuth(String? token, String role) async {
@@ -83,6 +101,23 @@ class ApiService {
     await p.remove(_kClientName);
     await p.remove(_kClientEmail);
     await p.remove(_kClientLocation);
+    _savedTechnicianProfile = null;
+    await p.remove(_kTechnicianProfileJson);
+  }
+
+  /// À appeler après login technicien : permet au calendrier / profil de fonctionner après F5 sur le web.
+  static Future<void> saveTechnicianSession(Map<String, dynamic> profile) async {
+    final copy = Map<String, dynamic>.from(profile);
+    copy.remove('loginPassword');
+    copy.remove('password');
+    copy.remove('token');
+    _savedTechnicianProfile = copy;
+    final p = await SharedPreferences.getInstance();
+    try {
+      await p.setString(_kTechnicianProfileJson, json.encode(copy));
+    } catch (e) {
+      debugPrint('ApiService.saveTechnicianSession: indisponible ($e)');
+    }
   }
 
   static Future<void> saveClientSession({
@@ -203,9 +238,19 @@ class ApiService {
       );
     }
     if (map != null) {
-      final message =
+      var message =
           map['error']?.toString() ?? map['message']?.toString();
       if (message != null && message.trim().isNotEmpty) {
+        if (response.statusCode == 404) {
+          final p = map['path']?.toString();
+          if (p != null && p.trim().isNotEmpty) {
+            message = '${message.trim()} — $p';
+          }
+          final h = map['hint']?.toString();
+          if (h != null && h.trim().isNotEmpty) {
+            message = '${message.trim()}. $h';
+          }
+        }
         throw Exception(message.trim());
       }
     }
@@ -711,6 +756,18 @@ class ApiService {
       return json.decode(response.body) as Map<String, dynamic>;
     }
     _throwApiError(response, 'Mise à jour machine refusée');
+  }
+
+  static Future<Map<String, dynamic>> startMachineMarche(String machineId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/machines/$machineId/start-marche'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode(<String, dynamic>{}),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    _throwApiError(response, 'Enregistrement « machine en marche » impossible');
   }
 
   static Future<Map<String, dynamic>> stopMachine(String machineId, {String? reason, String? stoppedBy}) async {
@@ -1256,6 +1313,33 @@ class ApiService {
     _throwApiError(response, 'Erreur de chargement des contrôles');
   }
 
+  static Future<List<Map<String, dynamic>>> getAllControles({
+    int days = 60,
+  }) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/controles?days=$days'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    _throwApiError(response, 'Erreur de chargement du calendrier des contrôles');
+  }
+
+  /// Contrôles rattachés à une machine (préventifs, statuts, dates prévues).
+  static Future<List<Map<String, dynamic>>> getControlesForMachine(String machineId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/controles/machine/${Uri.encodeComponent(machineId)}'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    _throwApiError(response, 'Erreur de chargement des contrôles machine');
+  }
+
   static Future<List<Map<String, dynamic>>> getControlesForTechnician(
     String technicianId, {
     int days = 30,
@@ -1282,6 +1366,35 @@ class ApiService {
     _throwApiError(response, 'Erreur de chargement des contrôles technicien');
   }
 
+  /// Compte-rendu libre depuis le calendrier technicien (jour + machine). Crée ou clôt une fiche.
+  static Future<Map<String, dynamic>> submitControleCalendrierSaisie({
+    required String machineId,
+    required String jourYyyyMmDd,
+    required String compteRendu,
+    String? technicienId,
+    String? technicienNom,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/controles/terrain'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode({
+        'machineId': machineId,
+        'jour': jourYyyyMmDd,
+        'compteRendu': compteRendu,
+        if (technicienId != null && technicienId.isNotEmpty) 'technicienId': technicienId,
+        if (technicienNom != null && technicienNom.isNotEmpty) 'technicienNom': technicienNom,
+      }),
+    );
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final decoded = json.decode(response.body);
+      if (decoded is! Map) {
+        throw Exception('Réponse serveur invalide (attendu un objet JSON)');
+      }
+      return Map<String, dynamic>.from(decoded);
+    }
+    _throwApiError(response, 'Erreur enregistrement du compte-rendu');
+  }
+
   static Future<void> updateControleStatus(
     String id,
     String status, {
@@ -1302,5 +1415,44 @@ class ApiService {
     if (response.statusCode != 200) {
       _throwApiError(response, 'Erreur mise à jour statut contrôle');
     }
+  }
+
+  static Future<Map<String, dynamic>> assignControleToTechnician(
+    String controleId, {
+    required String technicienId,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/controles/$controleId/assign'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode({
+        'technicienId': technicienId,
+      }),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    _throwApiError(response, 'Affectation technicien impossible');
+  }
+
+  static Future<List<Map<String, dynamic>>> getPreventiveHistory({
+    String? machineId,
+    String? technicienId,
+  }) async {
+    final qp = <String, String>{
+      if (machineId != null && machineId.trim().isNotEmpty) 'machineId': machineId.trim(),
+      if (technicienId != null && technicienId.trim().isNotEmpty) 'technicienId': technicienId.trim(),
+    };
+    final uri = Uri.parse('$baseUrl/controles/preventive-history').replace(
+      queryParameters: qp.isEmpty ? null : qp,
+    );
+    final response = await http.get(
+      uri,
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    _throwApiError(response, 'Chargement historique maintenance préventive impossible');
   }
 }

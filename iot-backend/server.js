@@ -292,6 +292,11 @@ async function verifyClientPassword(plain, stored) {
 const User = require('./src/models/User');
 const Company = require('./src/models/Company');
 const Machine = require('./src/models/Machine');
+const {
+    ensureMotorSensorRoutineSeuilById,
+    ensureMotorSensorRoutineSeuil,
+    ensureCondensateurRoutineSeuil,
+} = require('./src/utils/motorSensorRoutineSeuil');
 const Telemetry = require('./src/models/Telemetry');
 const Alert = require('./src/models/Alert');
 const Technician = require('./src/models/Technician');
@@ -756,7 +761,12 @@ app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 // Les fichiers statiques sont enregistrés en fin de fichier pour que toutes les routes /api/* soient prioritaires.
 
-const PORT = 3001;
+const controleController = require('./src/controllers/controleController');
+// Saisie calendrier (Valider) : enregistré ici pour être toujours actif dès le chargement de server.js.
+app.post('/api/controles/terrain', requireAuth, requireFieldOperator, controleController.createSaisieTerrain);
+app.post('/api/controles/saisie-terrain', requireAuth, requireFieldOperator, controleController.createSaisieTerrain);
+
+const PORT = Number(process.env.PORT || 3001);
 const ML_SERVER = process.env.ML_SERVER || 'http://localhost:5000';  // Serveur Python ML
 const MODEL_METRICS_FILE = process.env.MODEL_METRICS_FILE || '';
 const STOP_THRESHOLD = Number(process.env.STOP_THRESHOLD || 75);
@@ -916,7 +926,18 @@ mqttClient.on('message', async (topic, message) => {
             const statusMachineId = statusMatch[1] || statusData.machineId;
             const newStatus = String(statusData.status || '').toUpperCase();
             if (statusMachineId && (newStatus === 'RUNNING' || newStatus === 'STOPPED')) {
-                await Machine.findByIdAndUpdate(statusMachineId, { status: newStatus });
+                const runPatch =
+                    newStatus === 'RUNNING'
+                        ? { status: newStatus, 'tempsMarche.debutSessionMarche': new Date() }
+                        : { status: newStatus, 'tempsMarche.debutSessionMarche': null, 'tempsMarche.enMarche': false };
+                await Machine.findByIdAndUpdate(statusMachineId, { $set: runPatch });
+                if (newStatus === 'RUNNING') {
+                    try {
+                        await ensureMotorSensorRoutineSeuilById(Machine, statusMachineId);
+                    } catch (e) {
+                        console.warn('ensureMotorSensorRoutineSeuilById:', e.message);
+                    }
+                }
                 io.emit('machine_status_update', { machineId: statusMachineId, status: newStatus });
                 console.log(`📡 [${statusMachineId}] Statut mis à jour: ${newStatus}`);
             }
@@ -1432,9 +1453,18 @@ app.post('/api/machines/register', async (req, res) => {
         const existing = await Machine.findById(machineId);
         if (existing) {
             await Machine.findByIdAndUpdate(machineId, {
-                status: 'RUNNING',
-                ...(firmwareVersion && { firmwareVersion }),
+                $set: {
+                    status: 'RUNNING',
+                    'tempsMarche.debutSessionMarche': new Date(),
+                    'tempsMarche.enMarche': true,
+                    ...(firmwareVersion ? { firmwareVersion } : {}),
+                },
             });
+            try {
+                await ensureMotorSensorRoutineSeuilById(Machine, machineId);
+            } catch (e) {
+                console.warn('ensureMotorSensorRoutineSeuilById (register reconnect):', e.message);
+            }
             _knownMachineCache.add(machineId);
             console.log(`📡 Machine ${machineId} reconnectée (${existing.name})`);
             return res.json({
@@ -1464,8 +1494,19 @@ app.post('/api/machines/register', async (req, res) => {
             registeredVia: 'arduino',
             firmwareVersion: firmwareVersion || '',
             status: 'RUNNING',
+            tempsMarche: {
+                totalHeures: 0,
+                enMarche: true,
+                derniereMiseAJour: new Date(),
+                debutSessionMarche: new Date(),
+            },
         });
         await machine.save();
+        try {
+            await ensureMotorSensorRoutineSeuilById(Machine, machineId);
+        } catch (e) {
+            console.warn('ensureMotorSensorRoutineSeuilById (register new):', e.message);
+        }
         _knownMachineCache.add(machineId);
 
         try {
@@ -1564,6 +1605,9 @@ app.put('/api/machines/:id', requireAuth, requireMachineCreator, async (req, res
 
         Object.assign(machine, patch);
         await machine.save();
+        if (machine.status === 'RUNNING' && (ensureMotorSensorRoutineSeuil(machine) || ensureCondensateurRoutineSeuil(machine))) {
+            await machine.save();
+        }
 
         res.json({
             machineId: machine._id,
@@ -1667,8 +1711,15 @@ app.post('/api/machines/:id/stop', requireAuth, requireFieldOperator, async func
         });
         mqttClient.publish(cmdTopic, cmdPayload, { qos: 1 });
 
-        // 2. Mettre à jour le statut en base de données
-        await Machine.findByIdAndUpdate(machineId, { status: 'STOPPED' });
+        // 2. Mettre à jour le statut en base de données (arrêt = fin de session de marche)
+        await Machine.findByIdAndUpdate(machineId, {
+            $set: {
+                status: 'STOPPED',
+                'tempsMarche.enMarche': false,
+                'tempsMarche.debutSessionMarche': null,
+                'tempsMarche.derniereMiseAJour': new Date(),
+            },
+        });
 
         // 3. Créer une alerte en base
         const alert = new Alert({
@@ -1723,6 +1774,49 @@ app.post('/api/machines/:id/stop', requireAuth, requireFieldOperator, async func
         });
     } catch (err) {
         console.error('❌ Erreur arrêt machine:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Démarrage session de marche (technicien / opérateur) — enregistre l’heure de début et active le compteur
+app.post('/api/machines/:id/start-marche', requireAuth, requireFieldOperator, async (req, res) => {
+    try {
+        const machineId = String(req.params.id);
+        const machine = await Machine.findById(machineId);
+        if (!machine) return res.status(404).json({ error: 'Machine non trouvée' });
+        if (!(await assertMachineFieldAccess(req, res, machine))) return;
+
+        const now = new Date();
+        await Machine.findByIdAndUpdate(machineId, {
+            $set: {
+                status: 'RUNNING',
+                'tempsMarche.debutSessionMarche': now,
+                'tempsMarche.enMarche': true,
+                'tempsMarche.derniereMiseAJour': now,
+            },
+        });
+        try {
+            await ensureMotorSensorRoutineSeuilById(Machine, machineId);
+        } catch (e) {
+            console.warn('ensureMotorSensorRoutineSeuilById (start-marche):', e.message);
+        }
+        const updated = await Machine.findById(machineId).select('tempsMarche status name').lean();
+        io.emit('machine_status_update', { machineId, status: 'RUNNING' });
+        io.emit('temps_marche_session_start', {
+            machineId,
+            debutSessionMarche: now.toISOString(),
+            machineName: updated?.name || '',
+        });
+        res.json({
+            ok: true,
+            machineId,
+            name: updated?.name || '',
+            status: 'RUNNING',
+            debutSessionMarche: now.toISOString(),
+            tempsMarche: updated?.tempsMarche || {},
+        });
+    } catch (err) {
+        console.error('❌ start-marche:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -5175,14 +5269,14 @@ io.on('connection', function (socket) {
     });
 });
 
-const controleController = require('./src/controllers/controleController');
-
-// Routes pour les Contrôles
+// Routes pour les Contrôles (POST terrain déjà enregistrés après les middlewares JSON)
 app.get('/api/controles', requireAuth, requireFieldOperator, controleController.getAllControles);
 app.get('/api/controles/technicien/:id', requireAuth, requireFieldOperator, controleController.getControlesByTechnician);
 app.get('/api/controles/machine/:id', requireAuth, requireFieldOperator, controleController.getControlesByMachine);
 app.put('/api/controles/:id/statut', requireAuth, requireFieldOperator, controleController.updateControleStatus);
+app.patch('/api/controles/:id/assign', requireAuth, requireFieldOperator, controleController.assignControleToTechnician);
 app.get('/api/controles/calendrier/:month', requireAuth, requireFieldOperator, controleController.getControlesByMonth);
+app.get('/api/controles/preventive-history', requireAuth, requireFieldOperator, controleController.getPreventiveHistory);
 
 app.post('/api/controles/simulate', async (req, res) => {
     try {
@@ -5225,7 +5319,8 @@ app.use((req, res, next) => {
         return res.status(404).json({
             error: 'Route API inconnue sur ce serveur',
             path: req.originalUrl,
-            hint: 'Lancez iot-backend avec: npm start (server.js, port 3001). Test: GET /api/health',
+            hint:
+                'Sur la machine qui écoute ce port : arrêtez tout ancien `node server.js`, puis dans le dossier iot-backend lancez `npm start`. Si POST /api/controles/terrain renvoie 401 sans token, la route est bien chargée. Test: GET /api/health',
         });
     }
     next();

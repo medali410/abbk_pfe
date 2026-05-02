@@ -340,6 +340,7 @@ class _LoginPageState extends State<LoginPage> {
                                               } else if (role == 'technician') {
                                                 final args = Map<String, dynamic>.from(response);
                                                 args['id'] = response['technicianId'] ?? response['id'] ?? '';
+                                                args['companyId'] = (response['companyId'] ?? '').toString();
                                                 args['specialization'] =
                                                     (response['specialization'] ?? 'Technicien').toString();
                                                 args['status'] = (response['status'] ?? 'Disponible').toString();
@@ -349,6 +350,7 @@ class _LoginPageState extends State<LoginPage> {
                                                 args['loginPassword'] = '*' * password.length;
                                                 args['imageUrl'] = (response['imageUrl'] ?? '').toString();
                                                 args['viewerRole'] = role;
+                                                await ApiService.saveTechnicianSession(args);
                                                 Navigator.pushReplacementNamed(
                                                   context,
                                                   '/technician-profile',

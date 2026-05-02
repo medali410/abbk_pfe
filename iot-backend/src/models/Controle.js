@@ -11,13 +11,26 @@ const controleSchema = new mongoose.Schema({
     ref: 'User',
     default: null
   },
+  technicienNom: { type: String, default: '' },
   typeControle: { type: String },
-  motorType: { 
+  elementControle: { type: String, default: '' },
+  /** Aligné sur Machine.motorType (air_cooled, water_cooled, electric, diesel, EL_M, …) */
+  motorType: { type: String, default: '' },
+  typeMaintenance: {
     type: String,
-    enum: ['air_cooled', 'water_cooled']
+    enum: ['preventive', 'corrective'],
+    default: 'preventive',
   },
+  intervalleHeures: { type: Number, default: 0 },
+  prochainControleHeure: { type: Number, default: 0 },
   heuresDeClenchement: { type: Number },
+  tempsMarcheTotalHeures: { type: Number, default: 0 },
   dateControle: { type: Date },
+  datePrevue: { type: Date, default: null },
+  dateRealisation: { type: Date, default: null },
+  assignedAt: { type: Date, default: null },
+  startedAt: { type: Date, default: null },
+  completedAt: { type: Date, default: null },
   priorite: { 
     type: String,
     enum: ['basse', 'normale', 'haute', 'urgente'],
@@ -25,10 +38,11 @@ const controleSchema = new mongoose.Schema({
   },
   statut: { 
     type: String,
-    enum: ['planifié', 'en_cours', 'terminé', 'annulé'],
-    default: 'planifié'
+    enum: ['en_attente', 'assignée', 'planifié', 'en_cours', 'terminé', 'annulé'],
+    default: 'en_attente'
   },
-  notes: { type: String, default: '' }
+  notes: { type: String, default: '' },
+  rapportControle: { type: mongoose.Schema.Types.Mixed, default: null }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Controle', controleSchema);

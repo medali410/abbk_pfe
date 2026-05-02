@@ -4,29 +4,11 @@
 
 const mongoose = require('mongoose');
 const Machine  = require('./src/models/Machine');
+const { ensureMotorSensorRoutineSeuil, ensureCondensateurRoutineSeuil } = require('./src/utils/motorSensorRoutineSeuil');
 
 const OK  = '\x1b[32m✅\x1b[0m';
 const ERR = '\x1b[31m❌\x1b[0m';
 const INF = '\x1b[36mℹ️ \x1b[0m';
-
-// ── Seuils par défaut ──────────────────────────────────────────────────────
-const seuilsAirCooled = [
-  { typeControle: 'Contrôle filtre air',         intervalleHeures: 50,   prochainControleHeure: 50,   priorite: 'normale'  },
-  { typeControle: 'Contrôle huile',               intervalleHeures: 100,  prochainControleHeure: 100,  priorite: 'haute'    },
-  { typeControle: 'Contrôle courroie',            intervalleHeures: 250,  prochainControleHeure: 250,  priorite: 'normale'  },
-  { typeControle: 'Nettoyage radiateur',          intervalleHeures: 300,  prochainControleHeure: 300,  priorite: 'normale'  },
-  { typeControle: 'Révision générale',            intervalleHeures: 500,  prochainControleHeure: 500,  priorite: 'haute'    },
-  { typeControle: 'Remplacement filtre air',      intervalleHeures: 1000, prochainControleHeure: 1000, priorite: 'urgente'  },
-];
-
-const seuilsWaterCooled = [
-  { typeControle: 'Contrôle niveau eau',              intervalleHeures: 50,   prochainControleHeure: 50,   priorite: 'haute'    },
-  { typeControle: 'Contrôle pompe eau',               intervalleHeures: 100,  prochainControleHeure: 100,  priorite: 'haute'    },
-  { typeControle: 'Vérification circuit eau',         intervalleHeures: 200,  prochainControleHeure: 200,  priorite: 'normale'  },
-  { typeControle: 'Changement liquide refroidissement', intervalleHeures: 500, prochainControleHeure: 500,  priorite: 'haute'   },
-  { typeControle: 'Contrôle joints',                  intervalleHeures: 750,  prochainControleHeure: 750,  priorite: 'normale'  },
-  { typeControle: 'Révision générale',                intervalleHeures: 1000, prochainControleHeure: 1000, priorite: 'urgente'  },
-];
 
 // Mots-clés → water_cooled (tout le reste → air_cooled)
 const WATER_KEYWORDS = ['water', 'eau', 'liquide', 'refroid'];
@@ -71,13 +53,14 @@ function guessMotorType(raw) {
         changed = true;
       }
 
-      // 3. Ajouter seuilsControle si vide
+      // 3. Seuils si vide : uniquement préventif temps de marche (moteur + condensateurs)
       if (!m.seuilsControle || m.seuilsControle.length === 0) {
-        const seuils = m.motorType === 'water_cooled' ? seuilsWaterCooled : seuilsAirCooled;
-        m.seuilsControle = seuils.map(s => ({ ...s, derniereVerificationHeure: 0 }));
-        console.log(`${INF} [seuilsControle] "${name}" : ${m.seuilsControle.length} seuils ajoutés (${m.motorType})`);
-        m.markModified('seuilsControle');
-        changed = true;
+        const addedMotor = ensureMotorSensorRoutineSeuil(m);
+        const addedCond = ensureCondensateurRoutineSeuil(m);
+        if (addedMotor || addedCond) {
+          console.log(`${INF} [seuilsControle] "${name}" : ${m.seuilsControle.length} seuils (temps de marche uniquement)`);
+          changed = true;
+        }
       }
 
       if (changed) {

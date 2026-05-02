@@ -28,6 +28,8 @@ class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage> {
 
   String _technicianName = 'TECHNICIEN';
   String _technicianId = '';
+  /// `all_controls` = tous les contrôles terminés en base · `reports` = avec compte-rendu / notes saisis.
+  String _historyMode = 'all_controls';
   List<Map<String, dynamic>> _reports = <Map<String, dynamic>>[];
 
   String _machineFilter = 'Toutes';
@@ -42,6 +44,8 @@ class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage> {
     final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
     _technicianName = (args?['technicianName'] ?? 'TECHNICIEN').toString();
     _technicianId = (args?['technicianId'] ?? '').toString().trim();
+    _historyMode = (args?['historyMode'] ?? 'all_controls').toString().trim();
+    if (_historyMode != 'reports') _historyMode = 'all_controls';
     _loadReports();
   }
 
@@ -81,9 +85,14 @@ class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage> {
       }
       final controls = await ApiService.getControlesForTechnician(_technicianId, days: 180);
       final reports = controls.where((c) {
-        final isDone = ((c['statut'] ?? '').toString().toLowerCase().contains('termin'));
-        final hasReport = c['rapportControle'] is Map || (c['notes'] ?? '').toString().trim().isNotEmpty;
-        return isDone && hasReport;
+        final isDone = (c['statut'] ?? '').toString().toLowerCase().contains('termin');
+        if (!isDone) return false;
+        if (_historyMode == 'reports') {
+          final hasReport =
+              c['rapportControle'] is Map || (c['notes'] ?? '').toString().trim().isNotEmpty;
+          return hasReport;
+        }
+        return true;
       }).map((c) => Map<String, dynamic>.from(c)).toList();
 
       reports.sort((a, b) {
@@ -180,7 +189,10 @@ class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage> {
       backgroundColor: _bg,
       appBar: AppBar(
         backgroundColor: _surfaceHeader,
-        title: Text('Historique des rapports', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700)),
+        title: Text(
+          _historyMode == 'reports' ? 'Historique des rapports' : 'Historique des contrôles',
+          style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
+        ),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: _accent))
@@ -210,7 +222,12 @@ class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage> {
                         style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 18),
                       ),
                       const SizedBox(height: 4),
-                      Text('Rapports enregistrés: ${_reports.length}', style: GoogleFonts.inter(color: _muted)),
+                      Text(
+                        _historyMode == 'reports'
+                            ? 'Rapports avec compte-rendu : ${_reports.length}'
+                            : 'Contrôles terminés (base de données) : ${_reports.length}',
+                        style: GoogleFonts.inter(color: _muted),
+                      ),
                       const SizedBox(height: 14),
                       Container(
                         padding: const EdgeInsets.all(12),
@@ -283,14 +300,26 @@ class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage> {
 
   Widget _buildReportCard(Map<String, dynamic> r) {
     final machine = (r['machineName'] ?? r['machineId'] ?? 'Machine').toString();
-    final date = _asDate(r['updatedAt'] ?? r['dateControle'] ?? r['createdAt']);
+    final typeMission = (r['typeControle'] ?? '').toString().trim();
+    final techNom = (r['technicienNom'] ?? r['technicianName'] ?? '').toString().trim();
+    final date = _asDate(
+      r['dateRealisation'] ??
+          r['completedAt'] ??
+          r['updatedAt'] ??
+          r['dateControle'] ??
+          r['createdAt'],
+    );
     final hasAnomaly = _hasAnomaly(r);
     final statusText = hasAnomaly ? 'ANOMALIE' : 'VALIDE';
     final color = hasAnomaly ? _warn2 : _ok;
 
     final nested = r['rapportControle'];
     final items = (nested is Map && nested['items'] is List) ? (nested['items'] as List) : const [];
-    final note = (nested is Map ? nested['generalNote'] : r['notes']).toString().trim();
+    var note = '';
+    if (nested is Map) {
+      note = (nested['generalNote'] ?? '').toString().trim();
+    }
+    if (note.isEmpty) note = (r['notes'] ?? '').toString().trim();
 
     return Card(
       color: _surface,
@@ -325,6 +354,20 @@ class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage> {
               date != null ? 'Date: ${_displayDate(date)}' : 'Date: non définie',
               style: GoogleFonts.inter(color: Colors.white70),
             ),
+            if (techNom.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Technicien : $techNom',
+                style: GoogleFonts.inter(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+            if (typeMission.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Mission : $typeMission',
+                style: GoogleFonts.inter(color: _muted, fontSize: 12),
+              ),
+            ],
             if (items.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text('Checklist:', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600)),

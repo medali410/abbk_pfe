@@ -43,8 +43,10 @@ dependencies:
   flutter_webrtc: ^1.2.0
   intl: ^0.20.2
   file_picker: ^11.0.2
-  image: ^4.8.0
+  image: ^4.5.4
   model_viewer_plus: ^1.9.3
+  pdf: ^3.11.3
+  printing: ^5.14.2
 
 dev_dependencies:
   flutter_test:

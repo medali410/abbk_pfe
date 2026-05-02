@@ -39,7 +39,8 @@ const startControleService = (io) => {
             const controleExiste = await Controle.findOne({
               machineId: machine._id,
               typeControle: seuil.typeControle,
-              statut: 'planifié'
+              typeMaintenance: 'preventive',
+              statut: { $in: ['en_attente', 'assignée', 'planifié', 'en_cours'] }
             });
 
             if (!controleExiste) {
@@ -48,25 +49,26 @@ const startControleService = (io) => {
                 machineId: machine._id,
                 machineName: machine.name,
                 typeControle: seuil.typeControle,
-                heuresDeClenchement: totalHeures,
+                elementControle: seuil.typeControle,
+                typeMaintenance: 'preventive',
+                intervalleHeures: Number(seuil.intervalleHeures || 0),
+                prochainControleHeure: Number(seuil.prochainControleHeure || totalHeures),
+                heuresDeClenchement: Number(seuil.prochainControleHeure || totalHeures),
+                tempsMarcheTotalHeures: totalHeures,
                 dateControle: new Date(),
+                datePrevue: new Date(),
                 priorite: seuil.priorite,
-                statut: 'planifié',
+                statut: 'en_attente',
                 motorType: machine.motorType
               });
-
-              // ✅ Mettre à jour le prochain seuil
-              seuil.derniereVerificationHeure = totalHeures;
-              seuil.prochainControleHeure = totalHeures + (seuil.intervalleHeures || 0);
-
-              machine.markModified('seuilsControle');
-              await machine.save();
 
               console.log(`✅ Contrôle créé : ${seuil.typeControle} pour ${machine.name}`);
 
               // ✅ Notification temps réel Socket.IO
               if (io) {
                 const payload = {
+                  _id:          String(nouveauControle._id),
+                  id:           String(nouveauControle._id),
                   controleId:   String(nouveauControle._id),
                   machineId:    String(machine._id),
                   machineName:  machine.name,
@@ -76,6 +78,10 @@ const startControleService = (io) => {
                   prioriteLabel: prioriteLabel(seuil.priorite),
                   motorType:    machine.motorType,
                   dateControle: nouveauControle.dateControle,
+                  datePrevue: nouveauControle.datePrevue,
+                  elementControle: nouveauControle.elementControle,
+                  statut: nouveauControle.statut,
+                  declencheParHeuresMarche: true,
                 };
                 io.emit('nouveau_controle', payload);
                 console.log(`🔔 Socket.IO → nouveau_controle émis pour ${machine.name}`);

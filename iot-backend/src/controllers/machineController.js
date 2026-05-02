@@ -1,6 +1,7 @@
 const Machine = require('../models/Machine');
 const Telemetry = require('../models/Telemetry');
 const Controle = require('../models/Controle');
+const { ensureMotorSensorRoutineSeuilById } = require('../utils/motorSensorRoutineSeuil');
 
 // ── Socket.IO instance (injectée depuis server.js) ──────────────────────────
 let _io = null;
@@ -43,7 +44,13 @@ exports.createMachine = async (req, res) => {
     try {
         const machine = new Machine(req.body);
         await machine.save();
-        res.status(201).json(machine);
+        try {
+            await ensureMotorSensorRoutineSeuilById(Machine, machine._id);
+        } catch (e) {
+            console.warn('ensureMotorSensorRoutineSeuilById (createMachine):', e.message);
+        }
+        const fresh = await Machine.findById(machine._id);
+        res.status(201).json(fresh || machine);
     } catch (error) {
         res.status(400).json({ message: error.message });
     }
@@ -51,7 +58,11 @@ exports.createMachine = async (req, res) => {
 
 exports.updateMachine = async (req, res) => {
     try {
-        const machine = await Machine.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        const body = { ...req.body };
+        if (body.seuilsControle && typeof Machine.normalizeSeuilsControle === 'function') {
+            body.seuilsControle = Machine.normalizeSeuilsControle(body.seuilsControle);
+        }
+        const machine = await Machine.findByIdAndUpdate(req.params.id, body, { new: true });
         res.json(machine);
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -175,7 +186,8 @@ exports.getTempsMarche = async (req, res) => {
                 totalHeures: totalHeures,
                 totalMinutes: Math.round(totalHeures * 60),
                 derniereMiseAJour: machine.tempsMarche.derniereMiseAJour,
-                enMarche: machine.tempsMarche.enMarche
+                enMarche: machine.tempsMarche.enMarche,
+                debutSessionMarche: machine.tempsMarche.debutSessionMarche ?? null,
             },
             status: machine.status
         });

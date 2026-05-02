@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'login_page.dart';
 import 'home_page.dart';
 import 'services/api_service.dart';
@@ -21,6 +22,7 @@ import 'technician_collaboration_page.dart';
 import 'mission_control_page.dart';
 import 'control_calendar_page.dart';
 import 'control_reports_history_page.dart';
+import 'preventive_history_page.dart';
 import 'concepteur_dashboard_page.dart';
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -61,6 +63,20 @@ class _SessionEntryState extends State<SessionEntry> {
       });
       return;
     }
+    if (role == 'technician') {
+      final tp = ApiService.savedTechnicianProfile;
+      if (tp != null && tp.isNotEmpty) {
+        _redirectScheduled = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          Navigator.of(context).pushReplacementNamed(
+            '/technician-profile',
+            arguments: Map<String, dynamic>.from(tp),
+          );
+        });
+        return;
+      }
+    }
     if (role == 'client' &&
         (ApiService.savedClientId ?? '').trim().isNotEmpty) {
       _redirectScheduled = true;
@@ -78,6 +94,11 @@ class _SessionEntryState extends State<SessionEntry> {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await initializeDateFormatting('fr_FR');
+  } catch (e, st) {
+    debugPrint('initializeDateFormatting(fr_FR): $e\n$st');
+  }
   try {
     await ApiService.loadSavedAuth();
   } catch (e, st) {
@@ -153,6 +174,7 @@ class MyApp extends StatelessWidget {
         '/control-calendar': (context) => const ControlCalendarPage(),
         '/control-reports-history':
             (context) => const ControlReportsHistoryPage(),
+        '/preventive-history': (context) => const PreventiveHistoryPage(),
 
         '/maintenance-login': (context) => const MaintenanceLoginPage(),
         '/maintenance-dashboard': (context) => const MaintenanceDashboardPage(),

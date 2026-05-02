@@ -10,6 +10,7 @@ import 'technician_profile_page.dart';
 import 'add_maintenance_agent_page.dart';
 import 'maintenance_agent_detail_page.dart';
 import 'maintenance_module_page.dart';
+import 'widgets/machine_control_calendar_panel.dart';
 import 'dart:async';
 
 class MachineDetailAiPage extends StatefulWidget {
@@ -746,6 +747,16 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                                                       ],
                                                     );
                                                   },
+                                                ),
+                                                const SizedBox(height: 16),
+                                                MachineControlCalendarPanel(
+                                                  machineId: _machineId,
+                                                  machineName: widget.machineName ?? '',
+                                                  panelColor: _panel2,
+                                                  accentOrange: _orange,
+                                                  accentCyan: _cyan,
+                                                  textColor: _text,
+                                                  mutedColor: _muted,
                                                 ),
                                                 const SizedBox(height: 16),
                                                 _historyPanel(),

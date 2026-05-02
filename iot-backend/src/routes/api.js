@@ -92,6 +92,8 @@ router.get('/terminal/data', terminalController.getTerminalData);
 router.get('/collaboration/data', collaborationController.getCollaborationData);
 
 // Control Routes (STEP 4)
+router.post('/controles/terrain', controleController.createSaisieTerrain);
+router.post('/controles/saisie-terrain', controleController.createSaisieTerrain);
 router.get('/controles', controleController.getAllControles);
 router.get('/controles/technicien/:id', controleController.getControlesByTechnician);
 router.get('/controles/machine/:id', controleController.getControlesByMachine);

@@ -9,25 +9,33 @@ const Machine = require('../models/Machine');
 const startTempseMarcheService = (io) => {
   setInterval(async () => {
     try {
-      // Incrémenter les machines RUNNING
+      const now = new Date();
+      // Première minute en RUNNING sans horodatage : ancrer le début de session
+      await Machine.updateMany(
+        { status: 'RUNNING', 'tempsMarche.debutSessionMarche': { $in: [null, undefined] } },
+        { $set: { 'tempsMarche.debutSessionMarche': now } }
+      );
+
+      // Incrémenter les machines RUNNING uniquement (temps de fonctionnement réel)
       await Machine.updateMany(
         { status: 'RUNNING' },
         {
           $inc: { 'tempsMarche.totalHeures': 1 / 60 },
           $set: {
-            'tempsMarche.derniereMiseAJour': new Date(),
+            'tempsMarche.derniereMiseAJour': now,
             'tempsMarche.enMarche': true
           }
         }
       );
 
-      // Marquer les machines à l'arrêt
+      // Marquer les machines à l'arrêt — pas d'avancement du compteur ; fin de session
       await Machine.updateMany(
         { status: { $ne: 'RUNNING' } },
         {
           $set: {
             'tempsMarche.enMarche': false,
-            'tempsMarche.derniereMiseAJour': new Date()
+            'tempsMarche.derniereMiseAJour': now,
+            'tempsMarche.debutSessionMarche': null
           }
         }
       );
@@ -46,6 +54,7 @@ const startTempseMarcheService = (io) => {
           status:      m.status,
           totalHeures: m.tempsMarche?.totalHeures ?? 0,
           enMarche:    m.tempsMarche?.enMarche ?? false,
+          debutSessionMarche: m.tempsMarche?.debutSessionMarche ?? null,
           ts:          new Date().toISOString(),
         }));
 

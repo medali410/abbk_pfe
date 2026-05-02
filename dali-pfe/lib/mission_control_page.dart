@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'services/api_service.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'widgets/machine_control_calendar_panel.dart';
 
 class MissionControlPage extends StatefulWidget {
   const MissionControlPage({super.key});
@@ -26,6 +27,11 @@ class _MissionControlPageState extends State<MissionControlPage> {
   
   String _agentName = "OPERATOR";
   String _techId = "X9-HYPERION";
+  /// Identifiant machine Mongo (pour API temps de marche) — sans forcer la casse.
+  String _resolvedMachineId = '';
+  String _machineDisplayName = '';
+  String _technicianNavId = '';
+  bool _marcheBusy = false;
   String _latestCoordNote = "Confirm node isolation to prevent cascade.";
   Map<String, dynamic>? _latestMission;
   String? _latestNoteId;
@@ -46,6 +52,62 @@ class _MissionControlPageState extends State<MissionControlPage> {
       if (args.containsKey('interventionId')) {
         _interventionId = args['interventionId'].toString();
       }
+      _resolvedMachineId = (args['machineId'] ?? args['techId'] ?? '').toString().trim();
+      _machineDisplayName = (args['machineName'] ?? '').toString().trim();
+      _technicianNavId = (args['technicianId'] ?? '').toString().trim();
+    }
+  }
+
+  Future<void> _declarerMachineEnTravail() async {
+    final mid = _resolvedMachineId;
+    if (mid.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Identifiant machine introuvable.')),
+      );
+      return;
+    }
+    setState(() => _marcheBusy = true);
+    try {
+      await ApiService.startMachineMarche(mid);
+      if (!mounted) return;
+      if (!context.mounted) return;
+      final label = _machineDisplayName.isNotEmpty ? _machineDisplayName : mid;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '« $label » est en travail. Le temps de fonctionnement est enregistré ; les contrôles préventifs apparaissent au calendrier.',
+          ),
+          backgroundColor: const Color(0xFFFF6E00),
+          action: _technicianNavId.isEmpty
+              ? null
+              : SnackBarAction(
+                  label: 'Calendrier contrôle',
+                  textColor: Colors.white,
+                  onPressed: () {
+                    if (!context.mounted) return;
+                    Navigator.pushNamed(
+                      context,
+                      '/control-calendar',
+                      arguments: <String, dynamic>{
+                        'technicianName': _agentName,
+                        'technicianId': _technicianNavId,
+                        if (_resolvedMachineId.isNotEmpty) 'machineId': _resolvedMachineId,
+                        if (_machineDisplayName.isNotEmpty) 'machineName': _machineDisplayName,
+                        if (_resolvedMachineId.isNotEmpty) 'machineIds': <String>[_resolvedMachineId],
+                      },
+                    );
+                  },
+                ),
+        ),
+      );
+    } catch (e) {
+      if (mounted && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e'), backgroundColor: Colors.redAccent),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _marcheBusy = false);
     }
   }
 
@@ -791,6 +853,36 @@ class _MissionControlPageState extends State<MissionControlPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildSectionHeader('MACHINE_METRICS'),
+            if (_resolvedMachineId.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF6E00),
+                    foregroundColor: Colors.black87,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  onPressed: _marcheBusy ? null : _declarerMachineEnTravail,
+                  icon: _marcheBusy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54),
+                        )
+                      : const Icon(Icons.play_circle_outline_rounded, size: 22),
+                  label: Text(
+                    'Machine en travail',
+                    style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w800, fontSize: 13),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Déclare la machine en service et enregistre l’heure de début pour le calcul du temps de marche.',
+                style: GoogleFonts.inter(color: Colors.blueGrey, fontSize: 10, height: 1.35),
+              ),
+            ],
             const SizedBox(height: 20),
             _buildMetricInfo('ID_IDENTIFIER', _techId),
             const SizedBox(height: 15),
@@ -804,7 +896,19 @@ class _MissionControlPageState extends State<MissionControlPage> {
             const SizedBox(height: 25),
             _buildOverrideBox(),
             const SizedBox(height: 25),
-            _buildBandwidthChart(),
+            if (_resolvedMachineId.isNotEmpty)
+              MachineControlCalendarPanel(
+                machineId: _resolvedMachineId,
+                machineName: _machineDisplayName,
+                panelColor: const Color(0xFF0C1322),
+                accentOrange: const Color(0xFFFF6E00),
+                accentCyan: Colors.cyanAccent,
+                textColor: Colors.white,
+                mutedColor: Colors.blueGrey,
+                compact: true,
+              )
+            else
+              _buildBandwidthChart(),
           ],
         ),
       ),

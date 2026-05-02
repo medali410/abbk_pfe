@@ -57,7 +57,9 @@ const MachineSchema = new mongoose.Schema({
     tempsMarche: {
         totalHeures: { type: Number, default: 0 },
         derniereMiseAJour: { type: Date, default: null },
-        enMarche: { type: Boolean, default: false }
+        enMarche: { type: Boolean, default: false },
+        /** Début de la session de marche courante (RUNNING). Effacé à l’arrêt — le compteur d’heures ne progresse qu’en RUNNING. */
+        debutSessionMarche: { type: Date, default: null },
     },
     maintenanceControlActive: { type: Boolean, default: false },
     maintenanceControlBy: { type: String, default: '' },
@@ -104,4 +106,32 @@ const MachineSchema = new mongoose.Schema({
     }
 });
 
-module.exports = mongoose.model('Machine', MachineSchema);
+function normalizeSeuilsControle(seuils) {
+    if (!Array.isArray(seuils)) return seuils;
+    return seuils.map((s) => {
+        const iv = Number(s.intervalleHeures || 0);
+        const dv = Number(s.derniereVerificationHeure ?? 0);
+        const computedNext = dv + iv;
+        const prochain =
+            s.prochainControleHeure != null && s.prochainControleHeure !== ''
+                ? Number(s.prochainControleHeure)
+                : computedNext;
+        return {
+            ...s,
+            intervalleHeures: iv,
+            derniereVerificationHeure: dv,
+            prochainControleHeure: Number.isFinite(prochain) ? prochain : computedNext,
+        };
+    });
+}
+
+MachineSchema.pre('save', function (next) {
+    if (this.seuilsControle && Array.isArray(this.seuilsControle)) {
+        this.seuilsControle = normalizeSeuilsControle(this.seuilsControle);
+    }
+    next();
+});
+
+const Machine = mongoose.model('Machine', MachineSchema);
+Machine.normalizeSeuilsControle = normalizeSeuilsControle;
+module.exports = Machine;

@@ -30,6 +30,16 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   int _unreadChatCount = 0;
   final Set<String> _criticalAlertSentMachineIds = <String>{};
   final Set<String> _shownControleIds = <String>{}; // évite les doublons
+  int _machinesSectionVersion = 0;
+  /// Recharge la bande « contrôles ouverts » (API) après marche / notification.
+  int _controlesPreviewVersion = 0;
+  final Set<String> _startingMarcheIds = <String>{};
+  /// Début de session aligné sur la réponse API (chrono immédiat après clic).
+  final Map<String, DateTime> _sessionDebutByMachineId = <String, DateTime>{};
+  /// Pour navigation (calendrier / mission control) : préfère `_id` Mongo si présent dans les args de login.
+  String _navTechnicianForCalendar = '';
+  /// Incrémenté au retour du calendrier pour recharger « Comptes rendus — contrôles terminés ».
+  int _completedControlesRefreshGen = 0;
 
   static const _bg = Color(0xFF10102B);
   static const _surfaceContainerLow = Color(0xFF191934);
@@ -72,10 +82,25 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     });
   }
 
+  /// Route > persistance locale (rechargement `/#/technician-profile` sans arguments).
+  Future<void> _openControlCalendarFromProfile(Map<String, dynamic> arguments) async {
+    await Navigator.pushNamed<void>(context, '/control-calendar', arguments: arguments);
+    if (mounted) setState(() => _completedControlesRefreshGen++);
+  }
+
+  Map<String, dynamic> _mergeTechnicianProfileArgs(Map<String, dynamic>? routeArgs) {
+    final merged = <String, dynamic>{};
+    final saved = ApiService.savedTechnicianProfile;
+    if (saved != null) merged.addAll(saved);
+    if (routeArgs != null && routeArgs.isNotEmpty) merged.addAll(routeArgs);
+    return merged;
+  }
+
   Future<void> _ensureTechnicianChat(Map<String, dynamic> args, String technicianName) async {
     if (_chatInitialized) return;
     final techId = (args['technicianId'] ?? args['id'] ?? '').toString();
     final clientId = (args['companyId'] ?? args['clientId'] ?? '').toString();
+    _navTechnicianForCalendar = (args['_id'] ?? args['technicianId'] ?? args['id'] ?? '').toString().trim();
     _technicianId = techId;
     _clientId = clientId;
     if (techId.isEmpty || clientId.isEmpty) return;
@@ -135,6 +160,9 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
         final controleId = (data['controleId'] ?? '').toString();
         if (controleId.isNotEmpty && _shownControleIds.contains(controleId)) return;
         if (controleId.isNotEmpty) _shownControleIds.add(controleId);
+        if (mounted) {
+          setState(() => _controlesPreviewVersion++);
+        }
         _showNouveauControleAlert(data);
       } catch (_) {}
     });
@@ -305,10 +333,11 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             ),
             onPressed: () {
               Navigator.pop(ctx);
-              Navigator.pushNamed(context, '/control-calendar', arguments: {
+              _openControlCalendarFromProfile({
                 'technicianName': _chatSenderName,
                 'technicianId': _technicianId,
                 'machineIds': <String>[],
+                if (_clientId.isNotEmpty) 'companyId': _clientId,
               });
             },
           ),
@@ -427,10 +456,11 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             ),
             onPressed: () {
               Navigator.pop(ctx);
-              Navigator.pushNamed(context, '/control-calendar', arguments: {
+              _openControlCalendarFromProfile({
                 'technicianName': _chatSenderName,
                 'technicianId': _technicianId,
                 'machineIds': <String>[],
+                if (_clientId.isNotEmpty) 'companyId': _clientId,
               });
             },
           ),
@@ -620,8 +650,9 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     final screenWidth = MediaQuery.of(context).size.width;
     final isDesktop = screenWidth > 992;
 
-    final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>?;
-    final viewerRoleRaw = (args?['viewerRole'] ?? args?['role'] ?? '').toString().toLowerCase();
+    final routeArgs = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    final Map<String, dynamic> args = _mergeTechnicianProfileArgs(routeArgs);
+    final viewerRoleRaw = (args['viewerRole'] ?? args['role'] ?? '').toString().toLowerCase();
     final isSuperAdminViewer = ApiService.canManageFleet ||
         viewerRoleRaw == 'superadmin' ||
         viewerRoleRaw == 'admin' ||
@@ -683,21 +714,23 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
         ),
       );
     }
-    final String name = args?['name'] ?? 'Marc Lefebvre';
-    final String id = args?['id'] ?? 'TC-9942-B';
-    final String specialization = args?['specialization'] ?? 'Senior Technician — Industrial Systems & Robotics';
-    final String statusLabel = args?['status'] ?? 'EN SERVICE';
-    final String phone = args?['phone'] ?? '+33 6 42 18 90 22';
-    final String email = args?['email'] ?? 'm.lefebvre@industry-cloud.com';
-    final String loginPassword = args?['loginPassword'] ?? '********';
-    final String location = args?['location'] ?? 'Bâtiment Central, Secteur Sud, Hall B';
-    final String imageUrl = args?['imageUrl'] ?? 'https://lh3.googleusercontent.com/aida-public/AB6AXuBVqkqnUWBiLb0Zk31JerrE-Ke1jkLq2w23qu64tGR1PBHdL55WDZPq1xaW5VI5-N3Njpr4kjz41To1Hr7NbQ71oaHCu7d78Fayofl6_WNhcI0YsjjoM9eG-9dObtcoOQcMsx735B0ufEAemLbMhzj6rgh_05Hx8ny0G-QIQIvsg73okjpTwTjT_i4OP2f8Q1Y-Ao_Jm-hKOfdVTtUHlwPJ2X5WUpZFpoPic7RKsnUMvN_ZnlmmpWDtBieX_MwC0rwPn7juK2gD9Dw';
-    final List<String> assignedMachineIds = ((args?['machineIds'] as List?) ?? const [])
+    final String name = args['name'] ?? 'Marc Lefebvre';
+    final String id = args['id'] ?? 'TC-9942-B';
+    final String specialization = args['specialization'] ?? 'Senior Technician — Industrial Systems & Robotics';
+    final String statusLabel = args['status'] ?? 'EN SERVICE';
+    final String phone = args['phone'] ?? '+33 6 42 18 90 22';
+    final String email = args['email'] ?? 'm.lefebvre@industry-cloud.com';
+    final String loginPassword = args['loginPassword'] ?? '********';
+    final String location = args['location'] ?? 'Bâtiment Central, Secteur Sud, Hall B';
+    final String imageUrl = args['imageUrl'] ?? 'https://lh3.googleusercontent.com/aida-public/AB6AXuBVqkqnUWBiLb0Zk31JerrE-Ke1jkLq2w23qu64tGR1PBHdL55WDZPq1xaW5VI5-N3Njpr4kjz41To1Hr7NbQ71oaHCu7d78Fayofl6_WNhcI0YsjjoM9eG-9dObtcoOQcMsx735B0ufEAemLbMhzj6rgh_05Hx8ny0G-QIQIvsg73okjpTwTjT_i4OP2f8Q1Y-Ao_Jm-hKOfdVTtUHlwPJ2X5WUpZFpoPic7RKsnUMvN_ZnlmmpWDtBieX_MwC0rwPn7juK2gD9Dw';
+    final List<String> assignedMachineIds = ((args['machineIds'] as List?) ?? const [])
         .map((e) => e.toString())
         .where((e) => e.isNotEmpty)
         .toList();
-    final String companyIdForMachines = (args?['companyId'] ?? '').toString().trim();
-    _ensureTechnicianChat(args ?? {}, name);
+    final String companyIdForMachines = (args['companyId'] ?? '').toString().trim();
+    final String calendarTechId =
+        (args['_id'] ?? args['technicianId'] ?? args['id'] ?? '').toString().trim();
+    _ensureTechnicianChat(args, name);
 
     return Scaffold(
       backgroundColor: _bg,
@@ -719,7 +752,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _buildProfileHeader(context, isDesktop, name, id, specialization, statusLabel, imageUrl, args ?? {}, canManageTechnician: isSuperAdminViewer),
+                          _buildProfileHeader(context, isDesktop, name, id, specialization, statusLabel, imageUrl, args, canManageTechnician: isSuperAdminViewer),
                           const SizedBox(height: 40),
                           _buildMainGrid(
                             isDesktop,
@@ -733,6 +766,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                             assignedMachineIds,
                             companyIdForMachines,
                             isConceptionViewer,
+                            calendarTechId,
                           ),
                         ],
                       ),
@@ -856,9 +890,13 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                           hostContext,
                           '/mission-control',
                           arguments: {
+                            'machineId': machineId,
                             'techId': machineId,
                             'name': technicianDisplayName,
                             'machineName': machineName,
+                            'technicianId': _navTechnicianForCalendar.isNotEmpty
+                                ? _navTechnicianForCalendar
+                                : _technicianId,
                           },
                         );
                       },
@@ -939,10 +977,20 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           _buildSidebarTile(Icons.history_edu, 'Service Logs', isActive: true),
           _buildSidebarTile(Icons.description_outlined, 'Documents'),
           _buildSidebarTile(Icons.calendar_month_outlined, 'Calendrier de Contrôle', onTap: () {
-            Navigator.pushNamed(context, '/control-calendar', arguments: {
+            _openControlCalendarFromProfile({
               'technicianName': name,
               'technicianId': _technicianId,
               'machineIds': assignedMachineIds,
+              if (companyIdForMachines.isNotEmpty) 'companyId': companyIdForMachines,
+            });
+          }),
+          _buildSidebarTile(Icons.assignment_turned_in_outlined, 'Historique des contrôles', onTap: () {
+            final techId =
+                _navTechnicianForCalendar.isNotEmpty ? _navTechnicianForCalendar : _technicianId;
+            Navigator.pushNamed(context, '/control-reports-history', arguments: {
+              'technicianName': name,
+              'technicianId': techId,
+              'historyMode': 'all_controls',
             });
           }),
           const Spacer(),
@@ -1306,6 +1354,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     List<String> assignedMachineIds,
     String companyIdForMachines,
     bool isConceptionProfile,
+    String calendarTechId,
   ) {
     if (isDesktop) {
       return Row(
@@ -1326,6 +1375,16 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             flex: 8,
             child: Column(
               children: [
+                _buildUpcomingControlesSection(
+                  context,
+                  calendarTechId,
+                  isConceptionProfile,
+                  assignedMachineIds,
+                  technicianName,
+                  technicianId,
+                  companyIdForMachines,
+                ),
+                const SizedBox(height: 20),
                 _buildMachinesSection(
                   context,
                   assignedMachineIds,
@@ -1337,7 +1396,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                 const SizedBox(height: 32),
                 _buildPerformanceSection(),
                 const SizedBox(height: 24),
-                _buildTechnicianHistorySection(assignedMachineIds, companyIdForMachines),
+                _buildTechnicianHistorySection(assignedMachineIds, companyIdForMachines, calendarTechId),
                 const SizedBox(height: 24),
                 _buildClientTechnicianMessengerZone(),
               ],
@@ -1352,6 +1411,16 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           const SizedBox(height: 24),
           _buildLocationCard(),
           const SizedBox(height: 24),
+          _buildUpcomingControlesSection(
+            context,
+            calendarTechId,
+            isConceptionProfile,
+            assignedMachineIds,
+            technicianName,
+            technicianId,
+            companyIdForMachines,
+          ),
+          const SizedBox(height: 20),
           _buildMachinesSection(
             context,
             assignedMachineIds,
@@ -1363,7 +1432,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           const SizedBox(height: 24),
           _buildPerformanceSection(),
           const SizedBox(height: 24),
-          _buildTechnicianHistorySection(assignedMachineIds, companyIdForMachines),
+          _buildTechnicianHistorySection(assignedMachineIds, companyIdForMachines, calendarTechId),
           const SizedBox(height: 24),
           _buildClientTechnicianMessengerZone(),
         ],
@@ -1533,6 +1602,209 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     return (ids: ids, machines: machines);
   }
 
+  DateTime? _parseControlDate(Map<String, dynamic> c) {
+    for (final k in ['datePrevue', 'dateControle', 'createdAt']) {
+      final v = c[k];
+      if (v == null) continue;
+      final d = DateTime.tryParse(v.toString());
+      if (d != null) return d.toLocal();
+    }
+    return null;
+  }
+
+  bool _isOpenControleStatut(String raw) {
+    final s = raw.toLowerCase().trim().replaceAll(' ', '_');
+    const open = {
+      'en_attente',
+      'assignée',
+      'assignee',
+      'planifié',
+      'planifie',
+      'en_cours',
+    };
+    return open.contains(s);
+  }
+
+  /// Aligné sur le calendrier : pas d’aperçu « mission ouverte » si la machine n’est pas RUNNING.
+  bool _openControleMachineRunning(Map<String, dynamic> c) {
+    final st = (c['machineStatus'] ?? '').toString().trim().toUpperCase();
+    if (c['machineEnMarche'] == true || st == 'RUNNING') return true;
+    if (c['machineEnMarche'] == false || st == 'STOPPED' || st == 'MAINTENANCE') return false;
+    return true;
+  }
+
+  Future<List<Map<String, dynamic>>> _loadOpenControlesForProfile(String techLookupId) async {
+    if (techLookupId.isEmpty) return [];
+    try {
+      final list = await ApiService.getControlesForTechnician(techLookupId, days: 90);
+      final filtered = list
+          .where((c) => _isOpenControleStatut((c['statut'] ?? '').toString()))
+          .where(_openControleMachineRunning)
+          .toList();
+      filtered.sort((a, b) {
+        final da = _parseControlDate(a);
+        final db = _parseControlDate(b);
+        if (da == null && db == null) return 0;
+        if (da == null) return 1;
+        if (db == null) return -1;
+        return da.compareTo(db);
+      });
+      return filtered;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Widget _buildUpcomingControlesSection(
+    BuildContext context,
+    String calendarTechId,
+    bool isConceptionProfile,
+    List<String> assignedMachineIds,
+    String technicianName,
+    String technicianDisplayId,
+    String companyIdForMachines,
+  ) {
+    if (isConceptionProfile || calendarTechId.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final techForCalendar =
+        _navTechnicianForCalendar.isNotEmpty ? _navTechnicianForCalendar : technicianDisplayId;
+
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      key: ValueKey<String>('upcoming_controles_v$_controlesPreviewVersion'),
+      future: _loadOpenControlesForProfile(calendarTechId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2, color: _secondary.withOpacity(0.85)),
+              ),
+            ),
+          );
+        }
+        final items = snapshot.data ?? const <Map<String, dynamic>>[];
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: _surfaceContainer,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: _outlineVariant.withOpacity(0.35)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.event_note_outlined, color: _secondary, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'CALENDRIER DE CONTRÔLE — À TRAITER',
+                      style: GoogleFonts.spaceGrotesk(
+                        color: _tertiary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      _openControlCalendarFromProfile(<String, dynamic>{
+                        'technicianName': technicianName,
+                        'technicianId': techForCalendar,
+                        'machineIds': assignedMachineIds,
+                        if (companyIdForMachines.isNotEmpty) 'companyId': companyIdForMachines,
+                      });
+                    },
+                    child: Text('Ouvrir le calendrier', style: GoogleFonts.inter(color: _secondary, fontWeight: FontWeight.w600)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Maintenance préventive par temps de marche : condensateurs tous les 3 j (72 h cumulées), contrôle moteur/capteurs chaque semaine (168 h). Valider → compte-rendu → Terminer.',
+                style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 11, height: 1.35),
+              ),
+              const SizedBox(height: 12),
+              if (items.isEmpty)
+                Text(
+                  'Aucun contrôle ouvert. Quand le temps de marche cumulé atteint les seuils (72 h ou 168 h selon le type), une mission apparaît ici et dans le calendrier.',
+                  style: GoogleFonts.inter(color: _onSurfaceVariant.withOpacity(0.95), fontSize: 12, height: 1.4),
+                )
+              else
+                ...items.take(8).map((c) {
+                  final name = (c['machineName'] ?? 'Machine').toString();
+                  final type = (c['typeControle'] ?? 'Contrôle').toString();
+                  final st = (c['statut'] ?? '').toString();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () {
+                          _openControlCalendarFromProfile(<String, dynamic>{
+                            'technicianName': technicianName,
+                            'technicianId': techForCalendar,
+                            'machineIds': assignedMachineIds,
+                            if (companyIdForMachines.isNotEmpty) 'companyId': companyIdForMachines,
+                          });
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                          child: Row(
+                            children: [
+                              Icon(Icons.precision_manufacturing_outlined, size: 18, color: _onSurfaceVariant),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      name,
+                                      style: GoogleFonts.inter(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    Text(
+                                      '$type · $st',
+                                      style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(Icons.chevron_right, color: _onSurfaceVariant.withOpacity(0.7), size: 20),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              if (items.length > 8)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    '+ ${items.length - 8} autre(s) — voir le calendrier complet',
+                    style: GoogleFonts.inter(color: _secondary, fontSize: 11),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildMachinesSection(
     BuildContext context,
     List<String> assignedMachineIds,
@@ -1542,6 +1814,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     String technicianName,
   ) {
     return FutureBuilder<({List<String> ids, List<Map<String, dynamic>> machines})>(
+      key: ValueKey<String>('machines_section_v$_machinesSectionVersion'),
       future: _loadMachinesForProfileSection(assignedMachineIds, companyIdForMachines),
       builder: (context, snapshot) {
         final controlledMachines = snapshot.data?.machines ?? const <Map<String, dynamic>>[];
@@ -1572,6 +1845,13 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                           : 'Machines assignées à ce technicien',
                       style: TextStyle(color: _onSurfaceVariant, fontSize: 13),
                     ),
+                    if (!isConceptionProfile) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Indiquez « Machine en marche » pour enregistrer le début de fonctionnement et activer le calcul du temps de marche. Les contrôles préventifs (ex. après X h selon les seuils) apparaissent dans le calendrier.',
+                        style: GoogleFonts.inter(color: _onSurfaceVariant.withOpacity(0.9), fontSize: 11, height: 1.35),
+                      ),
+                    ],
                   ],
                 ),
                 Row(
@@ -1622,6 +1902,9 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                 controlledMachines,
                 technicianId,
                 technicianName,
+                isConceptionProfile,
+                assignedMachineIds,
+                companyIdForMachines,
               ),
           ],
         );
@@ -1629,11 +1912,80 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     );
   }
 
+  Future<void> _handleStartMachineMarche({
+    required BuildContext context,
+    required String machineId,
+    required String machineName,
+    required String technicianId,
+    required String technicianName,
+    required List<String> assignedMachineIds,
+    required String companyIdForMachines,
+  }) async {
+    if (machineId.isEmpty) return;
+    setState(() => _startingMarcheIds.add(machineId));
+    try {
+      final res = await ApiService.startMachineMarche(machineId);
+      if (!mounted) return;
+      DateTime? debut;
+      final iso = res['debutSessionMarche'];
+      if (iso != null) {
+        debut = DateTime.tryParse(iso.toString())?.toLocal();
+      }
+      debut ??= DateTime.now();
+      setState(() {
+        _startingMarcheIds.remove(machineId);
+        _sessionDebutByMachineId[machineId] = debut!;
+        _machinesSectionVersion++;
+        _controlesPreviewVersion++;
+      });
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: _surfaceContainerHigh,
+          content: Text(
+            '« $machineName » est en marche. Le temps de fonctionnement est enregistré ; les contrôles à prévoir s’affichent dans le calendrier.',
+            style: GoogleFonts.inter(color: Colors.white),
+          ),
+          action: SnackBarAction(
+            textColor: _secondary,
+            label: 'Calendrier contrôle',
+            onPressed: () {
+              if (!context.mounted) return;
+              _openControlCalendarFromProfile(<String, dynamic>{
+                'technicianName': technicianName,
+                'technicianId': technicianId,
+                'machineIds': assignedMachineIds,
+                if (companyIdForMachines.isNotEmpty) 'companyId': companyIdForMachines,
+              });
+            },
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _startingMarcheIds.remove(machineId);
+          _sessionDebutByMachineId.remove(machineId);
+        });
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: _error.withOpacity(0.9),
+            content: Text(e.toString().replaceFirst('Exception: ', ''), style: GoogleFonts.inter(color: Colors.white)),
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildMachinesGridContent(
     BuildContext context,
     List<Map<String, dynamic>> controlledMachines,
     String technicianId,
     String technicianName,
+    bool isConceptionProfile,
+    List<String> assignedMachineIds,
+    String companyIdForMachines,
   ) {
     final critical = controlledMachines.where((m) {
       final risk = (m['_riskPercent'] as int?) ?? 0;
@@ -1676,7 +2028,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               crossAxisCount: constraints.maxWidth > 600 ? 2 : 1,
               mainAxisSpacing: 24,
               crossAxisSpacing: 24,
-              childAspectRatio: 1.5,
+              childAspectRatio: isConceptionProfile ? 1.5 : 0.62,
               children: controlledMachines.map((m) {
                 final machineId = _machineIdFromDoc(m);
                 final machineName = (m['name'] ?? 'Machine').toString();
@@ -1685,15 +2037,21 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                 final requiresStop = m['_requiresStop'] == true;
                 final isAlert = requiresStop || risk > 60 || status.toUpperCase() == 'PANNE';
                 final riskNote = (m['_riskLabel'] ?? '').toString();
+                final running = status.toUpperCase() == 'RUNNING';
+                final sessionDebut = _effectiveDebutSession(machineId, m);
+                final sessionLive = running && sessionDebut != null;
 
                 return _buildMachineCard(
                   Icons.precision_manufacturing,
                   machineName,
                   (m['companyId'] ?? 'Client').toString(),
                   risk,
-                  isAlert ? _error : (status.toUpperCase() == 'RUNNING' ? _secondary : _error),
+                  sessionLive
+                      ? _green
+                      : (isAlert ? _error : (running ? _secondary : _error)),
                   isAlert: isAlert,
                   alertText: riskNote,
+                  sessionActiveVisual: sessionLive,
                   onTap: () {
                     if (machineId.isEmpty) return;
 
@@ -1701,12 +2059,27 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                       context,
                       '/mission-control',
                       arguments: {
+                        'machineId': machineId,
                         'techId': machineId,
                         'name': technicianName,
                         'machineName': machineName,
+                        'technicianId': technicianId,
                       },
                     );
                   },
+                  actionFooter: isConceptionProfile
+                      ? null
+                      : _buildMachineMarcheButton(
+                          context,
+                          machineId: machineId,
+                          machineName: machineName,
+                          status: status,
+                          technicianId: technicianId,
+                          technicianName: technicianName,
+                          assignedMachineIds: assignedMachineIds,
+                          companyIdForMachines: companyIdForMachines,
+                          debutSessionMarche: sessionDebut,
+                        ),
                 );
               }).toList(),
             );
@@ -1784,7 +2157,11 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     return 75;
   }
 
-  Widget _buildTechnicianHistorySection(List<String> assignedMachineIds, String companyIdForMachines) {
+  Widget _buildTechnicianHistorySection(
+    List<String> assignedMachineIds,
+    String companyIdForMachines,
+    String calendarTechId,
+  ) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1877,9 +2254,126 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               );
             },
           ),
+          const SizedBox(height: 24),
+          Text(
+            'COMPTES RENDUS — CONTRÔLES TERMINÉS',
+            style: GoogleFonts.spaceGrotesk(
+              color: _tertiary,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Saisies depuis le calendrier (Valider) et clôtures de missions.',
+            style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 11),
+          ),
+          const SizedBox(height: 10),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            key: ValueKey<int>(_completedControlesRefreshGen),
+            future: _loadCompletedControlesHistory(calendarTechId),
+            builder: (context, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: _secondary),
+                    ),
+                  ),
+                );
+              }
+              final list = snap.data ?? const <Map<String, dynamic>>[];
+              if (list.isEmpty) {
+                return Text(
+                  'Aucun contrôle terminé enregistré. Après validation sur le calendrier, le compte-rendu apparaît ici.',
+                  style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 12, height: 1.35),
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: list.map((c) {
+                  final mname = (c['machineName'] ?? c['machineId'] ?? '—').toString();
+                  final type = (c['typeControle'] ?? 'Contrôle').toString();
+                  final notes = (c['notes'] ?? '').toString().trim();
+                  final techNom = (c['technicienNom'] ?? c['technicianName'] ?? '').toString().trim();
+                  final when = _fmtDate((c['dateRealisation'] ?? c['completedAt'] ?? c['updatedAt'] ?? c['dateControle'] ?? '').toString());
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _surfaceContainer,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _outlineVariant.withOpacity(0.3)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          mname,
+                          style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          type,
+                          style: GoogleFonts.inter(color: _secondary, fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                        if (notes.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            notes,
+                            maxLines: 4,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 12, height: 1.3),
+                          ),
+                        ],
+                        const SizedBox(height: 6),
+                        Text(
+                          techNom.isNotEmpty ? 'Terminé · $techNom · $when' : 'Terminé · $when',
+                          style: GoogleFonts.inter(color: _onSurfaceVariant.withOpacity(0.85), fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
         ],
       ),
     );
+  }
+
+  Future<List<Map<String, dynamic>>> _loadCompletedControlesHistory(String technicianLookupId) async {
+    final id = technicianLookupId.trim();
+    if (id.isEmpty) return [];
+    try {
+      final list = await ApiService.getControlesForTechnician(id, days: 180);
+      final done = list.where((c) {
+        final s = (c['statut'] ?? '').toString().toLowerCase().replaceAll(' ', '_').replaceAll('é', 'e');
+        return s == 'termine' || s == 'terminé';
+      }).toList();
+      done.sort((a, b) {
+        DateTime? pd(dynamic x) => DateTime.tryParse((x ?? '').toString());
+        final da = pd(a['dateRealisation']) ??
+            pd(a['completedAt']) ??
+            pd(a['updatedAt']) ??
+            pd(a['dateControle']) ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        final db = pd(b['dateRealisation']) ??
+            pd(b['completedAt']) ??
+            pd(b['updatedAt']) ??
+            pd(b['dateControle']) ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        return db.compareTo(da);
+      });
+      return done.take(25).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   Future<List<Map<String, dynamic>>> _loadTechnicianHistoryRows(List<String> machineIds) async {
@@ -2254,6 +2748,83 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     });
   }
 
+  Widget _buildMachineMarcheButton(
+    BuildContext context, {
+    required String machineId,
+    required String machineName,
+    required String status,
+    required String technicianId,
+    required String technicianName,
+    required List<String> assignedMachineIds,
+    required String companyIdForMachines,
+    DateTime? debutSessionMarche,
+  }) {
+    final running = status.toUpperCase() == 'RUNNING';
+    final busy = _startingMarcheIds.contains(machineId);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (running)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.bolt, color: _green, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: debutSessionMarche != null
+                      ? _MarcheElapsedLive(
+                          debut: debutSessionMarche,
+                          captionStyle: GoogleFonts.inter(color: _green, fontSize: 11, fontWeight: FontWeight.w600),
+                          timerStyle: GoogleFonts.jetBrainsMono(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
+                          ),
+                        )
+                      : Text(
+                          'En marche — en attente de l’horodatage serveur…',
+                          style: GoogleFonts.inter(color: _green, fontSize: 10, height: 1.25),
+                        ),
+                ),
+              ],
+            ),
+          ),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor: _primaryContainer,
+            foregroundColor: Colors.black87,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+          ),
+          onPressed: busy
+              ? null
+              : () => _handleStartMachineMarche(
+                    context: context,
+                    machineId: machineId,
+                    machineName: machineName,
+                    technicianId: technicianId,
+                    technicianName: technicianName,
+                    assignedMachineIds: assignedMachineIds,
+                    companyIdForMachines: companyIdForMachines,
+                  ),
+          icon: busy
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54),
+                )
+              : const Icon(Icons.play_circle_outline, size: 20),
+          label: Text(
+            running ? 'Actualiser début de session' : 'Machine en marche',
+            style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700, fontSize: 13),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildMachineCard(
     IconData icon,
     String name,
@@ -2263,9 +2834,16 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     VoidCallback? onTap,
     bool isAlert = false,
     String alertText = '',
+    Widget? actionFooter,
+    bool sessionActiveVisual = false,
   }) {
+    final barColor = sessionActiveVisual ? _green : color;
+    final iconBg = sessionActiveVisual ? _green.withOpacity(0.18) : _surfaceContainerLow;
+
     Widget card(double pulse) => Material(
-          color: isAlert ? _error.withOpacity(0.07 + (0.08 * pulse)) : _surfaceContainerHigh,
+          color: sessionActiveVisual
+              ? const Color(0xFF152A22).withOpacity(0.95)
+              : (isAlert ? _error.withOpacity(0.07 + (0.08 * pulse)) : _surfaceContainerHigh),
           borderRadius: BorderRadius.circular(16),
           child: InkWell(
             onTap: onTap,
@@ -2275,9 +2853,21 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: isAlert ? _error.withOpacity(0.45 + (0.45 * pulse)) : Colors.transparent,
-                  width: isAlert ? 1.8 : 0,
+                  color: sessionActiveVisual
+                      ? _green.withOpacity(0.75)
+                      : (isAlert ? _error.withOpacity(0.45 + (0.45 * pulse)) : Colors.transparent),
+                  width: sessionActiveVisual ? 1.8 : (isAlert ? 1.8 : 0),
                 ),
+                boxShadow: sessionActiveVisual
+                    ? [
+                        BoxShadow(
+                          color: _green.withOpacity(0.22),
+                          blurRadius: 18,
+                          spreadRadius: 0,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
+                    : null,
               ),
               child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2287,8 +2877,8 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             children: [
               Container(
                 padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: _surfaceContainerLow, borderRadius: BorderRadius.circular(8)),
-                child: Icon(icon, color: color, size: 24),
+                decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(8)),
+                child: Icon(icon, color: sessionActiveVisual ? _green : color, size: 24),
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -2312,7 +2902,8 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               ),
             ],
           ),
-          const Spacer(),
+          if (actionFooter == null) const Spacer(),
+          if (actionFooter != null) const SizedBox(height: 14),
           Text(name, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
           Text('Client: $client', style: TextStyle(color: _onSurfaceVariant, fontSize: 13)),
           if (isAlert) ...[
@@ -2331,13 +2922,17 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               ],
             ),
           ],
-          const SizedBox(height: 16),
+          if (actionFooter != null) ...[
+            const SizedBox(height: 14),
+            actionFooter,
+          ],
+          const SizedBox(height: 14),
           ClipRRect(
             borderRadius: BorderRadius.circular(2),
             child: LinearProgressIndicator(
               value: score / 100,
               backgroundColor: _surfaceContainerLow,
-              valueColor: AlwaysStoppedAnimation<Color>(color),
+              valueColor: AlwaysStoppedAnimation<Color>(barColor),
               minHeight: 2,
             ),
           ),
@@ -2464,6 +3059,83 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
         Icon(icon, color: _onSurfaceVariant, size: 20),
         const SizedBox(height: 4),
         Text(label, style: GoogleFonts.spaceGrotesk(color: _onSurfaceVariant, fontSize: 9)),
+      ],
+    );
+  }
+
+  /// Extrait `tempsMarche.debutSessionMarche` renvoyé par l’API (Mongo).
+  DateTime? _parseDebutSessionMarche(Map<String, dynamic> m) {
+    final tm = m['tempsMarche'];
+    if (tm is! Map) return null;
+    final raw = tm['debutSessionMarche'];
+    if (raw == null) return null;
+    if (raw is DateTime) return raw.toLocal();
+    final parsed = DateTime.tryParse(raw.toString());
+    return parsed?.toLocal();
+  }
+
+  /// Chrono : préfère Mongo après reload, sinon début renvoyé par POST start-marche au clic.
+  DateTime? _effectiveDebutSession(String machineId, Map<String, dynamic> m) {
+    final st = (m['status'] ?? '').toString().toUpperCase();
+    if (st != 'RUNNING') return null;
+    return _parseDebutSessionMarche(m) ?? _sessionDebutByMachineId[machineId];
+  }
+}
+
+/// Durée écoulée depuis le début de session RUNNING : `01jr:06h:30min` (mis à jour chaque seconde).
+String _formatMarcheElapsed(Duration d) {
+  if (d.isNegative) return '00jr:00h:00min';
+  final days = d.inDays;
+  final hours = d.inHours.remainder(24);
+  final minutes = d.inMinutes.remainder(60);
+  final dayStr = days >= 100 ? '$days' : days.toString().padLeft(2, '0');
+  return '${dayStr}jr:${hours.toString().padLeft(2, '0')}h:${minutes.toString().padLeft(2, '0')}min';
+}
+
+class _MarcheElapsedLive extends StatefulWidget {
+  const _MarcheElapsedLive({
+    required this.debut,
+    required this.captionStyle,
+    required this.timerStyle,
+  });
+
+  final DateTime debut;
+  final TextStyle captionStyle;
+  final TextStyle timerStyle;
+
+  @override
+  State<_MarcheElapsedLive> createState() => _MarcheElapsedLiveState();
+}
+
+class _MarcheElapsedLiveState extends State<_MarcheElapsedLive> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final elapsed = now.difference(widget.debut.toLocal());
+    final line = _formatMarcheElapsed(elapsed);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Machine active — durée de session', style: widget.captionStyle),
+        const SizedBox(height: 4),
+        Text(line, style: widget.timerStyle),
       ],
     );
   }
