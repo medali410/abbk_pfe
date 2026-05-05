@@ -478,6 +478,24 @@ class ApiService {
     _throwApiError(response, 'Creation de compte client impossible');
   }
 
+  static Future<Map<String, dynamic>> clientGoogleAuth({
+    required String idToken,
+    String location = '',
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/client-google-auth'),
+      headers: _jsonHeaders(),
+      body: json.encode({
+        'idToken': idToken.trim(),
+        if (location.trim().isNotEmpty) 'location': location.trim(),
+      }),
+    );
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    _throwApiError(response, 'Connexion Google client impossible');
+  }
+
   static Future<Map<String, dynamic>> createPurchaseRequest(
     Map<String, dynamic> data,
   ) async {

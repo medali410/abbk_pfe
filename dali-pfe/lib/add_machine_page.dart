@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'services/api_service.dart';
@@ -23,9 +26,11 @@ class _AddMachinePageState extends State<AddMachinePage> {
   
   final _nameController = TextEditingController();
   final _model3dController = TextEditingController();
+  final _imageUrlController = TextEditingController();
 
   String _type = 'pompe_centrifuge';
   String _motorType = 'air_cooled';
+  String _selectedImage = '';
 
   List<Map<String, dynamic>> _seuilsControle = [];
   bool _isSaving = false;
@@ -93,7 +98,59 @@ class _AddMachinePageState extends State<AddMachinePage> {
   void dispose() {
     _nameController.dispose();
     _model3dController.dispose();
+    _imageUrlController.dispose();
     super.dispose();
+  }
+
+  bool _looksLikeNetworkImage(String value) {
+    final v = value.trim().toLowerCase();
+    return v.startsWith('http://') || v.startsWith('https://');
+  }
+
+  bool _looksLikeDataImage(String value) {
+    final v = value.trim().toLowerCase();
+    return v.startsWith('data:image/');
+  }
+
+  bool _looksLikeLocalFilePath(String value) {
+    final v = value.trim();
+    if (v.isEmpty) return false;
+    return RegExp(r'^[a-zA-Z]:[\\/]').hasMatch(v) ||
+        v.startsWith(r'\\') ||
+        v.startsWith('/');
+  }
+
+  String _normalizeMachineImageValue(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return '';
+    if (_looksLikeNetworkImage(trimmed) || _looksLikeDataImage(trimmed)) {
+      return trimmed;
+    }
+    final hasExtension = RegExp(
+      r'\.[a-z0-9]{2,5}$',
+      caseSensitive: false,
+    ).hasMatch(trimmed);
+    return hasExtension ? trimmed : '$trimmed.png';
+  }
+
+  Future<String?> _pickImageAsDataUrl() async {
+    final picked = await FilePicker.pickFiles(
+      type: FileType.image,
+      withData: true,
+      allowMultiple: false,
+    );
+    if (picked == null || picked.files.isEmpty) return null;
+    final file = picked.files.first;
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) return null;
+
+    final ext = (file.extension ?? '').toLowerCase();
+    var mime = 'image/jpeg';
+    if (ext == 'png') mime = 'image/png';
+    if (ext == 'gif') mime = 'image/gif';
+    if (ext == 'webp') mime = 'image/webp';
+    final b64 = base64Encode(bytes);
+    return 'data:$mime;base64,$b64';
   }
 
   String _toFriendlyError(Object error) {
@@ -127,14 +184,29 @@ class _AddMachinePageState extends State<AddMachinePage> {
       return;
     }
     if (!_formKey.currentState!.validate()) return;
+
+    final rawImageInput = _imageUrlController.text.trim();
+    if (_looksLikeLocalFilePath(rawImageInput)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Chemin local detecte. Utilisez "Choisir photo" pour televerser une image.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
     
     setState(() => _isSaving = true);
+    final normalizedImage = _normalizeMachineImageValue(rawImageInput);
 
     final machineData = {
       "name": _nameController.text.trim(),
       "type": _type,
       "motorType": _motorType,
       "model3dUrl": _model3dController.text.trim(),
+      "imageUrl": normalizedImage,
       "seuilsControle": _seuilsControle,
     };
 
@@ -363,9 +435,133 @@ class _AddMachinePageState extends State<AddMachinePage> {
             icon: Icons.view_in_ar_outlined,
             validator: (v) => v == null || v.trim().isEmpty ? 'Champ obligatoire' : null,
           ),
+          const SizedBox(height: 24),
+          _buildMachinePhotoField(),
           const SizedBox(height: 32),
         ],
       ),
+    );
+  }
+
+  Widget _buildMachinePhotoField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'PHOTO DE LA MACHINE',
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            color: _onSurfaceVariant,
+            letterSpacing: 1.5,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: _imageUrlController,
+          style: GoogleFonts.spaceGrotesk(color: _onSurface, fontSize: 16),
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            prefixIcon: Icon(
+              Icons.image_outlined,
+              color: _primary.withOpacity(0.6),
+              size: 20,
+            ),
+            hintText: 'URL image ou image upload',
+            hintStyle: GoogleFonts.spaceGrotesk(
+              color: _onSurfaceVariant.withOpacity(0.3),
+              fontSize: 14,
+            ),
+            filled: true,
+            fillColor: _bg.withOpacity(0.5),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: _primary),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 16,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            OutlinedButton.icon(
+              onPressed: () async {
+                final dataUrl = await _pickImageAsDataUrl();
+                if (dataUrl != null && dataUrl.isNotEmpty && mounted) {
+                  setState(() {
+                    _selectedImage = dataUrl;
+                    _imageUrlController.text = dataUrl;
+                  });
+                }
+              },
+              icon: const Icon(Icons.upload_file_outlined, size: 16),
+              label: const Text('Choisir photo'),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: () {
+                setState(() {
+                  _selectedImage = '';
+                  _imageUrlController.clear();
+                });
+              },
+              icon: const Icon(Icons.delete_outline, size: 16),
+              label: const Text('Supprimer'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _buildImagePreview(),
+      ],
+    );
+  }
+
+  Widget _buildImagePreview() {
+    final raw = _selectedImage.isNotEmpty
+        ? _selectedImage
+        : _normalizeMachineImageValue(_imageUrlController.text);
+    return Container(
+      height: 120,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: _bg.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: raw.isEmpty
+          ? const Center(
+              child: Icon(Icons.image_outlined, color: _onSurfaceVariant),
+            )
+          : (_looksLikeNetworkImage(raw)
+              ? Image.network(
+                  raw,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const Center(
+                    child: Icon(Icons.broken_image_outlined, color: _onSurfaceVariant),
+                  ),
+                )
+              : (_looksLikeDataImage(raw)
+                  ? Image.memory(
+                      base64Decode(raw.split(',').last),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const Center(
+                        child: Icon(Icons.broken_image_outlined, color: _onSurfaceVariant),
+                      ),
+                    )
+                  : const Center(
+                      child: Text(
+                        'Apercu indisponible (URL invalide)',
+                        style: TextStyle(color: _onSurfaceVariant, fontSize: 12),
+                      ),
+                    ))),
     );
   }
 

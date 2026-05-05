@@ -41,6 +41,58 @@ class _SessionEntryState extends State<SessionEntry> {
   bool _redirectScheduled = false;
 
   @override
+  void initState() {
+    super.initState();
+    _consumeGoogleOAuthReturnFromAnyWebRoute();
+  }
+
+  Future<void> _consumeGoogleOAuthReturnFromAnyWebRoute() async {
+    if (!kIsWeb || _redirectScheduled) return;
+    final qp = _readMergedWebQueryParams();
+    if (qp['googleAuth'] == null) return;
+    if (qp['googleAuth'] != '1') {
+      final msg = (qp['error'] ?? 'Connexion Google refusée').trim();
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: Colors.red),
+        );
+      });
+      return;
+    }
+
+    final token = (qp['token'] ?? '').trim();
+    final role = (qp['role'] ?? 'client').trim();
+    if (token.isEmpty) return;
+
+    await ApiService.saveAuth(token, role);
+    await ApiService.saveClientSession(
+      clientId: (qp['clientId'] ?? '').trim(),
+      clientName: (qp['name'] ?? 'Client').trim(),
+      clientEmail: (qp['email'] ?? '').trim(),
+      clientLocation: (qp['location'] ?? '').trim(),
+    );
+
+    if (!mounted) return;
+    _redirectScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed('/client-dashboard');
+    });
+  }
+
+  Map<String, String> _readMergedWebQueryParams() {
+    final params = <String, String>{...Uri.base.queryParameters};
+    final frag = Uri.base.fragment;
+    if (frag.contains('?')) {
+      final fragQuery = frag.split('?').skip(1).join('?');
+      params.addAll(Uri.splitQueryString(fragQuery));
+    }
+    return params;
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_redirectScheduled) return;
@@ -139,8 +191,6 @@ class MyApp extends StatelessWidget {
           clipBehavior: Clip.none,
           children: [
             if (child != null) Positioned.fill(child: child),
-            if (kDebugMode) const _ApiBaseDebugBadge(),
-            if (kIsWeb) const _GlobalBackButtonOverlay(),
           ],
         );
       },
@@ -188,82 +238,3 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class _GlobalBackButtonOverlay extends StatelessWidget {
-  const _GlobalBackButtonOverlay();
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      left: 0,
-      top: 0,
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.only(left: 10, top: 6),
-          child: Material(
-            color: const Color(0xFFF0D9B5),
-            borderRadius: BorderRadius.circular(6),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(6),
-              onTap: () {
-                final nav = _rootNavigatorKey.currentState;
-                if (nav == null) return;
-                if (nav.canPop()) {
-                  nav.pop();
-                } else {
-                  nav.pushReplacementNamed('/');
-                }
-              },
-              child: const Padding(
-                padding: EdgeInsets.all(8),
-                child: Icon(
-                  Icons.arrow_back,
-                  color: Color(0xFF1A1A1A),
-                  size: 22,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ApiBaseDebugBadge extends StatelessWidget {
-  const _ApiBaseDebugBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    final label = 'API: ${ApiService.baseUrl}';
-    final maxBadgeWidth = MediaQuery.of(context).size.width - 28;
-    return Positioned(
-      right: 12,
-      top: 10,
-      child: SafeArea(
-        child: IgnorePointer(
-          child: Container(
-            constraints: BoxConstraints(
-              maxWidth: maxBadgeWidth.clamp(120, 520).toDouble(),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xCC111827),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0x66FFFFFF)),
-            ),
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.inter(
-                fontSize: 11,
-                color: const Color(0xFFF9FAFB),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

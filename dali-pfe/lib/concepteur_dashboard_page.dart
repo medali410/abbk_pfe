@@ -4412,7 +4412,6 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     Icons.precision_manufacturing_outlined,
                     'MY MACHINES',
                   ),
-                  _topNavItem(Icons.add_circle_outline, 'ADD MACHINE'),
                   _topNavItem(
                     Icons.settings_input_component_outlined,
                     'COMPONENTS',

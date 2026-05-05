@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:ui';
 import 'dart:convert';
@@ -37,6 +38,8 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   int _navIndex = 0;
   /// Machine choisie pour l’onglet Analyse IA (null = liste de sélection).
   Map<String, dynamic>? _iaSelectedMachine;
+  /// Machine choisie depuis Mes Machines.
+  Map<String, dynamic>? _machineSelectedMachine;
   /// Machine choisie pour Documents techniques.
   Map<String, dynamic>? _docSelectedMachine;
 
@@ -82,6 +85,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   @override
   void initState() {
     super.initState();
+    _consumeGoogleOAuthReturnIfPresent();
     _shimmerController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 3),
@@ -109,7 +113,14 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   }
 
   void _refreshMachines() async {
-    final cId = widget.clientId ?? widget.clientData?['clientId'] ?? widget.clientData?['id'] ?? '';
+    final cId =
+        (widget.clientId ??
+                widget.clientData?['clientId'] ??
+                widget.clientData?['id'] ??
+                ApiService.savedClientId ??
+                '')
+            .toString()
+            .trim();
     if (cId.isNotEmpty) {
       setState(() {
         _machinesFuture = ApiService.getMachinesForClient(cId);
@@ -129,6 +140,45 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         if (mounted) setState(() => _isLoadingStats = false);
       }
     }
+  }
+
+  Future<void> _consumeGoogleOAuthReturnIfPresent() async {
+    if (!kIsWeb) return;
+    final qp = _readMergedWebQueryParams();
+    if (qp['googleAuth'] == null) return;
+    if (qp['googleAuth'] != '1') {
+      final msg = (qp['error'] ?? 'Connexion Google refusée').trim();
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: Colors.red),
+        );
+      });
+      return;
+    }
+
+    final token = (qp['token'] ?? '').trim();
+    if (token.isEmpty) return;
+    final role = (qp['role'] ?? 'client').trim();
+
+    await ApiService.saveAuth(token, role);
+    await ApiService.saveClientSession(
+      clientId: (qp['clientId'] ?? '').trim(),
+      clientName: (qp['name'] ?? 'Client').trim(),
+      clientEmail: (qp['email'] ?? '').trim(),
+      clientLocation: (qp['location'] ?? '').trim(),
+    );
+  }
+
+  Map<String, String> _readMergedWebQueryParams() {
+    final params = <String, String>{...Uri.base.queryParameters};
+    final frag = Uri.base.fragment;
+    if (frag.contains('?')) {
+      final fragQuery = frag.split('?').skip(1).join('?');
+      params.addAll(Uri.splitQueryString(fragQuery));
+    }
+    return params;
   }
 
   @override
@@ -317,10 +367,11 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           Expanded(
             child: Column(
               children: [
-                _buildTopBar(isDesktop),
+                if (isDesktop) _buildTopBar(isDesktop),
+                if (!isDesktop) _buildMobileQuickActions(),
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(32),
+                    padding: EdgeInsets.all(isDesktop ? 32 : 14),
                     child: _buildNavMainContent(isDesktop),
                   ),
                 ),
@@ -344,6 +395,11 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       return _buildClientPublicCatalog(isDesktop);
     }
     if (_navIndex == 1) {
+      if (_machineSelectedMachine != null) {
+        return _buildMachineTelemetryDetailSection(
+          isDesktop,
+        );
+      }
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -399,10 +455,47 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           onPick: (m) => setState(() => _docSelectedMachine = m),
         );
       }
-      return _buildDocumentsTechnicalSection(isDesktop);
+      return _buildDocumentsTechnicalSection(
+        isDesktop,
+        selectedMachine: _docSelectedMachine!,
+        title: 'Documents techniques',
+        onBack: () => setState(() => _docSelectedMachine = null),
+      );
     }
     // Fallback.
     return _buildMachineListSection(isDesktop);
+  }
+
+  Widget _buildMachineTelemetryDetailSection(bool isDesktop) {
+    final m = _machineSelectedMachine!;
+    final mid = _clientMachineId(m);
+    final name = _clientMachineName(m);
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final detailHeight = screenHeight < 860 ? 820.0 : screenHeight - (isDesktop ? 120.0 : 40.0);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSubpageHeader(
+          title: 'Mes Machines',
+          subtitle: '$name · $mid',
+          onBack: () => setState(() => _machineSelectedMachine = null),
+        ),
+        const SizedBox(height: 20),
+        SizedBox(
+          height: detailHeight,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: MachineDetailAiPage(
+              machineId: mid,
+              machineName: name,
+              viewerRole: 'client',
+              viewerName: (widget.clientName ?? 'Client').toString(),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildClientPublicCatalog(bool isDesktop) {
@@ -842,17 +935,22 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  Widget _buildDocumentsTechnicalSection(bool isDesktop) {
-    final m = _docSelectedMachine!;
+  Widget _buildDocumentsTechnicalSection(
+    bool isDesktop, {
+    required Map<String, dynamic> selectedMachine,
+    required String title,
+    required VoidCallback onBack,
+  }) {
+    final m = selectedMachine;
     final mid = _clientMachineId(m);
     final name = _clientMachineName(m);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSubpageHeader(
-          title: 'Documents techniques',
+          title: title,
           subtitle: '$name · $mid',
-          onBack: () => setState(() => _docSelectedMachine = null),
+          onBack: onBack,
         ),
         const SizedBox(height: 24),
         Container(
@@ -1223,50 +1321,10 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           _navItem(Icons.auto_awesome, 'Analyse IA', 2),
           _navItem(Icons.groups, 'Équipe Assignée', 3),
           _navItem(Icons.description, 'Documents Techniques', 4),
-          const Spacer(),
-          // System version
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: _surfaceContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'SYSTÈME',
-                    style: GoogleFonts.spaceGrotesk(
-                      fontSize: 9,
-                      color: _onSurfaceVariant,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: _green,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'V.2.4.0 Stable',
-                        style: GoogleFonts.spaceGrotesk(
-                            fontSize: 12, color: _onSurface),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
+          if (MediaQuery.sizeOf(context).width >= 760)
+            const Spacer()
+          else
+            const SizedBox(height: 10),
         ],
       ),
     );
@@ -1336,106 +1394,11 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Row(
               children: [
-                // Search
-                Container(
-                  width: 260,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: _surfaceContainerLow,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Row(
-                    children: [
-                      const SizedBox(width: 12),
-                      Icon(Icons.search,
-                          color: _onSurfaceVariant.withOpacity(0.5), size: 18),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          style: GoogleFonts.inter(
-                              fontSize: 13, color: _onSurface),
-                          decoration: InputDecoration(
-                            hintText: 'Rechercher une machine...',
-                            hintStyle: GoogleFonts.inter(
-                                fontSize: 13,
-                                color: _onSurfaceVariant.withOpacity(0.5)),
-                            border: InputBorder.none,
-                            isDense: true,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 24),
-                // Status
-                AnimatedBuilder(
-                  animation: _pulseAnimation,
-                  builder: (_, __) => Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: _primaryLight.withOpacity(_pulseAnimation.value),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Site Status: Nominal',
-                        style: GoogleFonts.spaceGrotesk(
-                          fontSize: 11,
-                          color: _primaryLight,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
                 const Spacer(),
                 // Icons
                 _iconBtn(Icons.notifications_outlined),
                 const SizedBox(width: 8),
                 _iconBtn(Icons.settings_outlined),
-                const SizedBox(width: 16),
-                Container(
-                  width: 1,
-                  height: 28,
-                  color: _outlineVariant.withOpacity(0.2),
-                ),
-                const SizedBox(width: 16),
-                // User info
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      widget.clientName ?? 'Enterprise Corp',
-                      style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: _onSurface),
-                    ),
-                    Text(
-                      'Site de ${widget.clientData?['location'] ?? 'Tunis'}',
-                      style: GoogleFonts.spaceGrotesk(
-                          fontSize: 10, color: _onSurfaceVariant),
-                    ),
-                  ],
-                ),
-                const SizedBox(width: 12),
-                GestureDetector(
-                  onTap: () => Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (_) => const LoginPage()),
-                  ),
-                  child: CircleAvatar(
-                    radius: 16,
-                    backgroundColor: _surfaceContainerHighest,
-                    child: const Icon(Icons.person, size: 18, color: _onSurfaceVariant),
-                  ),
-                ),
               ],
             ),
           ),
@@ -1444,11 +1407,358 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
+  String get _currentClientName {
+    final v =
+        (ApiService.savedClientName ??
+                widget.clientName ??
+                widget.clientData?['name'] ??
+                'Client')
+            .toString()
+            .trim();
+    return v.isEmpty ? 'Client' : v;
+  }
+
+  String get _currentClientEmail {
+    return (ApiService.savedClientEmail ?? widget.clientData?['email'] ?? '')
+        .toString()
+        .trim();
+  }
+
+  String get _currentClientLocation {
+    final v =
+        (ApiService.savedClientLocation ?? widget.clientData?['location'] ?? 'Tunis')
+            .toString()
+            .trim();
+    return v.isEmpty ? 'Tunis' : v;
+  }
+
+  Widget _buildMobileQuickActions() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      decoration: BoxDecoration(
+        color: _bg.withOpacity(0.85),
+        border: Border(
+          bottom: BorderSide(color: _outlineVariant.withOpacity(0.15)),
+        ),
+      ),
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _openNotificationsPopover(),
+              icon: const Icon(Icons.notifications_outlined, size: 18),
+              label: const Text('Notifications'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _onSurfaceVariant,
+                side: BorderSide(color: _outlineVariant.withOpacity(0.45)),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+            ),
+          ),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _openProfileSettingsDialog,
+              icon: const Icon(Icons.settings_outlined, size: 18),
+              label: const Text('Paramètres'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _onSurfaceVariant,
+                side: BorderSide(color: _outlineVariant.withOpacity(0.45)),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openProfileSettingsDialog() async {
+    final nameCtrl = TextEditingController(text: _currentClientName);
+    final emailCtrl = TextEditingController(text: _currentClientEmail);
+    final locationCtrl = TextEditingController(text: _currentClientLocation);
+    final approved = await showDialog<bool>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: _surfaceContainerHigh,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: _outlineVariant.withOpacity(0.35)),
+            ),
+            titlePadding: const EdgeInsets.fromLTRB(18, 16, 18, 4),
+            contentPadding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
+            actionsPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            title: Row(
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: _surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.manage_accounts_outlined,
+                    size: 18,
+                    color: _primaryLight,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Paramètres du profil',
+                    style: GoogleFonts.inter(
+                      color: _onSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Modifiez vos informations de compte client.',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: _onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: nameCtrl,
+                    style: GoogleFonts.inter(color: _onSurface),
+                    decoration: InputDecoration(
+                      labelText: 'Nom',
+                      prefixIcon: const Icon(Icons.person_outline, size: 18),
+                      filled: true,
+                      fillColor: _surfaceContainerLow,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: emailCtrl,
+                    style: GoogleFonts.inter(color: _onSurface),
+                    decoration: InputDecoration(
+                      labelText: 'Email',
+                      prefixIcon: const Icon(Icons.alternate_email, size: 18),
+                      filled: true,
+                      fillColor: _surfaceContainerLow,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: locationCtrl,
+                    style: GoogleFonts.inter(color: _onSurface),
+                    decoration: InputDecoration(
+                      labelText: 'Localisation',
+                      prefixIcon: const Icon(Icons.location_on_outlined, size: 18),
+                      filled: true,
+                      fillColor: _surfaceContainerLow,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(ctx, true),
+                icon: const Icon(Icons.save_outlined, size: 18),
+                label: const Text('Enregistrer'),
+              ),
+            ],
+          ),
+    );
+    if (approved != true || !mounted) return;
+
+    final name = nameCtrl.text.trim();
+    final email = emailCtrl.text.trim();
+    final location = locationCtrl.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Le nom est obligatoire.')),
+      );
+      return;
+    }
+
+    try {
+      final clientId =
+          (widget.clientId ??
+                  widget.clientData?['clientId'] ??
+                  widget.clientData?['id'] ??
+                  ApiService.savedClientId ??
+                  '')
+              .toString()
+              .trim();
+      await ApiService.saveClientSession(
+        clientId: clientId,
+        clientName: name,
+        clientEmail: email,
+        clientLocation: location,
+      );
+
+      if (clientId.isNotEmpty) {
+        try {
+          await ApiService.updateClient(clientId, {
+            'name': name,
+            'email': email,
+            'location': location,
+          });
+        } catch (_) {
+          // Keep local update even if remote update is unavailable for this role.
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profil mis à jour.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Mise à jour impossible: $e')),
+      );
+    }
+  }
+
+  Future<void> _openNotificationsPopover({Offset? anchor}) async {
+    final alerts = (widget.clientData?['alerts'] ?? 0).toString();
+    final rows = <Map<String, String>>[
+      {
+        'title': 'Santé du site',
+        'body': 'Le site est opérationnel. Alertes actives: $alerts.',
+      },
+      {
+        'title': 'Machines',
+        'body': 'Ouvrez "Mes Machines" pour voir les dernières mises à jour.',
+      },
+    ];
+
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final relative =
+        anchor != null
+            ? RelativeRect.fromRect(
+              Rect.fromLTWH(anchor.dx - 260, anchor.dy + 8, 320, 10),
+              Offset.zero & overlay.size,
+            )
+            : RelativeRect.fromLTRB(
+              overlay.size.width - 320,
+              78,
+              16,
+              overlay.size.height - 220,
+            );
+
+    await showMenu<void>(
+      context: context,
+      position: relative,
+      color: _surfaceContainerLow,
+      elevation: 10,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: _outlineVariant.withOpacity(0.35)),
+      ),
+      items: [
+        PopupMenuItem<void>(
+          enabled: false,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: SizedBox(
+            width: 300,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Notifications',
+                  style: GoogleFonts.inter(
+                    color: _onSurface,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                for (final n in rows)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.only(top: 2),
+                          child: Icon(
+                            Icons.notifications_active_outlined,
+                            color: _primaryLight,
+                            size: 18,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                n['title'] ?? '',
+                                style: GoogleFonts.inter(
+                                  color: _onSurface,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                n['body'] ?? '',
+                                style: GoogleFonts.inter(
+                                  color: _onSurfaceVariant,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _iconBtn(IconData icon) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () {},
+        onTapDown: (details) {
+          if (icon == Icons.notifications_outlined) {
+            _openNotificationsPopover(anchor: details.globalPosition);
+            return;
+          }
+          if (icon == Icons.settings_outlined) {
+            _openProfileSettingsDialog();
+          }
+        },
         borderRadius: BorderRadius.circular(20),
         child: Padding(
           padding: const EdgeInsets.all(8),
@@ -2222,17 +2532,12 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               ),
               _scoreBox('ALERTS', '${m['alerts'] ?? 0}', isAlert ? _error : _green),
               const SizedBox(width: 12),
-              _actionBtn(Icons.arrow_forward, _secondary, () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => MachineDetailAiPage(
-                    machineId: machineRealtimeId,
-                    machineName: m['name']?.toString(),
-                    viewerRole: 'client',
-                    viewerName: (widget.clientName ?? 'Client').toString(),
-                  ),
-                ),
-              )),
+              _actionBtn(Icons.arrow_forward, _secondary, () {
+                setState(() {
+                  _machineSelectedMachine = m;
+                  _navIndex = 1;
+                });
+              }),
             ],
           ),
           if (isAlert) ...[
@@ -2846,7 +3151,18 @@ class _ClientPublicMachineCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: canBuy ? onBuy : null,
+                  onPressed:
+                      canBuy
+                          ? onBuy
+                          : () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Veuillez vous connecter pour acheter.',
+                                ),
+                              ),
+                            );
+                          },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFFF6E00),
                     foregroundColor: Colors.white,
@@ -2856,7 +3172,7 @@ class _ClientPublicMachineCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  child: Text(canBuy ? 'Acheter' : 'Se connecter'),
+                  child: const Text('Acheter'),
                 ),
               ),
             ],

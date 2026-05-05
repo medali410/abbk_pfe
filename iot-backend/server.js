@@ -19,10 +19,50 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
+const axios = require('axios');
 require('dotenv').config();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dali-pfe-dev-secret-change-me';
 const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d';
+const GOOGLE_CLIENT_ID = String(process.env.GOOGLE_CLIENT_ID || '').trim();
+const GOOGLE_CLIENT_SECRET = String(process.env.GOOGLE_CLIENT_SECRET || '').trim();
+const DEFAULT_WEB_APP_URL = String(process.env.APP_WEB_URL || 'http://localhost:50924').trim();
+const googleOAuthClient = new OAuth2Client(
+    GOOGLE_CLIENT_ID || undefined
+);
+
+function buildGoogleOAuthRedirectUri(req) {
+    const envUri = String(process.env.GOOGLE_REDIRECT_URI || '').trim();
+    if (envUri) {
+        console.log('[Google OAuth] Using GOOGLE_REDIRECT_URI from env:', envUri);
+        return envUri;
+    }
+    const computedUri = `${req.protocol}://${req.get('host')}/api/auth/google/callback`;
+    console.log('[Google OAuth] Using computed redirect URI:', computedUri);
+    return computedUri;
+}
+
+function buildAppRedirectUrl(rawReturnUrl, params) {
+    const safeBase = String(rawReturnUrl || DEFAULT_WEB_APP_URL).trim() || DEFAULT_WEB_APP_URL;
+    const hashIndex = safeBase.indexOf('#');
+    if (hashIndex >= 0) {
+        const beforeHash = safeBase.slice(0, hashIndex);
+        const hashPart = safeBase.slice(hashIndex + 1);
+        const [hashPath, hashQuery = ''] = hashPart.split('?');
+        const hashParams = new URLSearchParams(hashQuery);
+        for (const [k, v] of Object.entries(params)) {
+            hashParams.set(k, String(v ?? ''));
+        }
+        return `${beforeHash}#${hashPath}?${hashParams.toString()}`;
+    }
+    const joiner = safeBase.includes('?') ? '&' : '?';
+    const qp = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+        qp.set(k, String(v ?? ''));
+    }
+    return `${safeBase}${joiner}${qp.toString()}`;
+}
 
 /** Mot de passe client auto si la validation est faite sans saisie (min 6 si renseigné). */
 function generateProvisionPassword() {
@@ -2290,6 +2330,308 @@ app.post('/api/client-self-register', async (req, res) => {
         return res.status(201).json(out);
     } catch (err) {
         return res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Connexion / inscription client par Google (OAuth réel côté Flutter).
+ * Le frontend envoie un Google ID token obtenu via google_sign_in.
+ */
+app.post('/api/client-google-auth', async (req, res) => {
+    try {
+        const idToken = String(req.body?.idToken || '').trim();
+        const fallbackLocation = String(req.body?.location || '').trim();
+        if (!idToken) {
+            return res.status(400).json({ error: 'idToken Google requis' });
+        }
+
+        const ticket = await googleOAuthClient.verifyIdToken({
+            idToken,
+            ...(GOOGLE_CLIENT_ID ? { audience: GOOGLE_CLIENT_ID } : {}),
+        });
+        const payload = ticket.getPayload();
+        if (!payload) {
+            return res.status(401).json({ error: 'Token Google invalide' });
+        }
+        const email = String(payload.email || '').trim().toLowerCase();
+        const emailVerified = Boolean(payload.email_verified);
+        const name = String(payload.name || 'Client Google').trim();
+        const googleSub = String(payload.sub || '').trim();
+        if (!email || !email.includes('@')) {
+            return res.status(400).json({ error: 'Email Google invalide' });
+        }
+        if (!emailVerified) {
+            return res.status(401).json({ error: 'Email Google non vérifié' });
+        }
+
+        const [dupUser, dupTech, dupConcepteur, dupMaint] = await Promise.all([
+            User.findOne({ email }),
+            Technician.findOne({ email }),
+            Concepteur.findOne({ email }),
+            MaintenanceAgent.findOne({ email }),
+        ]);
+        if (dupUser || dupTech || dupConcepteur || dupMaint) {
+            return res.status(409).json({ error: 'Cet email est déjà utilisé par un autre rôle' });
+        }
+
+        let client = await Client.findOne({ email });
+        let created = false;
+        if (!client) {
+            const hash = await bcrypt.hash(generateProvisionPassword(), 10);
+            const clientId = `CLI-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+            client = await Client.create({
+                clientId,
+                name,
+                email,
+                password: hash,
+                location: fallbackLocation || 'Inconnu',
+                address: fallbackLocation || '',
+                provider: 'google',
+                googleSub,
+                motorType: 'ac-induction',
+                machines: 0,
+                techs: 0,
+                alerts: 0,
+                health: 1.0,
+            });
+            created = true;
+        } else {
+            const updates = {};
+            if (!String(client.name || '').trim()) updates.name = name;
+            if (!String(client.location || '').trim() && fallbackLocation) {
+                updates.location = fallbackLocation;
+            }
+            if (!String(client.address || '').trim() && fallbackLocation) {
+                updates.address = fallbackLocation;
+            }
+            updates.provider = 'google';
+            if (googleSub) updates.googleSub = googleSub;
+            if (Object.keys(updates).length > 0) {
+                await Client.updateOne({ _id: client._id }, { $set: updates });
+                client = await Client.findById(client._id);
+            }
+        }
+
+        const out = client.toJSON();
+        out.role = 'client';
+        out.clientId = client.clientId;
+        out.id = client._id.toString();
+        out.provider = 'google';
+        out.token = signAuthToken({
+            sub: client._id.toString(),
+            role: 'client',
+            clientId: client.clientId ? String(client.clientId) : undefined,
+        });
+        return res.status(created ? 201 : 200).json(out);
+    } catch (err) {
+        return res.status(401).json({ error: err.message || 'Échec auth Google' });
+    }
+});
+
+/**
+ * OAuth Google web - démarre la sélection de compte Google.
+ */
+app.get('/api/auth/google/start', async (req, res) => {
+    try {
+        if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+            return res.status(503).json({
+                error: 'Google OAuth non configuré: GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET manquants',
+            });
+        }
+        const returnUrl = String(req.query?.returnUrl || DEFAULT_WEB_APP_URL).trim();
+        const state = Buffer.from(
+            JSON.stringify({
+                returnUrl,
+                ts: Date.now(),
+            }),
+            'utf8'
+        ).toString('base64url');
+        const redirectUri = buildGoogleOAuthRedirectUri(req);
+        const oauthUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+        oauthUrl.searchParams.set('client_id', GOOGLE_CLIENT_ID);
+        oauthUrl.searchParams.set('redirect_uri', redirectUri);
+        oauthUrl.searchParams.set('response_type', 'code');
+        oauthUrl.searchParams.set('scope', 'openid email profile');
+        oauthUrl.searchParams.set('prompt', 'select_account');
+        oauthUrl.searchParams.set('state', state);
+        console.log('[Google OAuth Start] Request debug:', {
+            host: req.get('host'),
+            protocol: req.protocol,
+            originalUrl: req.originalUrl,
+            returnUrl,
+            redirectUri,
+            clientIdPrefix: GOOGLE_CLIENT_ID ? GOOGLE_CLIENT_ID.slice(0, 20) : '(missing)',
+            oauthUrl: oauthUrl.toString(),
+        });
+        return res.redirect(oauthUrl.toString());
+    } catch (err) {
+        console.error('[Google OAuth Start] Error:', err.message);
+        return res.status(500).json({ error: err.message || 'Démarrage OAuth Google impossible' });
+    }
+});
+
+/**
+ * OAuth Google web - callback puis redirection vers Flutter avec token/session.
+ */
+app.get('/api/auth/google/callback', async (req, res) => {
+    let returnUrl = DEFAULT_WEB_APP_URL;
+    try {
+        const code = String(req.query?.code || '').trim();
+        const stateRaw = String(req.query?.state || '').trim();
+        if (stateRaw) {
+            try {
+                const parsed = JSON.parse(Buffer.from(stateRaw, 'base64url').toString('utf8'));
+                returnUrl = String(parsed?.returnUrl || returnUrl).trim() || returnUrl;
+            } catch {
+                // ignore état invalide
+            }
+        }
+        if (!code) {
+            return res.redirect(
+                buildAppRedirectUrl(returnUrl, {
+                    googleAuth: '0',
+                    error: 'Code Google absent',
+                })
+            );
+        }
+        if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+            return res.redirect(
+                buildAppRedirectUrl(returnUrl, {
+                    googleAuth: '0',
+                    error: 'GOOGLE_CLIENT_ID ou GOOGLE_CLIENT_SECRET manquant',
+                })
+            );
+        }
+
+        const redirectUri = buildGoogleOAuthRedirectUri(req);
+        console.log('[Google OAuth Callback] Incoming query:', {
+            host: req.get('host'),
+            protocol: req.protocol,
+            originalUrl: req.originalUrl,
+            codePresent: Boolean(code),
+            codeLength: code.length,
+            stateLength: stateRaw.length,
+            redirectUri,
+            returnUrl,
+        });
+        const tokenResp = await axios.post(
+            'https://oauth2.googleapis.com/token',
+            new URLSearchParams({
+                code,
+                client_id: GOOGLE_CLIENT_ID,
+                client_secret: GOOGLE_CLIENT_SECRET,
+                redirect_uri: redirectUri,
+                grant_type: 'authorization_code',
+            }).toString(),
+            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+        );
+        const idToken = String(tokenResp?.data?.id_token || '').trim();
+        if (!idToken) {
+            return res.redirect(
+                buildAppRedirectUrl(returnUrl, {
+                    googleAuth: '0',
+                    error: 'ID token Google absent',
+                })
+            );
+        }
+
+        const ticket = await googleOAuthClient.verifyIdToken({
+            idToken,
+            ...(GOOGLE_CLIENT_ID ? { audience: GOOGLE_CLIENT_ID } : {}),
+        });
+        const payload = ticket.getPayload();
+        if (!payload) {
+            return res.redirect(
+                buildAppRedirectUrl(returnUrl, {
+                    googleAuth: '0',
+                    error: 'Token Google invalide',
+                })
+            );
+        }
+        const email = String(payload.email || '').trim().toLowerCase();
+        const emailVerified = Boolean(payload.email_verified);
+        const name = String(payload.name || 'Client Google').trim();
+        const googleSub = String(payload.sub || '').trim();
+        if (!email || !email.includes('@') || !emailVerified) {
+            return res.redirect(
+                buildAppRedirectUrl(returnUrl, {
+                    googleAuth: '0',
+                    error: 'Email Google invalide/non vérifié',
+                })
+            );
+        }
+
+        const [dupUser, dupTech, dupConcepteur, dupMaint] = await Promise.all([
+            User.findOne({ email }),
+            Technician.findOne({ email }),
+            Concepteur.findOne({ email }),
+            MaintenanceAgent.findOne({ email }),
+        ]);
+        if (dupUser || dupTech || dupConcepteur || dupMaint) {
+            return res.redirect(
+                buildAppRedirectUrl(returnUrl, {
+                    googleAuth: '0',
+                    error: 'Email déjà utilisé par un autre rôle',
+                })
+            );
+        }
+
+        let client = await Client.findOne({ email });
+        if (!client) {
+            const hash = await bcrypt.hash(generateProvisionPassword(), 10);
+            const clientId = `CLI-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+            client = await Client.create({
+                clientId,
+                name,
+                email,
+                password: hash,
+                location: 'Inconnu',
+                address: '',
+                provider: 'google',
+                googleSub,
+                motorType: 'ac-induction',
+                machines: 0,
+                techs: 0,
+                alerts: 0,
+                health: 1.0,
+            });
+        } else {
+            const updates = { provider: 'google' };
+            if (googleSub) updates.googleSub = googleSub;
+            if (!String(client.name || '').trim()) updates.name = name;
+            await Client.updateOne({ _id: client._id }, { $set: updates });
+            client = await Client.findById(client._id);
+        }
+
+        const authToken = signAuthToken({
+            sub: client._id.toString(),
+            role: 'client',
+            clientId: client.clientId ? String(client.clientId) : undefined,
+        });
+
+        return res.redirect(
+            buildAppRedirectUrl(returnUrl, {
+                googleAuth: '1',
+                token: authToken,
+                role: 'client',
+                clientId: client.clientId ? String(client.clientId) : '',
+                name: String(client.name || ''),
+                email: String(client.email || ''),
+                location: String(client.location || ''),
+            })
+        );
+    } catch (err) {
+        console.error('[Google OAuth Callback] Error detail:', {
+            message: err.message,
+            responseStatus: err?.response?.status,
+            responseData: err?.response?.data,
+        });
+        return res.redirect(
+            buildAppRedirectUrl(returnUrl, {
+                googleAuth: '0',
+                error: err.message || 'Callback Google impossible',
+            })
+        );
     }
 });
 

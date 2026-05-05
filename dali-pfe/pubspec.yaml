@@ -47,6 +47,8 @@ dependencies:
   model_viewer_plus: ^1.9.3
   pdf: ^3.11.3
   printing: ^5.14.2
+  google_sign_in: ^7.2.0
+  video_player: ^2.10.1
 
 dev_dependencies:
   flutter_test:
@@ -73,6 +75,7 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/videos/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

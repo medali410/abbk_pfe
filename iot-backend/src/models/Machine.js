@@ -67,6 +67,7 @@ const MachineSchema = new mongoose.Schema({
     maintenanceControlStartedAt: { type: Date, default: null },
     maintenanceControlEndsAt: { type: Date, default: null },
     location: { type: String, required: false },
+    imageUrl: { type: String, default: '' },
     // URL / nom du modèle 3D saisi depuis le dashboard conception.
     model3dUrl: { type: String, default: '' },
     lastMaintenance: { type: Date },
@@ -125,11 +126,10 @@ function normalizeSeuilsControle(seuils) {
     });
 }
 
-MachineSchema.pre('save', function (next) {
+MachineSchema.pre('save', function () {
     if (this.seuilsControle && Array.isArray(this.seuilsControle)) {
         this.seuilsControle = normalizeSeuilsControle(this.seuilsControle);
     }
-    next();
 });
 
 const Machine = mongoose.model('Machine', MachineSchema);

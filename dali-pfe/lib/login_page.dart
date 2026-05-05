@@ -1,14 +1,22 @@
 import 'dart:ui';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dashboard_page.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'client_dashboard_page.dart';
+import 'dashboard_page.dart';
 import 'services/api_service.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key, this.returnToHomeAfterClientLogin = false});
+  const LoginPage({
+    super.key,
+    this.returnToHomeAfterClientLogin = false,
+    this.showSignupTitle = false,
+  });
 
   final bool returnToHomeAfterClientLogin;
+  final bool showSignupTitle;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -16,9 +24,35 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   bool _obscurePassword = true;
-  bool _rememberMe = false;
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
+  bool _googleInitDone = false;
+  final TextEditingController _loginEmailController = TextEditingController();
+  final TextEditingController _loginPasswordController = TextEditingController();
+  bool _loginSubmitting = false;
+  final TextEditingController _signupNameController = TextEditingController();
+  final TextEditingController _signupEmailController = TextEditingController();
+  final TextEditingController _signupPasswordController = TextEditingController();
+  final TextEditingController _signupConfirmPasswordController =
+      TextEditingController();
+  final TextEditingController _signupAddressController = TextEditingController();
+  bool _signupSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _consumeGoogleOAuthReturn();
+  }
+
+  @override
+  void dispose() {
+    _loginEmailController.dispose();
+    _loginPasswordController.dispose();
+    _signupNameController.dispose();
+    _signupEmailController.dispose();
+    _signupPasswordController.dispose();
+    _signupConfirmPasswordController.dispose();
+    _signupAddressController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -90,31 +124,6 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ],
                       ),
-                      // Status (Hidden on mobile)
-                      if (isDesktop)
-                        Row(
-                          children: [
-                            Text(
-                              'STATUT DU SYSTÈME : OPÉRATIONNEL',
-                              style: GoogleFonts.inter(
-                                fontSize: 10,
-                                color: const Color(0xFFA0A0B0),
-                                fontWeight: FontWeight.w500,
-                                letterSpacing: 2.0,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            // Blinking dot simulation
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: const BoxDecoration(
-                                color: Colors.green,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ],
-                        ),
                     ],
                   ),
                 ),
@@ -145,7 +154,9 @@ class _LoginPageState extends State<LoginPage> {
                                 children: [
                                   // Title
                                   Text(
-                                    'CONNEXION',
+                                    widget.showSignupTitle
+                                        ? 'INSCRIPTION'
+                                        : 'CONNEXION',
                                     style: GoogleFonts.inter(
                                       fontSize: 28,
                                       fontWeight: FontWeight.w300,
@@ -158,362 +169,12 @@ class _LoginPageState extends State<LoginPage> {
                                     width: 48,
                                     color: const Color(0xFFFF6E00),
                                   ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    'Super admin / équipe : identifiants internes. Client : connexion avec email / mot de passe, ou première inscription via « Inscription client » ou les boutons ci-dessous.',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 10,
-                                      color: const Color(0xFFA0A0B0),
-                                      fontWeight: FontWeight.w500,
-                                      letterSpacing: 1.2,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
                                   const SizedBox(height: 28),
 
-                                  _buildClientSocialSection(context),
+                                  widget.showSignupTitle
+                                      ? _buildClientSocialSection(context)
+                                      : _buildSignInSection(context),
 
-                                  const SizedBox(height: 28),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Divider(color: Colors.white.withOpacity(0.15)),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                                        child: Text(
-                                          'OU',
-                                          style: GoogleFonts.inter(
-                                            fontSize: 10,
-                                            color: const Color(0xFFA0A0B0),
-                                            letterSpacing: 3,
-                                          ),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: Divider(color: Colors.white.withOpacity(0.15)),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 28),
-
-                                  // Email Input
-                                  _buildTextField(
-                                    label: 'IDENTIFIANT / EMAIL (AVEC @)',
-                                    icon: Icons.alternate_email,
-                                    hintText: 'technicien@terrain ou utilisateur@entreprise.fr',
-                                    controller: _emailController,
-                                  ),
-                                  const SizedBox(height: 32),
-
-                                  // Password Input
-                                  _buildTextField(
-                                    label: 'MOT DE PASSE',
-                                    icon: Icons.lock_open,
-                                    hintText: '••••••••••••',
-                                    isPassword: true,
-                                    controller: _passwordController,
-                                    rightAction: TextButton(
-                                      onPressed: () {},
-                                      child: Text(
-                                        'OUBLIÉ ?',
-                                        style: GoogleFonts.inter(
-                                          fontSize: 9,
-                                          letterSpacing: 2.0,
-                                          color: const Color(0xFFA0A0B0),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 32),
-
-                                  // Submit Button
-                                  Container(
-                                    width: double.infinity,
-                                    decoration: BoxDecoration(
-                                      gradient: const LinearGradient(
-                                        colors: [Color(0xFFFF6E00), Color(0xFFFF8F3F)],
-                                      ),
-                                      borderRadius: BorderRadius.circular(8),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: const Color(0xFFFF6E00).withOpacity(0.4),
-                                          blurRadius: 24,
-                                          offset: const Offset(0, 4),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Material(
-                                      color: Colors.transparent,
-                                      child: InkWell(
-                                        borderRadius: BorderRadius.circular(8),
-                                          onTap: () async {
-                                            final email = _emailController.text.trim();
-                                            // Ne pas trim le mot de passe (espaces significatifs côté serveur).
-                                            final password = _passwordController.text;
-
-                                            if (email.isEmpty || password.isEmpty) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(content: Text('Veuillez remplir tous les champs')),
-                                              );
-                                              return;
-                                            }
-                                            if (!email.contains('@')) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(
-                                                  content: Text('Indiquez une adresse email valide (avec @).'),
-                                                ),
-                                              );
-                                              return;
-                                            }
-
-                                            // Show loading indicator
-                                            showDialog(
-                                              context: context,
-                                              barrierDismissible: false,
-                                              builder: (context) => const Center(child: CircularProgressIndicator()),
-                                            );
-
-                                            try {
-                                              final response = await ApiService.login(email, password);
-                                              Navigator.pop(context); // Close loading
-
-                                              var role = (response['role'] ?? 'client').toString().toLowerCase();
-                                              if (role == 'super_admin') role = 'superadmin';
-                                              if (role == 'company_admin') role = 'admin';
-                                              final token = response['token']?.toString() ??
-                                                  response['accessToken']?.toString() ??
-                                                  response['access_token']?.toString();
-                                              await ApiService.saveAuth(
-                                                (token != null && token.isNotEmpty) ? token : null,
-                                                role,
-                                              );
-
-                                              final isFleetDashboard =
-                                                  role == 'superadmin' || role == 'admin' || role == 'company_admin';
-                                              if (isFleetDashboard) {
-                                                if ((ApiService.authToken ?? '').isEmpty) {
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text(
-                                                        'Réponse serveur sans jeton de session. Vérifiez l’URL de l’API et reconnectez-vous.',
-                                                      ),
-                                                      backgroundColor: Colors.red,
-                                                    ),
-                                                  );
-                                                  return;
-                                                }
-                                                Navigator.pushReplacement(
-                                                  context,
-                                                  MaterialPageRoute(builder: (context) => const DashboardPage()),
-                                                );
-                                              } else if (role == 'conception' || role == 'concepteur') {
-                                                final args = Map<String, dynamic>.from(response);
-                                                args['id'] = response['conceptionId'] ?? response['id'] ?? '';
-                                                args['specialization'] =
-                                                    (response['specialization'] ?? 'Conception').toString();
-                                                args['status'] = (response['status'] ?? 'Actif').toString();
-                                                args['phone'] = (response['phone'] ?? '').toString();
-                                                args['companyId'] = (response['companyId'] ?? '').toString();
-                                                args['location'] = (response['location'] ?? '').toString();
-                                                args['email'] = email;
-                                                args['username'] = (response['username'] ?? '').toString();
-                                                args['loginPassword'] = '*' * password.length;
-                                                args['imageUrl'] = (response['imageUrl'] ?? '').toString();
-                                                args['viewerRole'] = 'conception';
-                                                if ((ApiService.authToken ?? '').isEmpty) {
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text(
-                                                        'Réponse serveur sans jeton de session. Vérifiez l’URL de l’API et reconnectez-vous.',
-                                                      ),
-                                                      backgroundColor: Colors.red,
-                                                    ),
-                                                  );
-                                                  return;
-                                                }
-                                                // Redirect to the new Concepteur Dashboard
-                                                Navigator.pushReplacementNamed(
-                                                  context,
-                                                  '/concepteur-dashboard',
-                                                );
-                                              } else if (role == 'technician') {
-                                                final args = Map<String, dynamic>.from(response);
-                                                args['id'] = response['technicianId'] ?? response['id'] ?? '';
-                                                args['companyId'] = (response['companyId'] ?? '').toString();
-                                                args['specialization'] =
-                                                    (response['specialization'] ?? 'Technicien').toString();
-                                                args['status'] = (response['status'] ?? 'Disponible').toString();
-                                                args['phone'] = (response['phone'] ?? '').toString();
-                                                args['location'] = (response['companyId'] ?? '').toString();
-                                                args['email'] = email;
-                                                args['loginPassword'] = '*' * password.length;
-                                                args['imageUrl'] = (response['imageUrl'] ?? '').toString();
-                                                args['viewerRole'] = role;
-                                                await ApiService.saveTechnicianSession(args);
-                                                Navigator.pushReplacementNamed(
-                                                  context,
-                                                  '/technician-profile',
-                                                  arguments: args,
-                                                );
-                                              } else if (role == 'maintenance') {
-                                                Navigator.pushReplacementNamed(
-                                                  context,
-                                                  '/maintenance-dashboard',
-                                                );
-                                              } else if (role == 'client') {
-                                                if ((ApiService.authToken ?? '').isEmpty) {
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text(
-                                                        'Réponse serveur sans jeton de session. Vérifiez l’URL de l’API et reconnectez-vous.',
-                                                      ),
-                                                      backgroundColor: Colors.red,
-                                                    ),
-                                                  );
-                                                  return;
-                                                }
-                                                final clientName =
-                                                    (response['name'] ?? 'Espace client').toString();
-                                                final clientId =
-                                                    (response['clientId'] ?? response['id'] ?? '').toString();
-                                                await ApiService.saveClientSession(
-                                                  clientId: clientId,
-                                                  clientName: clientName,
-                                                  clientEmail: (response['email'] ?? email).toString(),
-                                                  clientLocation: (response['location'] ?? '').toString(),
-                                                );
-                                                if (widget.returnToHomeAfterClientLogin) {
-                                                  Navigator.pop(context, true);
-                                                  return;
-                                                }
-                                                if (!context.mounted) return;
-                                                Navigator.pushReplacementNamed(
-                                                  context,
-                                                  '/client-dashboard',
-                                                );
-                                              } else {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  SnackBar(
-                                                    content: Text(
-                                                      'Rôle de compte non reconnu : $role. Utilisez un compte client ou contactez le support.',
-                                                    ),
-                                                    backgroundColor: Colors.red,
-                                                  ),
-                                                );
-                                              }
-                                            } catch (e) {
-                                              Navigator.pop(context); // Close loading
-
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                SnackBar(
-                                                  content: Text('Erreur: ${e.toString().replaceAll('Exception: ', '')}'),
-                                                  backgroundColor: Colors.red,
-                                                ),
-                                              );
-                                            }
-                                          },
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(vertical: 20),
-                                          child: Row(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              Text(
-                                                'ACCÉDER AU DASHBOARD',
-                                                style: GoogleFonts.inter(
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.white,
-                                                  letterSpacing: 3.0,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 16),
-                                              const Icon(Icons.arrow_right_alt, color: Colors.white),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 24),
-
-                                  // Remember Me
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      InkWell(
-                                        onTap: () {
-                                          setState(() {
-                                            _rememberMe = !_rememberMe;
-                                          });
-                                        },
-                                        borderRadius: BorderRadius.circular(20),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                          decoration: BoxDecoration(
-                                            color: Colors.white.withOpacity(0.05),
-                                            borderRadius: BorderRadius.circular(20),
-                                            border: Border.all(color: Colors.white.withOpacity(0.05)),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                _rememberMe ? Icons.check_box : Icons.check_box_outline_blank,
-                                                size: 14,
-                                                color: _rememberMe ? const Color(0xFFFF6E00) : const Color(0xFF4A4A5A),
-                                              ),
-                                              const SizedBox(width: 6),
-                                              Text(
-                                                'RESTER CONNECTÉ',
-                                                style: GoogleFonts.inter(
-                                                  fontSize: 9,
-                                                  color: const Color(0xFFA0A0B0),
-                                                  fontWeight: FontWeight.w500,
-                                                  letterSpacing: 2.0,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 10),
-                                  TextButton.icon(
-                                    onPressed: () {
-                                      Navigator.pushReplacementNamed(
-                                        context,
-                                        '/maintenance-login',
-                                      );
-                                    },
-                                    icon: const Icon(Icons.engineering_rounded, size: 16),
-                                    label: Text(
-                                      'ACCÈS MAINTENANCE',
-                                      style: GoogleFonts.inter(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 1.1,
-                                      ),
-                                    ),
-                                  ),
-
-                                  const SizedBox(height: 48),
-
-                                  // Trust Badges
-                                  Opacity(
-                                    opacity: 0.5,
-                                    child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        _buildTrustBadge(Icons.verified_user_outlined, 'SSL 256-BIT'),
-                                        const SizedBox(width: 32),
-                                        _buildTrustBadge(Icons.security_outlined, 'ISO 27001'),
-                                        const SizedBox(width: 32),
-                                        _buildTrustBadge(Icons.gpp_maybe_outlined, 'GDPR READY'),
-                                      ],
-                                    ),
-                                  )
                                 ],
                               ),
                             ),
@@ -561,13 +222,176 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
+  Widget _buildSignInSection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _loginEmailController,
+          style: const TextStyle(color: Colors.white),
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(
+            labelText: 'Email',
+            hintText: 'utilisateur@entreprise.fr',
+          ),
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: _loginPasswordController,
+          style: const TextStyle(color: Colors.white),
+          obscureText: _obscurePassword,
+          decoration: InputDecoration(
+            labelText: 'Mot de passe',
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                color: Colors.white54,
+              ),
+              onPressed: () {
+                setState(() => _obscurePassword = !_obscurePassword);
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        ElevatedButton(
+          onPressed: _loginSubmitting ? null : () => _submitLogin(context),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFFF6E00),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+          ),
+          child:
+              _loginSubmitting
+                  ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                  : Text(
+                    'Se connecter',
+                    style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+                  ),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(child: Divider(color: Colors.white.withOpacity(0.15))),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                'OU',
+                style: GoogleFonts.inter(
+                  fontSize: 10,
+                  color: const Color(0xFFA0A0B0),
+                  letterSpacing: 3,
+                ),
+              ),
+            ),
+            Expanded(child: Divider(color: Colors.white.withOpacity(0.15))),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _socialConnectPill(
+          context: context,
+          leading: _googleGLogo(),
+          label: 'Se connecter avec Google',
+          onTap: () => _authWithGoogle(context),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _submitLogin(BuildContext context) async {
+    final email = _loginEmailController.text.trim();
+    final password = _loginPasswordController.text;
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez remplir tous les champs')),
+      );
+      return;
+    }
+    if (!email.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Indiquez une adresse email valide (avec @).')),
+      );
+      return;
+    }
+    setState(() => _loginSubmitting = true);
+    try {
+      final response = await ApiService.login(email, password);
+      if (!context.mounted) return;
+      var role = (response['role'] ?? 'client').toString().toLowerCase();
+      if (role == 'super_admin') role = 'superadmin';
+      if (role == 'company_admin') role = 'admin';
+      final token =
+          response['token']?.toString() ??
+          response['accessToken']?.toString() ??
+          response['access_token']?.toString();
+      await ApiService.saveAuth(
+        (token != null && token.isNotEmpty) ? token : null,
+        role,
+      );
+
+      if (role == 'superadmin' || role == 'admin') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const DashboardPage()),
+        );
+        return;
+      }
+      if (role == 'conception' || role == 'concepteur') {
+        Navigator.pushReplacementNamed(context, '/concepteur-dashboard');
+        return;
+      }
+      if (role == 'technician') {
+        final args = Map<String, dynamic>.from(response);
+        await ApiService.saveTechnicianSession(args);
+        Navigator.pushReplacementNamed(
+          context,
+          '/technician-profile',
+          arguments: args,
+        );
+        return;
+      }
+      if (role == 'maintenance') {
+        Navigator.pushReplacementNamed(context, '/maintenance-dashboard');
+        return;
+      }
+
+      final clientName = (response['name'] ?? 'Espace client').toString();
+      final clientId = (response['clientId'] ?? response['id'] ?? '').toString();
+      await ApiService.saveClientSession(
+        clientId: clientId,
+        clientName: clientName,
+        clientEmail: (response['email'] ?? email).toString(),
+        clientLocation: (response['location'] ?? '').toString(),
+      );
+      if (widget.returnToHomeAfterClientLogin) {
+        Navigator.pop(context, true);
+        return;
+      }
+      Navigator.pushReplacementNamed(context, '/client-dashboard');
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur: ${e.toString().replaceAll('Exception: ', '')}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loginSubmitting = false);
+    }
+  }
+
   /// Boutons type « Continuer avec Google / Apple / téléphone » (OAuth à brancher : Firebase, backend).
   Widget _buildClientSocialSection(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'CLIENT — CONNEXION RAPIDE',
+          'CLIENT — INSCRIPTION RAPIDE',
           style: GoogleFonts.inter(
             fontSize: 10,
             color: const Color(0xFFA0A0B0),
@@ -577,44 +401,357 @@ class _LoginPageState extends State<LoginPage> {
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 16),
+        Text(
+          'Méthode 1 : inscription rapide',
+          style: GoogleFonts.inter(
+            fontSize: 11,
+            color: const Color(0xFFD0D4E2),
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.4,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 12),
         _socialConnectPill(
           context: context,
           leading: _googleGLogo(),
-          label: 'Continuer avec Google',
-          onTap: () => _onSocialLoginTap(context, 'google'),
+          label: 'S\'inscrire avec Google',
+          onTap: () => _authWithGoogle(context),
         ),
-        const SizedBox(height: 12),
-        _socialConnectPill(
-          context: context,
-          leading: const Icon(Icons.tablet_mac, color: Color(0xFF000000), size: 22),
-          label: 'Continuer avec Apple',
-          onTap: () => _onSocialLoginTap(context, 'apple'),
-        ),
-        const SizedBox(height: 12),
-        _socialConnectPill(
-          context: context,
-          leading: const Icon(Icons.phone_outlined, color: Color(0xFF1a1a1a), size: 22),
-          label: 'Continuer avec un numéro de téléphone',
-          twoLines: true,
-          onTap: () => _onSocialLoginTap(context, 'phone'),
-        ),
-        const SizedBox(height: 16),
-        TextButton.icon(
-          onPressed: () => _onSocialLoginTap(context, 'email'),
-          icon: const Icon(Icons.person_add_alt_1, color: Color(0xFFFF8F3F), size: 18),
-          label: Text(
-            'Inscription client — première connexion (email & adresse)',
-            style: GoogleFonts.inter(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFFFF8F3F),
-              letterSpacing: 0.3,
+        const SizedBox(height: 18),
+        Row(
+          children: [
+            Expanded(child: Divider(color: Colors.white.withOpacity(0.15))),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                'OU',
+                style: GoogleFonts.inter(
+                  fontSize: 10,
+                  color: const Color(0xFFA0A0B0),
+                  letterSpacing: 3,
+                ),
+              ),
             ),
-            textAlign: TextAlign.center,
+            Expanded(child: Divider(color: Colors.white.withOpacity(0.15))),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'Méthode 2 : formulaire complet',
+          style: GoogleFonts.inter(
+            fontSize: 11,
+            color: const Color(0xFFD0D4E2),
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.4,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 8),
+        _buildInlineEmailSignup(context),
+      ],
+    );
+  }
+
+  Widget _buildInlineEmailSignup(BuildContext context) {
+    final inputStyle = GoogleFonts.inter(color: Colors.white, fontSize: 14);
+    InputDecoration decoration(String label, {String? hint, bool compact = false}) {
+      return InputDecoration(
+        labelText: label,
+        hintText: hint,
+        hintStyle: GoogleFonts.inter(color: Colors.white54),
+        labelStyle: GoogleFonts.inter(color: const Color(0xFFC8CFDF)),
+        enabledBorder: const UnderlineInputBorder(
+          borderSide: BorderSide(color: Color(0x99D5DBE8)),
+        ),
+        focusedBorder: const UnderlineInputBorder(
+          borderSide: BorderSide(color: Color(0xFFFF8F3F)),
+        ),
+        isDense: compact,
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _signupNameController,
+          style: inputStyle,
+          decoration: decoration('Nom ou entreprise'),
+        ),
+        TextField(
+          controller: _signupEmailController,
+          style: inputStyle,
+          keyboardType: TextInputType.emailAddress,
+          decoration: decoration('Email (connexion)'),
+        ),
+        TextField(
+          controller: _signupPasswordController,
+          style: inputStyle,
+          obscureText: true,
+          decoration: decoration('Mot de passe (min 6 caractères)'),
+        ),
+        TextField(
+          controller: _signupConfirmPasswordController,
+          style: inputStyle,
+          obscureText: true,
+          decoration: decoration('Confirmer le mot de passe'),
+        ),
+        TextField(
+          controller: _signupAddressController,
+          style: inputStyle,
+          keyboardType: TextInputType.streetAddress,
+          maxLines: 2,
+          decoration: decoration(
+            'Adresse (rue, code postal, ville)',
+            hint: 'Ex : 12 rue des Artisans, 1000 Tunis',
+          ),
+        ),
+        const SizedBox(height: 14),
+        Align(
+          alignment: Alignment.centerRight,
+          child: ElevatedButton(
+            onPressed: _signupSubmitting ? null : () => _submitInlineSignup(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF8F3F),
+              foregroundColor: const Color(0xFF151525),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+            child:
+                _signupSubmitting
+                    ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : Text(
+                      'Créer le compte',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+                    ),
           ),
         ),
       ],
     );
+  }
+
+  Future<void> _authWithGoogle(BuildContext context) async {
+    try {
+      if (kIsWeb) {
+        final returnUrl = '${Uri.base.origin}/#/login';
+        final uri = Uri.parse(
+          '${ApiService.baseUrl}/auth/google/start?returnUrl=${Uri.encodeComponent(returnUrl)}',
+        );
+        final ok = await launchUrl(
+          uri,
+          mode: LaunchMode.platformDefault,
+          webOnlyWindowName: '_self',
+        );
+        if (!ok && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Impossible d’ouvrir la page Google.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      final googleSignIn = GoogleSignIn.instance;
+      if (!_googleInitDone) {
+        await googleSignIn.initialize();
+        _googleInitDone = true;
+      }
+      final account = await googleSignIn.authenticate(
+        scopeHint: const ['email', 'profile'],
+      );
+      final auth = account.authentication;
+      final idToken = auth.idToken;
+      if (idToken == null || idToken.isEmpty) {
+        throw Exception('Google ID token indisponible');
+      }
+
+      final response = await ApiService.clientGoogleAuth(
+        idToken: idToken,
+        location: _signupAddressController.text.trim(),
+      );
+      final role = (response['role'] ?? 'client').toString().toLowerCase();
+      final token = response['token']?.toString();
+      await ApiService.saveAuth(
+        (token != null && token.isNotEmpty) ? token : null,
+        role,
+      );
+
+      if (widget.returnToHomeAfterClientLogin) {
+        if (!context.mounted) return;
+        Navigator.pop(context, true);
+        return;
+      }
+      final clientName = response['name'] ?? account.displayName ?? 'Client';
+      final clientId = response['clientId'] ?? response['id'] ?? '';
+      await ApiService.saveClientSession(
+        clientId: clientId.toString(),
+        clientName: clientName.toString(),
+        clientEmail: (response['email'] ?? account.email).toString(),
+        clientLocation:
+            (response['location'] ?? _signupAddressController.text.trim())
+                .toString(),
+      );
+      if (!context.mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => ClientDashboardPage(
+                clientName: clientName,
+                clientId: clientId,
+                clientData: response,
+              ),
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Connexion Google impossible: ${e.toString().replaceAll('Exception: ', '')}',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _consumeGoogleOAuthReturn() async {
+    if (!kIsWeb) return;
+    final qp = _readMergedWebQueryParams();
+    if (qp['googleAuth'] == null) return;
+    final success = qp['googleAuth'] == '1';
+    if (!success) {
+      final msg = (qp['error'] ?? 'Connexion Google refusée').trim();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: Colors.red),
+        );
+      });
+      return;
+    }
+    final token = (qp['token'] ?? '').trim();
+    final role = (qp['role'] ?? 'client').trim();
+    if (token.isEmpty) return;
+    await ApiService.saveAuth(token, role);
+    await ApiService.saveClientSession(
+      clientId: (qp['clientId'] ?? '').trim(),
+      clientName: (qp['name'] ?? 'Client').trim(),
+      clientEmail: (qp['email'] ?? '').trim(),
+      clientLocation: (qp['location'] ?? '').trim(),
+    );
+    if (!mounted) return;
+    if (widget.returnToHomeAfterClientLogin) {
+      Navigator.pop(context, true);
+      return;
+    }
+    Navigator.pushReplacementNamed(context, '/client-dashboard');
+  }
+
+  Map<String, String> _readMergedWebQueryParams() {
+    final params = <String, String>{...Uri.base.queryParameters};
+    final frag = Uri.base.fragment;
+    if (frag.contains('?')) {
+      final fragQuery = frag.split('?').skip(1).join('?');
+      params.addAll(Uri.splitQueryString(fragQuery));
+    }
+    return params;
+  }
+
+  Future<void> _submitInlineSignup(BuildContext context) async {
+    final name = _signupNameController.text.trim();
+    final email = _signupEmailController.text.trim();
+    final password = _signupPasswordController.text.trim();
+    final confirm = _signupConfirmPasswordController.text.trim();
+    final address = _signupAddressController.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nom requis')),
+      );
+      return;
+    }
+    if (!email.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Email valide requis')),
+      );
+      return;
+    }
+    if (password.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Mot de passe minimum 6 caractères')),
+      );
+      return;
+    }
+    if (password != confirm) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Les deux mots de passe ne correspondent pas')),
+      );
+      return;
+    }
+    if (address.length < 4) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Adresse trop courte : indiquez au moins rue et ville.')),
+      );
+      return;
+    }
+    setState(() => _signupSubmitting = true);
+    try {
+      final response = await ApiService.clientSelfRegister({
+        'provider': 'email',
+        'name': name,
+        'email': email,
+        'password': password,
+        'location': address,
+        'address': address,
+      });
+      if (!context.mounted) return;
+      final role = (response['role'] ?? 'client').toString().toLowerCase();
+      final token = response['token']?.toString();
+      await ApiService.saveAuth(
+        (token != null && token.isNotEmpty) ? token : null,
+        role,
+      );
+      if (widget.returnToHomeAfterClientLogin) {
+        Navigator.pop(context, true);
+        return;
+      }
+      final clientName = response['name'] ?? name;
+      final clientId = response['clientId'] ?? response['id'] ?? '';
+      await ApiService.saveClientSession(
+        clientId: clientId.toString(),
+        clientName: clientName.toString(),
+        clientEmail: (response['email'] ?? email).toString(),
+        clientLocation: (response['location'] ?? address).toString(),
+      );
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => ClientDashboardPage(
+                clientName: clientName,
+                clientId: clientId,
+                clientData: response,
+              ),
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Création compte impossible: ${e.toString().replaceAll('Exception: ', '')}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _signupSubmitting = false);
+    }
   }
 
   Widget _googleGLogo() {
@@ -1083,23 +1220,6 @@ class _LoginPageState extends State<LoginPage> {
             focusedBorder: const UnderlineInputBorder(
               borderSide: BorderSide(color: Color(0xFFFF6E00)),
             ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTrustBadge(IconData icon, String text) {
-    return Column(
-      children: [
-        Icon(icon, color: const Color(0xFFF4F4F9), size: 20),
-        const SizedBox(height: 4),
-        Text(
-          text,
-          style: GoogleFonts.inter(
-            fontSize: 8,
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFFF4F4F9),
           ),
         ),
       ],

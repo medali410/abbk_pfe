@@ -1,8 +1,11 @@
 import 'dart:convert';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:video_player/video_player.dart';
 
 import 'client_dashboard_page.dart';
 import 'login_page.dart';
@@ -24,7 +27,6 @@ class _HomePageState extends State<HomePage> {
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _homeSectionKey = GlobalKey();
   final GlobalKey _catalogSectionKey = GlobalKey();
-  final GlobalKey _analyticsSectionKey = GlobalKey();
   final GlobalKey _footerSectionKey = GlobalKey();
   String _activeSection = 'home';
 
@@ -32,6 +34,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _machinesFuture = ApiService.getMachinesForHomeCatalog();
+    _consumeGoogleOAuthReturnIfPresent();
     _hydrateAuthState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -62,6 +65,67 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _canBuyAsClient = token.isNotEmpty && role == 'client';
     });
+  }
+
+  Future<void> _consumeGoogleOAuthReturnIfPresent() async {
+    if (!kIsWeb) return;
+    final qp = _readMergedWebQueryParams();
+    if (qp['googleAuth'] == null) return;
+    if (qp['googleAuth'] != '1') {
+      final msg = (qp['error'] ?? 'Connexion Google refusée').trim();
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: Colors.red),
+        );
+      });
+      return;
+    }
+
+    final token = (qp['token'] ?? '').trim();
+    final role = (qp['role'] ?? 'client').trim();
+    if (token.isEmpty) return;
+
+    await ApiService.saveAuth(token, role);
+    await ApiService.saveClientSession(
+      clientId: (qp['clientId'] ?? '').trim(),
+      clientName: (qp['name'] ?? 'Client').trim(),
+      clientEmail: (qp['email'] ?? '').trim(),
+      clientLocation: (qp['location'] ?? '').trim(),
+    );
+
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder:
+              (_) => ClientDashboardPage(
+                clientName: (ApiService.savedClientName ?? 'Espace client').trim(),
+                clientId: (ApiService.savedClientId ?? '').trim(),
+                clientData: {
+                  'clientId': (ApiService.savedClientId ?? '').trim(),
+                  'id': (ApiService.savedClientId ?? '').trim(),
+                  'name': (ApiService.savedClientName ?? 'Espace client').trim(),
+                  'email': (ApiService.savedClientEmail ?? '').trim(),
+                  'location': (ApiService.savedClientLocation ?? '').trim(),
+                },
+              ),
+        ),
+      );
+    });
+  }
+
+  Map<String, String> _readMergedWebQueryParams() {
+    final params = <String, String>{...Uri.base.queryParameters};
+    final frag = Uri.base.fragment;
+    if (frag.contains('?')) {
+      final fragQuery = frag.split('?').skip(1).join('?');
+      params.addAll(Uri.splitQueryString(fragQuery));
+    }
+    return params;
   }
 
   @override
@@ -199,14 +263,6 @@ class _HomePageState extends State<HomePage> {
                                             isDesktop ? 3 : (isTablet ? 2 : 1),
                                       ),
                                     ),
-                                  const SizedBox(height: 20),
-                                  _buildEntrance(
-                                    delayMs: 150,
-                                    child: KeyedSubtree(
-                                      key: _analyticsSectionKey,
-                                      child: _buildRealtimeAnalytics(isDesktop),
-                                    ),
-                                  ),
                                   const SizedBox(height: 26),
                                   _buildEntrance(
                                     delayMs: 190,
@@ -294,20 +350,6 @@ class _HomePageState extends State<HomePage> {
             baseStyle: navStyle,
             onTap: () => _scrollToSection(_catalogSectionKey),
           ),
-          const SizedBox(width: 14),
-          _buildNavItem(
-            label: 'Analyse',
-            sectionId: 'analytics',
-            baseStyle: navStyle,
-            onTap: () => _scrollToSection(_analyticsSectionKey),
-          ),
-          const SizedBox(width: 14),
-          _buildNavItem(
-            label: 'Support',
-            sectionId: 'footer',
-            baseStyle: navStyle,
-            onTap: () => _scrollToSection(_footerSectionKey),
-          ),
         ],
       ),
     );
@@ -351,7 +393,7 @@ class _HomePageState extends State<HomePage> {
             )
             : const SizedBox.shrink();
 
-    final authButton = ElevatedButton.icon(
+    final authButton = ElevatedButton(
       onPressed: () async {
         if (_canBuyAsClient &&
             (ApiService.savedClientId ?? '').trim().isNotEmpty) {
@@ -398,11 +440,43 @@ class _HomePageState extends State<HomePage> {
           const Color(0xFFFF6E00).withOpacity(0.4),
         ),
       ),
-      icon: const Icon(Icons.login_rounded, size: 20),
-      label: Text(
+      child: Text(
         _canBuyAsClient ? 'Mon compte' : 'Connexion',
         style: TextStyle(fontSize: w < 360 ? 12 : 14),
       ),
+    );
+    final signUpLink = GestureDetector(
+      onTap: () async {
+        await Navigator.push<void>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const LoginPage(showSignupTitle: true),
+          ),
+        );
+      },
+      child: Text(
+        "s'inscrire",
+        textAlign: TextAlign.center,
+        style: GoogleFonts.inter(
+          color: const Color(0xFFD7E7FF),
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          decoration: TextDecoration.underline,
+          decorationColor: const Color(0xFFD7E7FF),
+        ),
+      ),
+    );
+    final authActions = Row(
+      mainAxisSize: MainAxisSize.min,
+      textDirection: TextDirection.ltr,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (!_canBuyAsClient) ...[
+          signUpLink,
+          const SizedBox(width: 10),
+        ],
+        authButton,
+      ],
     );
 
     if (!showInlineNav) {
@@ -412,9 +486,12 @@ class _HomePageState extends State<HomePage> {
           Row(
             children: [
               Flexible(child: logo),
-              const Spacer(),
+              if (MediaQuery.sizeOf(context).width >= 760)
+                const Spacer()
+              else
+                const SizedBox(height: 10),
               clientBadge,
-              authButton,
+              authActions,
             ],
           ),
           const SizedBox(height: 10),
@@ -441,24 +518,10 @@ class _HomePageState extends State<HomePage> {
             baseStyle: navStyle,
             onTap: () => _scrollToSection(_catalogSectionKey),
           ),
-          const SizedBox(width: 14),
-          _buildNavItem(
-            label: 'Analyse',
-            sectionId: 'analytics',
-            baseStyle: navStyle,
-            onTap: () => _scrollToSection(_analyticsSectionKey),
-          ),
-          const SizedBox(width: 14),
-          _buildNavItem(
-            label: 'Support',
-            sectionId: 'footer',
-            baseStyle: navStyle,
-            onTap: () => _scrollToSection(_footerSectionKey),
-          ),
         ],
         const Spacer(),
         clientBadge,
-        authButton,
+        authActions,
       ],
     );
   }
@@ -538,7 +601,6 @@ class _HomePageState extends State<HomePage> {
     final ordered = <String, GlobalKey>{
       'home': _homeSectionKey,
       'catalog': _catalogSectionKey,
-      'analytics': _analyticsSectionKey,
       'footer': _footerSectionKey,
     };
     String next = _activeSection;
@@ -562,41 +624,58 @@ class _HomePageState extends State<HomePage> {
   Widget _buildHero({required int total, required bool isDesktop}) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          padding: EdgeInsets.all(isDesktop ? 26 : 18),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xCC1E2641), Color(0xCC171D33)],
+      child: Container(
+        height: isDesktop ? 360 : 320,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: const Color(0xFF141B31),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _buildHeroVisual(),
+
+            // Couche de lisibilité : sombre à gauche + vignette sur les bords.
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    const Color(0xEE131B32),
+                    const Color(0xB3161F38),
+                    const Color(0x66161F38),
+                  ],
+                  stops: const [0.0, 0.48, 1.0],
+                ),
+              ),
             ),
-            border: Border.all(color: const Color(0x3DFFFFFF)),
-          ),
-          child:
-              isDesktop
-                  ? Row(
-                    children: [
-                      Expanded(
-                        child: _buildHeroText(
-                          total: total,
-                          isDesktop: isDesktop,
-                        ),
-                      ),
-                      const SizedBox(width: 18),
-                      Expanded(child: _buildHeroVisual()),
-                    ],
-                  )
-                  : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildHeroText(total: total, isDesktop: isDesktop),
-                      const SizedBox(height: 14),
-                      _buildHeroVisual(),
-                    ],
-                  ),
+            Container(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(0.45, 0.0),
+                  radius: 1.1,
+                  colors: [
+                    Colors.transparent,
+                    Colors.transparent,
+                    Colors.black.withOpacity(0.35),
+                  ],
+                  stops: const [0.0, 0.72, 1.0],
+                ),
+              ),
+            ),
+
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: EdgeInsets.all(isDesktop ? 24 : 18),
+                child: SizedBox(
+                  width: isDesktop ? 560 : double.infinity,
+                  child: _buildHeroText(total: total, isDesktop: isDesktop),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -622,6 +701,13 @@ class _HomePageState extends State<HomePage> {
             fontSize: isDesktop ? 38 : 28,
             fontWeight: FontWeight.w800,
             height: 1.15,
+            shadows: const [
+              Shadow(
+                color: Color(0xC0000000),
+                blurRadius: 14,
+                offset: Offset(0, 2),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 8),
@@ -629,8 +715,16 @@ class _HomePageState extends State<HomePage> {
           'Visualisez les equipements critiques en temps reel '
           'et accedez aux machines disponibles depuis la base.',
           style: GoogleFonts.inter(
-            color: const Color(0xFFA7B1C6),
+            color: const Color(0xFFD5DCEE),
             fontSize: 14,
+            height: 1.35,
+            shadows: const [
+              Shadow(
+                color: Color(0xAA000000),
+                blurRadius: 10,
+                offset: Offset(0, 1),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 14),
@@ -639,7 +733,6 @@ class _HomePageState extends State<HomePage> {
           runSpacing: 8,
           children: [
             _chip(Icons.precision_manufacturing_rounded, '$total machines'),
-            _chip(Icons.storage_rounded, 'Source: DB'),
             _chip(Icons.update_rounded, 'Temps reel'),
           ],
         ),
@@ -648,32 +741,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildHeroVisual() {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: AspectRatio(
-        aspectRatio: 1.38,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Image.network(
-              'https://images.unsplash.com/photo-1565043589221-1a6fd9ae45c7?auto=format&fit=crop&w=1200&q=80',
-              fit: BoxFit.cover,
-            ),
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withOpacity(0.2),
-                    Colors.black.withOpacity(0.5),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return const _HeroVideoSlides(
+      fallbackImageUrl:
+          'https://images.unsplash.com/photo-1565043589221-1a6fd9ae45c7?auto=format&fit=crop&w=1200&q=80',
     );
   }
 
@@ -1092,6 +1162,198 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
+class _HeroVideoSlides extends StatefulWidget {
+  const _HeroVideoSlides({
+    required this.fallbackImageUrl,
+  });
+
+  final String fallbackImageUrl;
+
+  @override
+  State<_HeroVideoSlides> createState() => _HeroVideoSlidesState();
+}
+
+class _HeroVideoSlidesState extends State<_HeroVideoSlides> {
+  final Duration _endThreshold = const Duration(milliseconds: 250);
+
+  List<String> _videoAssets = const [];
+  int _index = 0;
+  VideoPlayerController? _controller;
+  bool _initializing = false;
+  bool _advancing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    if (_initializing) return;
+    _initializing = true;
+    try {
+      final assets = await _loadVideoAssetsFromManifest();
+      if (!mounted) return;
+      if (assets.isEmpty) return;
+      setState(() => _videoAssets = assets);
+      await _switchToIndex(0);
+    } finally {
+      _initializing = false;
+    }
+  }
+
+  Future<List<String>> _loadVideoAssetsFromManifest() async {
+    try {
+      final raw = await rootBundle.loadString('AssetManifest.json');
+      final decoded = json.decode(raw);
+      if (decoded is! Map<String, dynamic>) return const [];
+      final keys = decoded.keys.toList();
+      keys.sort();
+
+      const okExt = ['.mp4', '.webm'];
+      return keys
+          .where((k) => k.startsWith('assets/videos/'))
+          .where(
+            (k) => okExt.any((ext) => k.toLowerCase().endsWith(ext)),
+          )
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  void _handleTick() {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+
+    final d = c.value.duration;
+    final p = c.value.position;
+
+    // Cas principal : fin de lecture.
+    if (d != null && d > Duration.zero && d - p <= _endThreshold) {
+      _next();
+      return;
+    }
+
+    // Sur certains navigateurs, la fin remonte plutôt via "paused at end".
+    if (d != null &&
+        d > Duration.zero &&
+        !c.value.isPlaying &&
+        p >= d - _endThreshold) {
+      _next();
+      return;
+    }
+
+    // Fallback : certaines durées peuvent être null sur le web selon codec.
+    if (d == null && !c.value.isPlaying && p >= const Duration(seconds: 2)) {
+      _next();
+    }
+  }
+
+  Future<void> _switchToIndex(int idx, {int attempts = 0}) async {
+    final c = _controller;
+    c?.removeListener(_handleTick);
+    await c?.dispose();
+
+    if (_videoAssets.isEmpty) return;
+    if (attempts >= _videoAssets.length) {
+      // Toutes les vidéos semblent illisibles -> fallback image.
+      _controller = null;
+      if (mounted) setState(() {});
+      return;
+    }
+    _index = idx % _videoAssets.length;
+    final assetPath = _videoAssets[_index];
+
+    final next = VideoPlayerController.asset(assetPath);
+    try {
+      next.addListener(_handleTick);
+      _controller = next;
+
+      await next.initialize();
+      // Hero "background" : on mute + on laisse tourner en séquence.
+      await next.setVolume(0.0);
+      await next.setLooping(false);
+      await next.play();
+      if (mounted) setState(() {});
+    } catch (_) {
+      // Certains backends peuvent ne pas supporter setVolume.
+      next.removeListener(_handleTick);
+      await next.dispose();
+      final nextIndex = (_index + 1) % _videoAssets.length;
+      return _switchToIndex(nextIndex, attempts: attempts + 1);
+    }
+  }
+
+  void _next() {
+    if (_advancing || _videoAssets.isEmpty) return;
+    _advancing = true;
+    final nextIndex = (_index + 1) % _videoAssets.length;
+    _switchToIndex(nextIndex).whenComplete(() => _advancing = false);
+  }
+
+  @override
+  void dispose() {
+    _controller?.removeListener(_handleTick);
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) {
+      return GestureDetector(
+        onTap: () async => await _controller?.play(),
+        child: SizedBox.expand(
+          child: Image.network(widget.fallbackImageUrl, fit: BoxFit.cover),
+        ),
+      );
+    }
+
+    if (c.value.hasError) {
+      return SizedBox.expand(
+        child: Image.network(widget.fallbackImageUrl, fit: BoxFit.cover),
+      );
+    }
+
+    final w = c.value.size.width;
+    final h = c.value.size.height;
+    if (w <= 0 || h <= 0) {
+      return SizedBox.expand(
+        child: Image.network(widget.fallbackImageUrl, fit: BoxFit.cover),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () async => await _controller?.play(),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: w,
+              height: h,
+              child: VideoPlayer(c),
+            ),
+          ),
+          if (!c.value.isPlaying)
+            Container(
+              color: Colors.black.withOpacity(0.15),
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.play_circle_fill_rounded,
+                color: Colors.white70,
+                size: 42,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _EntranceItem extends StatefulWidget {
   const _EntranceItem({
     required this.animateIn,
@@ -1418,6 +1680,13 @@ class _MachineCardState extends State<_MachineCard> {
                           widget.canBuy
                               ? () => _buyMachine(context, machineId: machineId)
                               : () async {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Veuillez vous connecter pour acheter.',
+                                    ),
+                                  ),
+                                );
                                 if (widget.onRequireLogin != null) {
                                   await widget.onRequireLogin!.call();
                                 }
@@ -1438,7 +1707,7 @@ class _MachineCardState extends State<_MachineCard> {
                           const Color(0xFFFF6E00).withOpacity(0.4),
                         ),
                       ),
-                      child: Text(widget.canBuy ? 'Acheter' : 'Se connecter'),
+                      child: const Text('Acheter'),
                     ),
                   ),
                 ],
