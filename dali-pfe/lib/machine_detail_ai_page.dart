@@ -16,12 +16,14 @@ import 'dart:async';
 class MachineDetailAiPage extends StatefulWidget {
   final String machineId;
   final String? machineName;
+  final String? clientId;
   final String? viewerRole;
   final String? viewerName;
   const MachineDetailAiPage({
     super.key,
     required this.machineId,
     this.machineName,
+    this.clientId,
     this.viewerRole,
     this.viewerName,
   });
@@ -33,10 +35,8 @@ class MachineDetailAiPage extends StatefulWidget {
 class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerProviderStateMixin {
   late io.Socket _socket;
   late String _machineId;
+  String? _machineName;
   late Set<String> _acceptedMachineIds;
-  final TextEditingController _teamChatController = TextEditingController();
-  final List<Map<String, dynamic>> _teamChatMessages = <Map<String, dynamic>>[];
-  int _unreadTeamMessages = 0;
   late Future<List<Map<String, dynamic>>> _historyFuture;
 
   double _thermal = 0;
@@ -87,6 +87,9 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   List<Map<String, dynamic>> _maintenanceOrders = <Map<String, dynamic>>[];
   String _maintenanceFilterStatus = 'ALL';
   String _maintenanceFilterPriority = 'ALL';
+  List<Map<String, dynamic>> _sidebarMachines = <Map<String, dynamic>>[];
+  bool _loadingSidebarMachines = false;
+  String? _sidebarMachinesError;
 
   static const _bg = Color(0xFF0D0E1B);
   static const _panel = Color(0xFF12131F);
@@ -104,10 +107,12 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     super.initState();
     _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 700))..repeat(reverse: true);
     _machineId = widget.machineId.trim();
-    _acceptedMachineIds = _buildAcceptedMachineIds(_machineId, widget.machineName);
+    _machineName = widget.machineName;
+    _acceptedMachineIds = _buildAcceptedMachineIds(_machineId, _machineName);
     _historyFuture = ApiService.getTelemetryHistory(_machineId, limit: 20);
     _loadInitialTelemetry();
     _loadMaintenanceOrders();
+    _loadSidebarMachines();
     _checkActiveIntervention();
     _initSocket();
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadMachineIaProfile());
@@ -128,6 +133,78 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     return ids;
   }
 
+  String _sidebarMachineId(Map<String, dynamic> machine) {
+    return (machine['machineId'] ?? machine['id'] ?? machine['_id'] ?? '').toString().trim();
+  }
+
+  String _sidebarMachineName(Map<String, dynamic> machine) {
+    final mid = _sidebarMachineId(machine);
+    return (machine['name'] ?? machine['model'] ?? machine['machineName'] ?? mid).toString().trim();
+  }
+
+  Future<void> _loadSidebarMachines() async {
+    setState(() {
+      _loadingSidebarMachines = true;
+      _sidebarMachinesError = null;
+    });
+    try {
+      final clientId = (widget.clientId ?? '').trim();
+      final machines = clientId.isNotEmpty
+          ? await ApiService.getMachinesForClient(clientId)
+          : await ApiService.getMachines();
+      if (!mounted) return;
+      setState(() {
+        _sidebarMachines = machines.where((m) => _sidebarMachineId(m).isNotEmpty).toList();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sidebarMachinesError = e.toString();
+      });
+    } finally {
+      if (!mounted) return;
+      setState(() => _loadingSidebarMachines = false);
+    }
+  }
+
+  void _openMachineFromSidebar(Map<String, dynamic> machine) {
+    final machineId = _sidebarMachineId(machine);
+    if (machineId.isEmpty || machineId == _machineId) return;
+    final machineName = _sidebarMachineName(machine);
+    _switchMachine(machineId: machineId, machineName: machineName);
+  }
+
+  Future<void> _switchMachine({required String machineId, String? machineName}) async {
+    setState(() {
+      _machineId = machineId.trim();
+      _machineName = machineName;
+      _acceptedMachineIds = _buildAcceptedMachineIds(_machineId, _machineName);
+      _historyFuture = ApiService.getTelemetryHistory(_machineId, limit: 20);
+      _activeIntervention = null;
+      _techniciansForMachine = null;
+      _maintenanceOrders = <Map<String, dynamic>>[];
+      _forceShowMaintenanceTeam = false;
+      _maintenanceError = null;
+    });
+
+    _socket.emit('join_chat_room', {'roomId': _teamRoomId});
+    await _loadInitialTelemetry();
+    await _loadMachineIaProfile();
+    await _loadMaintenanceOrders();
+    await _checkActiveIntervention();
+  }
+
+  List<Map<String, dynamic>> get _machinesForCurrentClient {
+    final companyId = (_companyId ?? '').trim();
+    if (companyId.isEmpty) return _sidebarMachines;
+    final filtered = _sidebarMachines.where((m) {
+      final c1 = (m['companyId'] ?? '').toString().trim();
+      final c2 = (m['clientId'] ?? '').toString().trim();
+      return c1 == companyId || c2 == companyId;
+    }).toList();
+    return filtered.isNotEmpty ? filtered : _sidebarMachines;
+  }
+
   Future<void> _checkActiveIntervention() async {
     try {
       final interventions = await ApiService.getDiagnosticInterventions();
@@ -138,6 +215,10 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
       if (active.isNotEmpty) {
         setState(() {
           _activeIntervention = active;
+        });
+      } else if (mounted) {
+        setState(() {
+          _activeIntervention = null;
         });
       }
     } catch (e) {
@@ -393,31 +474,11 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     _socket.onConnect((_) {
       _socket.emit('join_chat_room', {'roomId': _teamRoomId});
     });
-    _socket.on('chat_message', (raw) {
-      try {
-        final data = raw is String ? jsonDecode(raw) : raw;
-        if (data is! Map) return;
-        final msg = Map<String, dynamic>.from(data);
-        if ((msg['roomId'] ?? '').toString() != _teamRoomId) return;
-        if (!mounted) return;
-        setState(() {
-          _teamChatMessages.add(msg);
-          final incomingSender = (msg['senderName'] ?? '').toString();
-          if (incomingSender != _senderName) {
-            _unreadTeamMessages += 1;
-          }
-          if (_teamChatMessages.length > 200) {
-            _teamChatMessages.removeAt(0);
-          }
-        });
-      } catch (_) {}
-    });
   }
 
   @override
   void dispose() {
     _pulseCtrl.dispose();
-    _teamChatController.dispose();
     _adminRulScaleController.dispose();
     _socket.dispose();
     super.dispose();
@@ -695,94 +756,87 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
-        child: Row(
-          children: [
-            _leftNav(),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    _topNav(),
-                    const SizedBox(height: 16),
-                    Expanded(
-                      child: _sideTab == 'technicians'
-                          ? _technicianListPanel()
-                          : _sideTab == 'maintenance'
-                              ? _maintenancePanel()
-                              : _sideTab == 'maintenance_team'
-                                  ? _maintenanceTeamPanel()
-                              : _sideTab == 'history'
-                                  ? _historyTabBody()
-                                  : LayoutBuilder(
-                                      builder: (context, outer) {
-                                        return SingleChildScrollView(
-                                          physics: const AlwaysScrollableScrollPhysics(),
-                                          child: ConstrainedBox(
-                                            constraints: BoxConstraints(minWidth: outer.maxWidth),
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                                              children: [
-                                                _motor3dSection(),
-                                                const SizedBox(height: 16),
-                                                LayoutBuilder(
-                                                  builder: (context, c) {
-                                                    final wide = c.maxWidth > 1150;
-                                                    if (wide) {
-                                                      return Row(
-                                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                                        children: [
-                                                          Expanded(flex: 58, child: _sensorsPanel()),
-                                                          const SizedBox(width: 16),
-                                                          Expanded(flex: 42, child: _aiPanel()),
-                                                        ],
-                                                      );
-                                                    }
-                                                    return Column(
-                                                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                                                      children: [
-                                                        _sensorsPanel(),
-                                                        const SizedBox(height: 16),
-                                                        _aiPanel(),
-                                                      ],
-                                                    );
-                                                  },
-                                                ),
-                                                const SizedBox(height: 16),
-                                                MachineControlCalendarPanel(
-                                                  machineId: _machineId,
-                                                  machineName: widget.machineName ?? '',
-                                                  panelColor: _panel2,
-                                                  accentOrange: _orange,
-                                                  accentCyan: _cyan,
-                                                  textColor: _text,
-                                                  mutedColor: _muted,
-                                                ),
-                                                const SizedBox(height: 16),
-                                                _historyPanel(),
-                                                const SizedBox(height: 24),
-                                              ],
-                                            ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              _topNav(),
+              const SizedBox(height: 16),
+              Expanded(
+                child: _sideTab == 'technicians'
+                    ? _technicianListPanel()
+                    : _sideTab == 'maintenance'
+                        ? _maintenancePanel()
+                        : _sideTab == 'maintenance_team'
+                            ? _maintenanceTeamPanel()
+                        : _sideTab == 'history'
+                            ? _historyTabBody()
+                            : LayoutBuilder(
+                                builder: (context, outer) {
+                                  return SingleChildScrollView(
+                                    physics: const AlwaysScrollableScrollPhysics(),
+                                    child: ConstrainedBox(
+                                      constraints: BoxConstraints(minWidth: outer.maxWidth),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        children: [
+                                          _motor3dSection(),
+                                          const SizedBox(height: 16),
+                                          LayoutBuilder(
+                                            builder: (context, c) {
+                                              final wide = c.maxWidth > 1150;
+                                              if (wide) {
+                                                return Row(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: [
+                                                    Expanded(flex: 58, child: _sensorsPanel()),
+                                                    const SizedBox(width: 16),
+                                                    Expanded(flex: 42, child: _aiPanel()),
+                                                  ],
+                                                );
+                                              }
+                                              return Column(
+                                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                                children: [
+                                                  _sensorsPanel(),
+                                                  const SizedBox(height: 16),
+                                                  _aiPanel(),
+                                                ],
+                                              );
+                                            },
                                           ),
-                                        );
-                                      },
+                                          const SizedBox(height: 16),
+                                          MachineControlCalendarPanel(
+                                            machineId: _machineId,
+                                            machineName: _machineName ?? '',
+                                            panelColor: _panel2,
+                                            accentOrange: _orange,
+                                            accentCyan: _cyan,
+                                            textColor: _text,
+                                            mutedColor: _muted,
+                                          ),
+                                          const SizedBox(height: 16),
+                                          _historyPanel(),
+                                          const SizedBox(height: 24),
+                                        ],
+                                      ),
                                     ),
-                    ),
-                    const SizedBox(height: 12),
-                    _bottomTicker(),
-                  ],
-                ),
+                                  );
+                                },
+                              ),
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              _bottomTicker(),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _topNav() {
-    final unitTitle = (widget.machineName != null && widget.machineName!.trim().isNotEmpty)
-        ? widget.machineName!.trim().toUpperCase()
+    final unitTitle = (_machineName != null && _machineName!.trim().isNotEmpty)
+        ? _machineName!.trim().toUpperCase()
         : 'MACHINE ${_machineId.length > 6 ? _machineId.substring(_machineId.length - 6) : _machineId}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -821,163 +875,100 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                 ],
               ),
             ),
-            IconButton(
-              onPressed: () {},
-              icon: Icon(Icons.notifications_none_rounded, color: _text.withOpacity(0.5), size: 22),
-              tooltip: 'Notifications',
-            ),
-            IconButton(
-              onPressed: () {},
-              icon: Icon(Icons.grid_view_rounded, color: _text.withOpacity(0.5), size: 22),
-              tooltip: 'Vues',
-            ),
-            IconButton(
-              onPressed: () {},
-              icon: Icon(Icons.person_outline_rounded, color: _text.withOpacity(0.5), size: 24),
-              tooltip: 'Profil',
-            ),
-            const SizedBox(width: 4),
-            _messageBellButton(),
-            const SizedBox(width: 4),
-            TextButton.icon(
-              onPressed: _openTeamMessenger,
-              icon: const Icon(Icons.forum_outlined, size: 16, color: _cyan),
-              label: Text('Messagerie', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _cyan, fontWeight: FontWeight.w600)),
-            ),
-            IconButton(
-              onPressed: () {},
-              icon: const Icon(Icons.settings_outlined, color: _muted, size: 22),
-              tooltip: 'Réglages',
-            ),
           ],
         ),
+        const SizedBox(height: 12),
+        _clientMachinesStrip(),
         const SizedBox(height: 14),
         Divider(height: 1, color: Colors.white.withOpacity(0.07)),
       ],
     );
   }
 
-  Widget _messageBellButton() {
-    return InkWell(
-      onTap: _openTeamMessenger,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          color: _panel,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white12),
-        ),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            const Center(
-              child: Icon(Icons.mark_chat_unread_outlined, color: _cyan, size: 18),
-            ),
-            if (_unreadTeamMessages > 0)
-              Positioned(
-                right: -4,
-                top: -4,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: _red,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
+  Widget _clientMachinesStrip() {
+    final machines = _machinesForCurrentClient;
+    return Container(
+      height: 64,
+      decoration: BoxDecoration(
+        color: _panel.withOpacity(0.65),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: _loadingSidebarMachines
+          ? Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: _orange),
+              ),
+            )
+          : _sidebarMachinesError != null
+              ? Center(
                   child: Text(
-                    _unreadTeamMessages > 99 ? '99+' : '$_unreadTeamMessages',
-                    style: GoogleFonts.inter(
-                      fontSize: 9,
-                      color: Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    'Erreur chargement machines',
+                    style: GoogleFonts.inter(fontSize: 11, color: _red),
                   ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _openTeamMessenger() {
-    setState(() => _unreadTeamMessages = 0);
-    _socket.emit('join_chat_room', {'roomId': _teamRoomId});
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: _panel2,
-        title: Text(
-          'Messagerie machine $_machineId',
-          style: GoogleFonts.inter(color: _text, fontWeight: FontWeight.bold),
-        ),
-        content: SizedBox(
-          width: 480,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                height: 220,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: _panel,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.white10),
-                ),
-                child: ListView(
-                  children: _teamChatMessages
-                      .map(
-                        (m) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Text(
-                            '${m['senderName'] ?? 'User'}: ${m['text'] ?? ''}',
-                            style: GoogleFonts.inter(color: _text, fontSize: 12),
+                )
+              : machines.isEmpty
+                  ? Center(
+                      child: Text(
+                        'Aucune machine client',
+                        style: GoogleFonts.inter(fontSize: 11, color: _text.withOpacity(0.6)),
+                      ),
+                    )
+                  : ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                      itemCount: machines.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (context, index) {
+                        final machine = machines[index];
+                        final id = _sidebarMachineId(machine);
+                        final name = _sidebarMachineName(machine);
+                        final active = id == _machineId;
+                        return InkWell(
+                          onTap: () => _openMachineFromSidebar(machine),
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: active ? _orange.withOpacity(0.14) : _panel2.withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: active ? _orange.withOpacity(0.85) : Colors.white.withOpacity(0.08),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  name.toUpperCase(),
+                                  style: GoogleFonts.spaceGrotesk(
+                                    fontSize: 10,
+                                    color: active ? _orange : _text,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.7,
+                                  ),
+                                ),
+                                Text(
+                                  id,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 9,
+                                    color: active ? _text.withOpacity(0.9) : _text.withOpacity(0.55),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _teamChatController,
-                style: GoogleFonts.inter(color: _text),
-                decoration: InputDecoration(
-                  hintText: 'Écrire un message au client/technicien/conception...',
-                  hintStyle: GoogleFonts.inter(color: _muted.withOpacity(0.8), fontSize: 12),
-                  border: const OutlineInputBorder(),
-                ),
-                maxLines: 2,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Fermer'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final text = _teamChatController.text.trim();
-              if (text.isEmpty) return;
-              _socket.emit('chat_message', {
-                'roomId': _teamRoomId,
-                'from': _senderRole,
-                'senderName': _senderName,
-                'text': text,
-              });
-              _teamChatController.clear();
-            },
-            child: const Text('Envoyer'),
-          ),
-        ],
-      ),
+                        );
+                      },
+                    ),
     );
   }
 
   Widget _leftNav() {
+    final machines = _sidebarMachines;
     return Container(
       width: 232,
       color: _panel,
@@ -1000,63 +991,104 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
             ),
           ),
           const SizedBox(height: 28),
-          _kineticNavItem(
-            label: 'DASHBOARD',
-            icon: Icons.dashboard_outlined,
-            active: false,
-            onTap: () {
-              if (Navigator.of(context).canPop()) {
-                Navigator.of(context).pop();
-              }
-            },
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Row(
+              children: [
+                Icon(Icons.precision_manufacturing_outlined, size: 16, color: _orange),
+                const SizedBox(width: 8),
+                Text(
+                  'LISTE MACHINES',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.2,
+                    color: _orange,
+                  ),
+                ),
+              ],
+            ),
           ),
-          _kineticNavItem(
-            label: 'ASSETS',
-            icon: Icons.precision_manufacturing_outlined,
-            active: _sideTab == 'dashboard',
-            onTap: () => setState(() => _sideTab = 'dashboard'),
+          Expanded(
+            child: _loadingSidebarMachines
+                ? Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: _orange)))
+                : _sidebarMachinesError != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          child: Text(
+                            'Erreur de chargement',
+                            style: GoogleFonts.inter(fontSize: 11, color: _red),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        itemCount: machines.length,
+                        itemBuilder: (context, index) {
+                          final machine = machines[index];
+                          final machineId = _sidebarMachineId(machine);
+                          final machineName = _sidebarMachineName(machine);
+                          final active = machineId == _machineId;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 0),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => _openMachineFromSidebar(machine),
+                                child: IntrinsicHeight(
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
+                                      AnimatedContainer(
+                                        duration: const Duration(milliseconds: 180),
+                                        width: 3,
+                                        decoration: BoxDecoration(
+                                          color: active ? _orange : Colors.transparent,
+                                          borderRadius: const BorderRadius.horizontal(right: Radius.circular(2)),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: Padding(
+                                          padding: const EdgeInsets.fromLTRB(14, 10, 16, 10),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                machineName.toUpperCase(),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: GoogleFonts.spaceGrotesk(
+                                                  fontSize: 10,
+                                                  letterSpacing: 1.05,
+                                                  fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                                                  color: active ? _text : _muted.withOpacity(0.78),
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                machineId,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: GoogleFonts.inter(
+                                                  fontSize: 9,
+                                                  color: active ? _orange.withOpacity(0.95) : _text.withOpacity(0.4),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
           ),
-          _kineticNavItem(
-            label: 'INTELLIGENCE',
-            icon: Icons.psychology_outlined,
-            active: false,
-            onTap: () => setState(() => _sideTab = 'dashboard'),
-          ),
-          _kineticNavItem(
-            label: 'HISTORY',
-            icon: Icons.history_rounded,
-            active: _sideTab == 'history',
-            onTap: () => setState(() => _sideTab = 'history'),
-          ),
-          _kineticNavItem(
-            label: 'CONFIGURATION',
-            icon: Icons.tune_rounded,
-            active: _sideTab == 'maintenance',
-            onTap: () => setState(() => _sideTab = 'maintenance'),
-          ),
-          _kineticNavItem(
-            label: 'ÉQUIPE',
-            icon: Icons.groups_outlined,
-            active: _sideTab == 'technicians',
-            onTap: () {
-              setState(() => _sideTab = 'technicians');
-              if (_techniciansForMachine == null && !_loadingTechnicians) {
-                _loadTechniciansForMachine();
-              }
-            },
-          ),
-          _kineticNavItem(
-            label: 'ÉQUIPE MAINTENANCE',
-            icon: Icons.engineering_outlined,
-            active: _sideTab == 'maintenance_team',
-            onTap: () {
-              setState(() => _sideTab = 'maintenance_team');
-              if (_techniciansForMachine == null && !_loadingTechnicians) {
-                _loadTechniciansForMachine();
-              }
-            },
-          ),
-          const Spacer(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
             child: Material(
@@ -1224,8 +1256,8 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   Widget _motor3dSection() {
     final rendement = (100 - _iaProbPanne * 0.82).clamp(38.0, 99.2);
     final alerteCritique = _machineStopped || _requiresStop || _iaProbPanne >= 70;
-    final motorTitle = (widget.machineName != null && widget.machineName!.trim().isNotEmpty)
-        ? widget.machineName!.trim().toUpperCase()
+    final motorTitle = (_machineName != null && _machineName!.trim().isNotEmpty)
+        ? _machineName!.trim().toUpperCase()
         : 'MOTEUR INDUSTRIEL';
     return ClipRRect(
       borderRadius: BorderRadius.circular(18),

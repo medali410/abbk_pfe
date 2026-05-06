@@ -93,6 +93,14 @@ class _HomePageState extends State<HomePage> {
       clientName: (qp['name'] ?? 'Client').trim(),
       clientEmail: (qp['email'] ?? '').trim(),
       clientLocation: (qp['location'] ?? '').trim(),
+      clientPhotoUrl:
+          (qp['photoUrl'] ??
+                  qp['avatarUrl'] ??
+                  qp['profilePhotoUrl'] ??
+                  qp['imageUrl'] ??
+                  qp['image'] ??
+                  '')
+              .trim(),
     );
 
     if (!mounted) return;
@@ -111,6 +119,7 @@ class _HomePageState extends State<HomePage> {
                   'name': (ApiService.savedClientName ?? 'Espace client').trim(),
                   'email': (ApiService.savedClientEmail ?? '').trim(),
                   'location': (ApiService.savedClientLocation ?? '').trim(),
+                  'photoUrl': (ApiService.savedClientPhotoUrl ?? '').trim(),
                 },
               ),
         ),

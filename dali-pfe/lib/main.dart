@@ -72,6 +72,14 @@ class _SessionEntryState extends State<SessionEntry> {
       clientName: (qp['name'] ?? 'Client').trim(),
       clientEmail: (qp['email'] ?? '').trim(),
       clientLocation: (qp['location'] ?? '').trim(),
+      clientPhotoUrl:
+          (qp['photoUrl'] ??
+                  qp['avatarUrl'] ??
+                  qp['profilePhotoUrl'] ??
+                  qp['imageUrl'] ??
+                  qp['image'] ??
+                  '')
+              .trim(),
     );
 
     if (!mounted) return;

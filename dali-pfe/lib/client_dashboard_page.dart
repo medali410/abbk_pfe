@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:file_picker/file_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:ui';
 import 'dart:convert';
@@ -9,6 +11,7 @@ import 'ai_analysis_page.dart';
 import 'services/api_service.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:video_player/video_player.dart';
 import 'machine_detail_pro_page.dart';
 import 'dart:async';
 
@@ -38,6 +41,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   int _navIndex = 0;
   /// Machine choisie pour l’onglet Analyse IA (null = liste de sélection).
   Map<String, dynamic>? _iaSelectedMachine;
+  bool _iaNoMachinesAssigned = false;
   /// Machine choisie depuis Mes Machines.
   Map<String, dynamic>? _machineSelectedMachine;
   /// Machine choisie pour Documents techniques.
@@ -142,6 +146,76 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     }
   }
 
+  Future<void> _openMesMachinesDirectly() async {
+    final existing = _machineSelectedMachine;
+    if (existing != null) {
+      setState(() => _navIndex = 1);
+      return;
+    }
+
+    final cId =
+        (widget.clientId ??
+                widget.clientData?['clientId'] ??
+                widget.clientData?['id'] ??
+                ApiService.savedClientId ??
+                '')
+            .toString()
+            .trim();
+    if (cId.isEmpty) {
+      setState(() => _navIndex = 1);
+      return;
+    }
+
+    try {
+      final machines = await ApiService.getMachinesForClient(cId);
+      if (!mounted) return;
+      setState(() {
+        _machineSelectedMachine = machines.isNotEmpty ? machines.first : null;
+        _navIndex = 1;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _navIndex = 1);
+    }
+  }
+
+  Future<void> _openAnalyseIaDirectly() async {
+    final existing = _iaSelectedMachine;
+    if (existing != null) {
+      setState(() => _navIndex = 2);
+      return;
+    }
+
+    final cId =
+        (widget.clientId ??
+                widget.clientData?['clientId'] ??
+                widget.clientData?['id'] ??
+                ApiService.savedClientId ??
+                '')
+            .toString()
+            .trim();
+    if (cId.isEmpty) {
+      setState(() => _navIndex = 2);
+      return;
+    }
+
+    try {
+      final machines = await ApiService.getMachinesForClient(cId);
+      if (!mounted) return;
+      setState(() {
+        _iaNoMachinesAssigned = machines.isEmpty;
+        _iaSelectedMachine = machines.isNotEmpty ? machines.first : null;
+        _navIndex = 2;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _iaNoMachinesAssigned = false;
+        _navIndex = 2;
+      });
+    }
+  }
+
   Future<void> _consumeGoogleOAuthReturnIfPresent() async {
     if (!kIsWeb) return;
     final qp = _readMergedWebQueryParams();
@@ -168,6 +242,14 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       clientName: (qp['name'] ?? 'Client').trim(),
       clientEmail: (qp['email'] ?? '').trim(),
       clientLocation: (qp['location'] ?? '').trim(),
+      clientPhotoUrl:
+          (qp['photoUrl'] ??
+                  qp['avatarUrl'] ??
+                  qp['profilePhotoUrl'] ??
+                  qp['imageUrl'] ??
+                  qp['image'] ??
+                  '')
+              .trim(),
     );
   }
 
@@ -344,6 +426,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   static const _surfaceContainerHigh = Color(0xFF272743);
   static const _surfaceContainerHighest = Color(0xFF32324E);
   static const _primary = Color(0xFFFF6E00);
+  static const _primaryContainer = Color(0xFF4A2A1A);
   static const _primaryLight = Color(0xFFFFB692);
   static const _secondary = Color(0xFF75D1FF);
   static const _error = Color(0xFFFFB4AB);
@@ -413,34 +496,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       );
     }
     if (_navIndex == 2) {
-      if (_iaSelectedMachine == null) {
-        return _buildMachinePickerCard(
-          isDesktop: isDesktop,
-          title: 'Choisir une machine',
-          subtitle:
-              "Sélectionnez l'équipement pour afficher l'analyse IA (graphiques, probabilité, recommandations).",
-          onPick: (m) => setState(() => _iaSelectedMachine = m),
-        );
-      }
-      final mid = _clientMachineId(_iaSelectedMachine!);
-      final mname = _clientMachineName(_iaSelectedMachine!);
-      final motor = (_iaSelectedMachine!['motorType'] ?? 'EL_M').toString();
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSubpageHeader(
-            title: 'Analyse IA',
-            subtitle: '$mname · $mid',
-            onBack: () => setState(() => _iaSelectedMachine = null),
-          ),
-          const SizedBox(height: 20),
-          AiAnalysisView(
-            machineId: mid,
-            machineName: mname,
-            motorType: motor,
-          ),
-        ],
-      );
+      return _buildAnalyseIaSection(isDesktop);
     }
     if (_navIndex == 3) {
       return _buildTeamSection();
@@ -462,8 +518,507 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         onBack: () => setState(() => _docSelectedMachine = null),
       );
     }
+    if (_navIndex == 5) {
+      return _buildProfileSection();
+    }
     // Fallback.
     return _buildMachineListSection(isDesktop);
+  }
+
+  Widget _buildProfileSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'PROFIL CLIENT',
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 9,
+            fontWeight: FontWeight.w900,
+            color: _secondary,
+            letterSpacing: 2.5,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Informations de votre compte',
+          style: GoogleFonts.inter(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: _onSurface,
+            letterSpacing: -0.5,
+          ),
+        ),
+        const SizedBox(height: 20),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                const Color(0xFF171A36),
+                const Color(0xFF11142B),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.28),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _buildClientProfileAvatar(),
+                const SizedBox(height: 12),
+                Text(
+                  _currentClientName,
+                  style: GoogleFonts.inter(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: _onSurface,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _currentClientEmail.isEmpty
+                      ? 'Email non renseigné'
+                      : _currentClientEmail,
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    color: _onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _currentClientLocation,
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    color: _onSurfaceVariant.withOpacity(0.9),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 14),
+                OutlinedButton.icon(
+                  onPressed: _openProfileSettingsDialog,
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text('Modifier le profil'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _primaryLight,
+                    side: BorderSide(
+                      color: _outlineVariant.withOpacity(0.45),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildProfileStatsSection(),
+        const SizedBox(height: 16),
+        _buildProfileClientMachinesSection(),
+        const SizedBox(height: 16),
+        _buildProfileTechniciansSection(),
+      ],
+    );
+  }
+
+  Widget _buildProfileStatsSection() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _surfaceContainerLow.withOpacity(0.45),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _outlineVariant.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'STATISTIQUES',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 10,
+              letterSpacing: 1.6,
+              fontWeight: FontWeight.w700,
+              color: _onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _buildSidebarStats(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileClientMachinesSection() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _surfaceContainerLow.withOpacity(0.45),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _outlineVariant.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'MACHINES DU CLIENT',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 10,
+              letterSpacing: 1.6,
+              fontWeight: FontWeight.w700,
+              color: _onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 10),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _machinesFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                );
+              }
+              final machines = snapshot.data ?? const <Map<String, dynamic>>[];
+              if (machines.isEmpty) {
+                return Text(
+                  'Aucune machine assignée à ce client.',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: _onSurfaceVariant,
+                  ),
+                );
+              }
+              return Column(
+                children: machines.take(5).map((m) {
+                  final name = _clientMachineName(m);
+                  final id = _clientMachineId(m);
+                  final status = (m['state'] ?? m['status'] ?? 'Actif').toString();
+                  final brand = (m['brand'] ?? m['marque'] ?? '—').toString();
+                  final model = (m['model'] ?? m['name'] ?? '—').toString();
+                  final type = (m['type'] ?? m['category'] ?? '—').toString();
+                  final location = (m['location'] ?? m['site'] ?? '—').toString();
+                  final serial = (m['serialNumber'] ?? m['serial'] ?? m['sn'] ?? '—')
+                      .toString();
+                  final maintBy =
+                      (m['maintenanceControlBy'] ?? m['maintainedBy'] ?? '—')
+                          .toString();
+                  final maintActive = m['maintenanceControlActive'] == true
+                      ? 'Oui'
+                      : 'Non';
+                  final temp = (m['temperature'] ?? m['temp'] ?? '—').toString();
+                  final vibration =
+                      (m['vibration'] ?? m['vibrationLevel'] ?? '—').toString();
+                  final pressure =
+                      (m['pressure'] ?? m['pressureLevel'] ?? '—').toString();
+                  final imageUrl = (m['imageUrl'] ?? m['image'] ?? m['photo'] ?? '')
+                      .toString()
+                      .trim();
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _surfaceContainerHigh.withOpacity(0.35),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: _outlineVariant.withOpacity(0.18),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: SizedBox(
+                            width: 92,
+                            height: 72,
+                            child: imageUrl.isEmpty
+                                ? Container(
+                                    color: _surfaceContainerHighest.withOpacity(0.4),
+                                    child: Icon(
+                                      Icons.precision_manufacturing_outlined,
+                                      color: _primary.withOpacity(0.95),
+                                      size: 24,
+                                    ),
+                                  )
+                                : Image.network(
+                                    imageUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Container(
+                                      color: _surfaceContainerHighest.withOpacity(0.4),
+                                      child: Icon(
+                                        Icons.image_not_supported_outlined,
+                                        color: _onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      name,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: _onSurface,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    status.toUpperCase(),
+                                    style: GoogleFonts.spaceGrotesk(
+                                      fontSize: 10,
+                                      color: _primary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                id.isEmpty ? 'ID: indisponible' : 'ID: $id',
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 10,
+                                  color: _onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Wrap(
+                                spacing: 10,
+                                runSpacing: 4,
+                                children: [
+                                  _miniInfo('Marque', brand),
+                                  _miniInfo('Modele', model),
+                                  _miniInfo('Type', type),
+                                  _miniInfo('Serial', serial),
+                                  _miniInfo('Emplacement', location),
+                                  _miniInfo('Maintenance', maintActive),
+                                  _miniInfo('Mainteneur', maintBy),
+                                  _miniInfo('Temp', temp),
+                                  _miniInfo('Vibration', vibration),
+                                  _miniInfo('Pression', pressure),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniInfo(String label, String value) {
+    return RichText(
+      text: TextSpan(
+        style: GoogleFonts.inter(
+          fontSize: 10,
+          color: _onSurfaceVariant,
+        ),
+        children: [
+          TextSpan(
+            text: '$label: ',
+            style: GoogleFonts.inter(
+              fontSize: 10,
+              color: _onSurfaceVariant.withOpacity(0.85),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          TextSpan(
+            text: value.isEmpty ? '—' : value,
+            style: GoogleFonts.inter(
+              fontSize: 10,
+              color: _onSurface,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileTechniciansSection() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _surfaceContainerLow.withOpacity(0.45),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _outlineVariant.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'TECHNICIENS & MAINTENANCE MAN',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 10,
+              letterSpacing: 1.6,
+              fontWeight: FontWeight.w700,
+              color: _onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 10),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _techniciansFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                );
+              }
+              final techs = snapshot.data ?? const <Map<String, dynamic>>[];
+              if (techs.isEmpty) {
+                return Text(
+                  'Aucun technicien assigné à ce client.',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: _onSurfaceVariant,
+                  ),
+                );
+              }
+              return Column(
+                children: techs.map((t) {
+                  final name = (t['name'] ?? t['fullName'] ?? 'Technicien')
+                      .toString();
+                  final technicianId =
+                      (t['technicianId'] ?? t['_id'] ?? t['id'] ?? '')
+                          .toString();
+                  final specialization =
+                      (t['specialization'] ?? t['role'] ?? 'Support Machine')
+                          .toString();
+                  final status = (t['status'] ?? 'Disponible').toString();
+                  final isMaintenanceMan = specialization.toLowerCase().contains('mainten');
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: _surfaceContainerHigh.withOpacity(0.35),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _outlineVariant.withOpacity(0.18)),
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: _surfaceContainerHighest,
+                          child: Icon(
+                            isMaintenanceMan
+                                ? Icons.engineering_outlined
+                                : Icons.person_outline,
+                            size: 18,
+                            color: _primary,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: _onSurface,
+                                ),
+                              ),
+                              Text(
+                                technicianId.isEmpty
+                                    ? 'ID indisponible'
+                                    : technicianId,
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 10,
+                                  color: _onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                specialization,
+                                style: GoogleFonts.inter(
+                                  fontSize: 10,
+                                  color: _onSurfaceVariant.withOpacity(0.9),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              status.toUpperCase(),
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 10,
+                                color: _primary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: (isMaintenanceMan
+                                        ? _secondary
+                                        : _outlineVariant)
+                                    .withOpacity(0.18),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                isMaintenanceMan ? 'Maintenance man' : 'Technicien',
+                                style: GoogleFonts.inter(
+                                  fontSize: 9,
+                                  color: _onSurfaceVariant,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildMachineTelemetryDetailSection(bool isDesktop) {
@@ -489,12 +1044,167 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             child: MachineDetailAiPage(
               machineId: mid,
               machineName: name,
+              clientId: widget.clientId ?? widget.clientData?['clientId'] ?? widget.clientData?['id'],
               viewerRole: 'client',
               viewerName: (widget.clientName ?? 'Client').toString(),
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildAnalyseIaSection(bool isDesktop) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _machinesFuture,
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 48),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snap.hasError) {
+          return _buildNoMachineAssignedCard(
+            title: 'Analyse IA indisponible',
+            message: "Impossible de charger les machines client pour l'analyse IA.",
+          );
+        }
+        final machines = snap.data ?? const <Map<String, dynamic>>[];
+        if (machines.isEmpty || _iaNoMachinesAssigned) {
+          return _buildNoMachineAssignedCard(
+            title: 'Analyse IA indisponible',
+            message:
+                "Aucune machine n'est assignée à votre client pour le moment. Contactez l'administrateur pour activer l'analyse IA.",
+          );
+        }
+
+        Map<String, dynamic> selected = _iaSelectedMachine ?? machines.first;
+        if (_iaSelectedMachine == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() => _iaSelectedMachine = machines.first);
+          });
+        } else {
+          final sid = _clientMachineId(_iaSelectedMachine!);
+          final match = machines.where((m) => _clientMachineId(m) == sid).toList();
+          if (match.isNotEmpty) selected = match.first;
+        }
+
+        final mid = _clientMachineId(selected);
+        final mname = _clientMachineName(selected);
+        final motor = (selected['motorType'] ?? 'EL_M').toString();
+
+        final iaPanel = AiAnalysisView(
+          machineId: mid,
+          machineName: mname,
+          motorType: motor,
+        );
+
+        return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSubpageHeader(
+                title: 'Analyse IA',
+                subtitle: '$mname · $mid',
+                onBack: () {},
+              ),
+              const SizedBox(height: 16),
+              if (isDesktop)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: _surfaceContainerLow.withOpacity(0.45),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withOpacity(0.08)),
+                      ),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: machines.map((m) {
+                          final id = _clientMachineId(m);
+                          final name = _clientMachineName(m);
+                          final active = id == mid;
+                          return ChoiceChip(
+                            label: Text(
+                              '$name · $id',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: active ? _secondary : _onSurface,
+                                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                              ),
+                            ),
+                            selected: active,
+                            onSelected: (_) => setState(() => _iaSelectedMachine = m),
+                            selectedColor: _primaryContainer.withOpacity(0.15),
+                            backgroundColor: _surfaceContainerHighest.withOpacity(0.25),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              side: BorderSide(
+                                color: active
+                                    ? _primaryContainer.withOpacity(0.8)
+                                    : Colors.white.withOpacity(0.10),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    iaPanel,
+                  ],
+                )
+              else ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: _outlineVariant.withOpacity(0.2)),
+                  ),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: machines.map((m) {
+                      final id = _clientMachineId(m);
+                      final name = _clientMachineName(m);
+                      final active = id == mid;
+                      return ChoiceChip(
+                        label: Text(
+                          '$name · $id',
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            color: active ? _secondary : _onSurface,
+                            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                          ),
+                        ),
+                        selected: active,
+                        onSelected: (_) => setState(() => _iaSelectedMachine = m),
+                        selectedColor: _secondary.withOpacity(0.18),
+                        backgroundColor: _surfaceContainerHighest.withOpacity(0.3),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          side: BorderSide(
+                            color: active
+                                ? _secondary.withOpacity(0.8)
+                                : Colors.white.withOpacity(0.08),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                iaPanel,
+              ],
+            ],
+          );
+      },
     );
   }
 
@@ -506,44 +1216,35 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Catalogue machines',
-                style: GoogleFonts.inter(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                  color: _onSurface,
-                  letterSpacing: -0.3,
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            SizedBox(
-              width: isDesktop ? 340 : 260,
-              child: TextField(
-                controller: _publicCatalogSearchController,
-                onChanged: (v) => setState(() => _publicCatalogSearchQuery = v),
-                decoration: InputDecoration(
-                  hintText: 'Rechercher par nom, ID ou marque...',
-                  hintStyle: GoogleFonts.inter(
-                    color: _onSurfaceVariant.withOpacity(0.6),
-                    fontSize: 13,
-                  ),
-                  filled: true,
-                  fillColor: _surfaceContainerLow,
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                ),
-              ),
-            ),
-          ],
+        FutureBuilder<List<Map<String, dynamic>>>(
+          future: _publicCatalogFuture,
+          builder: (context, snapshot) {
+            final total = (snapshot.data ?? const <Map<String, dynamic>>[]).length;
+            return _buildClientCatalogHero(total: total, isDesktop: isDesktop);
+          },
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 14),
+        _buildClientCatalogToolbar(isDesktop),
+        const SizedBox(height: 16),
+        _buildClientCatalogSectionHeader(
+          title: 'CATALOGUE DES SYSTEMES',
+          subtitle: 'Unites de surveillance haute precision',
+          trailing: FutureBuilder<List<Map<String, dynamic>>>(
+            future: _publicCatalogFuture,
+            builder: (context, snapshot) {
+              final total = (snapshot.data ?? const <Map<String, dynamic>>[]).length;
+              return Text(
+                '$total machine(s) affichee(s)',
+                style: GoogleFonts.inter(
+                  color: _onSurfaceVariant.withOpacity(0.9),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 14),
 
         FutureBuilder<List<Map<String, dynamic>>>(
           future: _publicCatalogFuture,
@@ -606,6 +1307,203 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         ),
         const SizedBox(height: 80),
       ],
+    );
+  }
+
+  Widget _buildClientCatalogHero({required int total, required bool isDesktop}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: SizedBox(
+        height: isDesktop ? 280 : 240,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _buildClientHeroVisual(),
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    Color(0xEE131B32),
+                    Color(0xB3161F38),
+                    Color(0x66161F38),
+                  ],
+                  stops: [0.0, 0.48, 1.0],
+                ),
+              ),
+            ),
+            Padding(
+              padding: EdgeInsets.all(isDesktop ? 24 : 18),
+              child: SizedBox(
+                width: isDesktop ? 560 : double.infinity,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Catalogue machines',
+                      style: GoogleFonts.inter(
+                        color: const Color(0xFFFFB87A),
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'L\'efficacite predite par l\'IA',
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: isDesktop ? 38 : 28,
+                        fontWeight: FontWeight.w800,
+                        height: 1.15,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Visualisez les equipements critiques en temps reel et accedez aux machines disponibles depuis la base.',
+                      style: GoogleFonts.inter(
+                        color: const Color(0xFFD5DCEE),
+                        fontSize: 14,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _buildClientCatalogChip(Icons.precision_manufacturing_rounded, '$total machines'),
+                        _buildClientCatalogChip(Icons.update_rounded, 'Temps reel'),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildClientHeroVisual() {
+    return const _ClientHeroVideoSlides(
+      fallbackImageUrl:
+          'https://images.unsplash.com/photo-1565043589221-1a6fd9ae45c7?auto=format&fit=crop&w=1400&q=80',
+    );
+  }
+
+  Widget _buildClientCatalogToolbar(bool isDesktop) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: const Color(0x55182236),
+            border: Border.all(color: const Color(0x33FFFFFF)),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.search_rounded,
+                size: 18,
+                color: Color(0xFFA7B1C6),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _publicCatalogSearchController,
+                  onChanged: (v) => setState(() => _publicCatalogSearchQuery = v),
+                  style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
+                  decoration: InputDecoration(
+                    hintText: 'Rechercher par nom, ID ou marque...',
+                    hintStyle: GoogleFonts.inter(
+                      color: const Color(0x77A7B1C6),
+                      fontSize: 13,
+                    ),
+                    border: InputBorder.none,
+                    isDense: true,
+                  ),
+                ),
+              ),
+              if (isDesktop) ...[
+                _buildClientCatalogChip(Icons.filter_alt_outlined, 'Filtre'),
+                const SizedBox(width: 8),
+                _buildClientCatalogChip(Icons.tune, 'Tri'),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildClientCatalogSectionHeader({
+    required String title,
+    required String subtitle,
+    required Widget trailing,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: GoogleFonts.inter(
+                  color: const Color(0xFFFFB87A),
+                  fontSize: 11,
+                  letterSpacing: 2.2,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                subtitle,
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  height: 1.08,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 16),
+        trailing,
+      ],
+    );
+  }
+
+  Widget _buildClientCatalogChip(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0x1FFFFFFF),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0x33FFFFFF)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: const Color(0xFFD9E0F2)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: GoogleFonts.inter(
+              color: const Color(0xFFE5EAF8),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -932,6 +1830,49 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           },
         ),
       ],
+    );
+  }
+
+  Widget _buildNoMachineAssignedCard({
+    required String title,
+    required String message,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: _surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _outlineVariant.withOpacity(0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.info_outline, color: _secondary, size: 22),
+              const SizedBox(width: 10),
+              Text(
+                title,
+                style: GoogleFonts.inter(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: _onSurface,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            message,
+            style: GoogleFonts.inter(
+              fontSize: 14,
+              color: _onSurfaceVariant,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1317,6 +2258,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           ),
           // Nav items
           _navItem(Icons.dashboard, 'Home', 0),
+          _navItem(Icons.person_outline, 'Profil', 5),
           _navItem(Icons.precision_manufacturing, 'Mes Machines', 1),
           _navItem(Icons.auto_awesome, 'Analyse IA', 2),
           _navItem(Icons.groups, 'Équipe Assignée', 3),
@@ -1336,6 +2278,14 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       color: Colors.transparent,
       child: InkWell(
         onTap: () {
+          if (index == 1) {
+            _openMesMachinesDirectly();
+            return;
+          }
+          if (index == 2) {
+            _openAnalyseIaDirectly();
+            return;
+          }
           setState(() {
             _navIndex = index;
             if (index == 2) _iaSelectedMachine = null;
@@ -1377,6 +2327,84 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
+  Widget _buildSidebarStats() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _machinesFuture,
+      builder: (context, snapshot) {
+        final machines = snapshot.data ?? const <Map<String, dynamic>>[];
+        final totalMachines = machines.length;
+        final maintenanceCount = machines.where((m) {
+          final active = m['maintenanceControlActive'] == true;
+          final state = (m['state'] ?? m['status'] ?? '').toString().toLowerCase();
+          return active ||
+              state.contains('maintenance') ||
+              state.contains('mainten');
+        }).length;
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: _surfaceContainerHigh.withOpacity(0.35),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: _outlineVariant.withOpacity(0.22)),
+          ),
+          child: Column(
+            children: [
+              _sidebarStatItem(
+                icon: Icons.precision_manufacturing,
+                label: 'Total Machines',
+                value: totalMachines.toString(),
+              ),
+              const SizedBox(height: 8),
+              _sidebarStatItem(
+                icon: Icons.groups_2_outlined,
+                label: 'Total Techniciens',
+                value: _isLoadingStats ? '..' : _techCount.toString(),
+              ),
+              const SizedBox(height: 8),
+              _sidebarStatItem(
+                icon: Icons.build_circle_outlined,
+                label: 'En Maintenance',
+                value: maintenanceCount.toString(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _sidebarStatItem({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: _primary.withOpacity(0.95)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              color: _onSurfaceVariant.withOpacity(0.85),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 13,
+            color: _onSurface,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+
   // ══════════════════════════ TOP BAR ════════════════════════════
   Widget _buildTopBar(bool isDesktop) {
     return Container(
@@ -1399,6 +2427,18 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 _iconBtn(Icons.notifications_outlined),
                 const SizedBox(width: 8),
                 _iconBtn(Icons.settings_outlined),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: _logoutClient,
+                  icon: const Icon(Icons.logout, size: 16),
+                  label: const Text('Déconnexion'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _error,
+                    side: BorderSide(color: _error.withOpacity(0.45)),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    textStyle: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ),
               ],
             ),
           ),
@@ -1430,6 +2470,302 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             .toString()
             .trim();
     return v.isEmpty ? 'Tunis' : v;
+  }
+
+  String get _currentClientPhotoUrl {
+    final saved = (ApiService.savedClientPhotoUrl ?? '').toString().trim();
+    if (saved.isNotEmpty) return saved;
+    final client = widget.clientData ?? const <String, dynamic>{};
+    const keys = [
+      'photoUrl',
+      'avatarUrl',
+      'profilePhotoUrl',
+      'imageUrl',
+      'image',
+      'photo',
+      'avatar',
+      'picture',
+    ];
+    for (final key in keys) {
+      final v = (client[key] ?? '').toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+    return '';
+  }
+
+  String get _currentClientBackgroundUrl {
+    return (ApiService.savedClientBackgroundUrl ??
+            widget.clientData?['backgroundUrl'] ??
+            widget.clientData?['profileBackgroundUrl'] ??
+            '')
+        .toString()
+        .trim();
+  }
+
+  String _imageMimeFromExtension(String? ext) {
+    final e = (ext ?? '').toLowerCase().trim();
+    switch (e) {
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'gif':
+        return 'image/gif';
+      case 'jpg':
+      case 'jpeg':
+      default:
+        return 'image/jpeg';
+    }
+  }
+
+  DecorationImage? _profileBackgroundDecorationImage() {
+    final raw = _currentClientBackgroundUrl;
+    if (raw.isEmpty) return null;
+    if (raw.startsWith('data:image/')) {
+      try {
+        return DecorationImage(
+          image: MemoryImage(base64Decode(raw.split(',').last)),
+          fit: BoxFit.cover,
+        );
+      } catch (_) {
+        return null;
+      }
+    }
+    return DecorationImage(
+      image: NetworkImage(raw),
+      fit: BoxFit.cover,
+    );
+  }
+
+  Widget _buildProfileBackgroundLayer() {
+    final raw = _currentClientBackgroundUrl;
+    if (raw.isEmpty) return const SizedBox.shrink();
+    if (raw.startsWith('data:image/')) {
+      try {
+        return Image.memory(
+          base64Decode(raw.split(',').last),
+          fit: BoxFit.cover,
+        );
+      } catch (_) {
+        return const SizedBox.shrink();
+      }
+    }
+    return Image.network(
+      raw,
+      fit: BoxFit.cover,
+      webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
+      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+    );
+  }
+
+  Future<void> _pickAndSaveClientPhoto() async {
+    try {
+      final picked = await FilePicker.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+      if (picked == null || picked.files.isEmpty || !mounted) return;
+      final f = picked.files.first;
+      final bytes = f.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Impossible de lire le fichier image.')),
+        );
+        return;
+      }
+      if (bytes.lengthInBytes > 1500000) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Image trop volumineuse. Choisissez une image <= 1.5 MB.'),
+          ),
+        );
+        return;
+      }
+
+      final mime = _imageMimeFromExtension(f.extension);
+      final dataUrl = 'data:$mime;base64,${base64Encode(bytes)}';
+      final clientId =
+          (widget.clientId ??
+                  widget.clientData?['clientId'] ??
+                  widget.clientData?['id'] ??
+                  ApiService.savedClientId ??
+                  '')
+              .toString()
+              .trim();
+
+      await ApiService.saveClientSession(
+        clientId: clientId,
+        clientName: _currentClientName,
+        clientEmail: _currentClientEmail,
+        clientLocation: _currentClientLocation,
+        clientPhotoUrl: dataUrl,
+        clientBackgroundUrl: _currentClientBackgroundUrl,
+      );
+
+      if (clientId.isNotEmpty) {
+        try {
+          await ApiService.updateClient(clientId, {
+            'photoUrl': dataUrl,
+            'avatarUrl': dataUrl,
+            'profilePhotoUrl': dataUrl,
+            'image': dataUrl,
+          });
+        } catch (_) {
+          // Keep local photo even if backend update fails.
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Photo de profil mise à jour.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur choix photo: $e')),
+      );
+    }
+  }
+
+  Future<void> _openProfileBackgroundDialog() async {
+    final urlCtrl = TextEditingController(text: _currentClientBackgroundUrl);
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surfaceContainerHigh,
+        title: Text(
+          'Background du profil',
+          style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+        ),
+        content: TextField(
+          controller: urlCtrl,
+          decoration: InputDecoration(
+            labelText: 'URL image background',
+            hintText: 'https://.../background.jpg',
+            prefixIcon: const Icon(Icons.wallpaper_outlined),
+            filled: true,
+            fillColor: _surfaceContainerLow,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
+    );
+    if (approved != true || !mounted) return;
+    final bgUrl = urlCtrl.text.trim();
+    final clientId =
+        (widget.clientId ??
+                widget.clientData?['clientId'] ??
+                widget.clientData?['id'] ??
+                ApiService.savedClientId ??
+                '')
+            .toString()
+            .trim();
+    await ApiService.saveClientSession(
+      clientId: clientId,
+      clientName: _currentClientName,
+      clientEmail: _currentClientEmail,
+      clientLocation: _currentClientLocation,
+      clientPhotoUrl: _currentClientPhotoUrl,
+      clientBackgroundUrl: bgUrl,
+    );
+    if (clientId.isNotEmpty) {
+      try {
+        await ApiService.updateClient(clientId, {
+          'backgroundUrl': bgUrl,
+          'profileBackgroundUrl': bgUrl,
+        });
+      } catch (_) {
+        // Keep local setting if backend update fails.
+      }
+    }
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Background profil mis à jour.')),
+    );
+  }
+
+  Widget _buildClientProfileAvatar() {
+    final initial = _currentClientName.isEmpty
+        ? 'C'
+        : _currentClientName[0].toUpperCase();
+    if (_currentClientPhotoUrl.isEmpty) {
+      return GestureDetector(
+        onTap: _pickAndSaveClientPhoto,
+        child: CircleAvatar(
+          radius: 34,
+          backgroundColor: _surfaceContainerHighest,
+          child: Text(
+            initial,
+            style: GoogleFonts.inter(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              color: _primary,
+            ),
+          ),
+        ),
+      );
+    }
+    return GestureDetector(
+      onTap: _pickAndSaveClientPhoto,
+      child: ClipOval(
+        child: SizedBox(
+          width: 68,
+          height: 68,
+            child: _currentClientPhotoUrl.startsWith('data:image/')
+                ? Image.memory(
+                    base64Decode(_currentClientPhotoUrl.split(',').last),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) {
+                      return CircleAvatar(
+                        radius: 34,
+                        backgroundColor: _surfaceContainerHighest,
+                        child: Text(
+                          initial,
+                          style: GoogleFonts.inter(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w700,
+                            color: _primary,
+                          ),
+                        ),
+                      );
+                    },
+                  )
+                : Image.network(
+                    _currentClientPhotoUrl,
+                    fit: BoxFit.cover,
+                    webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
+                    errorBuilder: (_, __, ___) {
+                      return CircleAvatar(
+                        radius: 34,
+                        backgroundColor: _surfaceContainerHighest,
+                        child: Text(
+                          initial,
+                          style: GoogleFonts.inter(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w700,
+                            color: _primary,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+        ),
+      ),
+    );
   }
 
   Widget _buildMobileQuickActions() {
@@ -1472,8 +2808,48 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               ),
             ),
           ),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _logoutClient,
+              icon: const Icon(Icons.logout, size: 18),
+              label: const Text('Déconnexion'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _error,
+                side: BorderSide(color: _error.withOpacity(0.45)),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  Future<void> _logoutClient() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Déconnexion'),
+        content: const Text('Voulez-vous vraiment vous déconnecter ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Se déconnecter'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    await ApiService.clearAuth();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginPage()),
+      (route) => false,
     );
   }
 
@@ -1481,6 +2857,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     final nameCtrl = TextEditingController(text: _currentClientName);
     final emailCtrl = TextEditingController(text: _currentClientEmail);
     final locationCtrl = TextEditingController(text: _currentClientLocation);
+    final photoCtrl = TextEditingController(text: _currentClientPhotoUrl);
     final approved = await showDialog<bool>(
       context: context,
       builder:
@@ -1533,6 +2910,21 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                     ),
                   ),
                   const SizedBox(height: 12),
+                  TextField(
+                    controller: photoCtrl,
+                    style: GoogleFonts.inter(color: _onSurface),
+                    decoration: InputDecoration(
+                      labelText: 'URL photo de profil',
+                      hintText: 'https://.../photo.jpg',
+                      prefixIcon: const Icon(Icons.image_outlined, size: 18),
+                      filled: true,
+                      fillColor: _surfaceContainerLow,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   TextField(
                     controller: nameCtrl,
                     style: GoogleFonts.inter(color: _onSurface),
@@ -1595,6 +2987,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     final name = nameCtrl.text.trim();
     final email = emailCtrl.text.trim();
     final location = locationCtrl.text.trim();
+    final photoUrl = photoCtrl.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Le nom est obligatoire.')),
@@ -1616,6 +3009,8 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         clientName: name,
         clientEmail: email,
         clientLocation: location,
+        clientPhotoUrl: photoUrl,
+        clientBackgroundUrl: _currentClientBackgroundUrl,
       );
 
       if (clientId.isNotEmpty) {
@@ -1624,6 +3019,10 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             'name': name,
             'email': email,
             'location': location,
+            'photoUrl': photoUrl,
+            'avatarUrl': photoUrl,
+            'profilePhotoUrl': photoUrl,
+            'image': photoUrl,
           });
         } catch (_) {
           // Keep local update even if remote update is unavailable for this role.
@@ -2257,7 +3656,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                         ),
                       ),
                       TextButton.icon(
-                        onPressed: () => _openMessageEquipePage(t),
+                        onPressed: () => _openMessageEquipeDialog(t),
                         icon: const Icon(Icons.message_outlined, size: 16),
                         label: const Text('Message'),
                       ),
@@ -2278,20 +3677,194 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  Future<void> _openMessageEquipePage(Map<String, dynamic> technician) async {
+  String _formatChatTime(dynamic raw) {
+    final dt = DateTime.tryParse((raw ?? '').toString());
+    if (dt == null) return '--:--';
+    final local = dt.toLocal();
+    return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _openMessageEquipeDialog(Map<String, dynamic> technician) async {
     final techId = (technician['technicianId'] ?? technician['_id'] ?? 'tech').toString();
     final clientKey = (widget.clientId ?? widget.clientData?['clientId'] ?? widget.clientData?['id'] ?? 'client').toString();
+    final roomId = 'chat_${clientKey}_$techId';
+    final techName = (technician['name'] ?? 'Technicien').toString();
+    final input = TextEditingController();
+
+    _socket.emit('join_chat_room', {'roomId': roomId});
+
     if (!mounted) return;
-    Navigator.of(context).pushNamed(
-      '/message-equipe',
-      arguments: {
-        'role': 'client',
-        'companyId': clientKey,
-        'clientId': clientKey,
-        'technicianId': techId,
-        'name': widget.clientName ?? 'Client',
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            final messages = List<Map<String, dynamic>>.from(_chatMessages[roomId] ?? const []);
+            return Dialog(
+              backgroundColor: _surfaceContainerHigh,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: SizedBox(
+                width: 560,
+                height: 520,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 8, 10),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 16,
+                            backgroundColor: _surfaceContainerHighest,
+                            child: const Icon(Icons.engineering, size: 16, color: _onSurfaceVariant),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Message · $techName',
+                              style: GoogleFonts.inter(
+                                color: _onSurface,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                            tooltip: 'Fermer',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: messages.isEmpty
+                          ? Center(
+                              child: Text(
+                                'Aucun message pour le moment.',
+                                style: GoogleFonts.inter(color: _onSurfaceVariant),
+                              ),
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.all(12),
+                              itemCount: messages.length,
+                              itemBuilder: (_, i) {
+                                final msg = messages[i];
+                                final isMine = (msg['from'] ?? '').toString() == 'client';
+                                return Align(
+                                  alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+                                  child: Container(
+                                    margin: const EdgeInsets.symmetric(vertical: 5),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                    constraints: const BoxConstraints(maxWidth: 360),
+                                    decoration: BoxDecoration(
+                                      color: isMine ? _primaryContainer.withOpacity(0.22) : _surfaceContainerHighest,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: _outlineVariant.withOpacity(0.25)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          (msg['text'] ?? '').toString(),
+                                          style: GoogleFonts.inter(color: _onSurface, fontSize: 13),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          _formatChatTime(msg['createdAt']),
+                                          style: GoogleFonts.inter(
+                                            color: _onSurfaceVariant,
+                                            fontSize: 10,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: input,
+                              minLines: 1,
+                              maxLines: 3,
+                              decoration: const InputDecoration(
+                                hintText: 'Ecrire un message...',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              onSubmitted: (_) {
+                                final text = input.text.trim();
+                                if (text.isEmpty) return;
+                                final localMessage = <String, dynamic>{
+                                  'roomId': roomId,
+                                  'from': 'client',
+                                  'senderName': widget.clientName ?? 'Client',
+                                  'text': text,
+                                  'createdAt': DateTime.now().toIso8601String(),
+                                };
+                                setState(() {
+                                  final list = _chatMessages.putIfAbsent(roomId, () => []);
+                                  list.add(localMessage);
+                                });
+                                _socket.emit('chat_message', {
+                                  'roomId': roomId,
+                                  'from': 'client',
+                                  'senderName': widget.clientName ?? 'Client',
+                                  'text': text,
+                                });
+                                input.clear();
+                                setDialogState(() {});
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              final text = input.text.trim();
+                              if (text.isEmpty) return;
+                              final localMessage = <String, dynamic>{
+                                'roomId': roomId,
+                                'from': 'client',
+                                'senderName': widget.clientName ?? 'Client',
+                                'text': text,
+                                'createdAt': DateTime.now().toIso8601String(),
+                              };
+                              setState(() {
+                                final list = _chatMessages.putIfAbsent(roomId, () => []);
+                                list.add(localMessage);
+                              });
+                              _socket.emit('chat_message', {
+                                'roomId': roomId,
+                                'from': 'client',
+                                'senderName': widget.clientName ?? 'Client',
+                                'text': text,
+                              });
+                              input.clear();
+                              setDialogState(() {});
+                            },
+                            icon: const Icon(Icons.send_rounded, size: 16),
+                            label: const Text('Envoyer'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
       },
     );
+    input.dispose();
   }
 
   void _startCall(Map<String, dynamic> technician) {
@@ -3190,4 +4763,152 @@ class _SensorData {
   final String label;
   final String value;
   const _SensorData(this.label, this.value);
+}
+
+class _ClientHeroVideoSlides extends StatefulWidget {
+  const _ClientHeroVideoSlides({
+    required this.fallbackImageUrl,
+  });
+
+  final String fallbackImageUrl;
+
+  @override
+  State<_ClientHeroVideoSlides> createState() => _ClientHeroVideoSlidesState();
+}
+
+class _ClientHeroVideoSlidesState extends State<_ClientHeroVideoSlides> {
+  final Duration _endThreshold = const Duration(milliseconds: 250);
+
+  List<String> _videoAssets = const [];
+  int _index = 0;
+  VideoPlayerController? _controller;
+  bool _initializing = false;
+  bool _advancing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    if (_initializing) return;
+    _initializing = true;
+    try {
+      final assets = await _loadVideoAssetsFromManifest();
+      if (!mounted) return;
+      if (assets.isEmpty) return;
+      setState(() => _videoAssets = assets);
+      await _switchToIndex(0);
+    } finally {
+      _initializing = false;
+    }
+  }
+
+  Future<List<String>> _loadVideoAssetsFromManifest() async {
+    try {
+      final raw = await rootBundle.loadString('AssetManifest.json');
+      final decoded = json.decode(raw);
+      if (decoded is! Map<String, dynamic>) return const [];
+      final keys = decoded.keys.toList();
+      keys.sort();
+
+      const okExt = ['.mp4', '.webm'];
+      return keys
+          .where((k) => k.startsWith('assets/videos/'))
+          .where((k) => okExt.any((ext) => k.toLowerCase().endsWith(ext)))
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  void _handleTick() {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+
+    final d = c.value.duration;
+    final p = c.value.position;
+    if (d > Duration.zero && d - p <= _endThreshold) {
+      _next();
+      return;
+    }
+
+    if (d > Duration.zero && !c.value.isPlaying && p >= d - _endThreshold) {
+      _next();
+      return;
+    }
+  }
+
+  Future<void> _switchToIndex(int idx, {int attempts = 0}) async {
+    final c = _controller;
+    c?.removeListener(_handleTick);
+    await c?.dispose();
+
+    if (_videoAssets.isEmpty) return;
+    if (attempts >= _videoAssets.length) {
+      _controller = null;
+      if (mounted) setState(() {});
+      return;
+    }
+
+    _index = idx % _videoAssets.length;
+    final assetPath = _videoAssets[_index];
+    final next = VideoPlayerController.asset(assetPath);
+    try {
+      next.addListener(_handleTick);
+      _controller = next;
+      await next.initialize();
+      await next.setVolume(0.0);
+      await next.setLooping(false);
+      await next.play();
+      if (mounted) setState(() {});
+    } catch (_) {
+      next.removeListener(_handleTick);
+      await next.dispose();
+      final nextIndex = (_index + 1) % _videoAssets.length;
+      return _switchToIndex(nextIndex, attempts: attempts + 1);
+    }
+  }
+
+  void _next() {
+    if (_advancing || _videoAssets.isEmpty) return;
+    _advancing = true;
+    final nextIndex = (_index + 1) % _videoAssets.length;
+    _switchToIndex(nextIndex).whenComplete(() => _advancing = false);
+  }
+
+  @override
+  void dispose() {
+    _controller?.removeListener(_handleTick);
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || c.value.hasError) {
+      return SizedBox.expand(
+        child: Image.network(widget.fallbackImageUrl, fit: BoxFit.cover),
+      );
+    }
+
+    final w = c.value.size.width;
+    final h = c.value.size.height;
+    if (w <= 0 || h <= 0) {
+      return SizedBox.expand(
+        child: Image.network(widget.fallbackImageUrl, fit: BoxFit.cover),
+      );
+    }
+
+    return FittedBox(
+      fit: BoxFit.cover,
+      child: SizedBox(
+        width: w,
+        height: h,
+        child: VideoPlayer(c),
+      ),
+    );
+  }
 }

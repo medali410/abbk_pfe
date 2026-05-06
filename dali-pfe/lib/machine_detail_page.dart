@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
+import 'package:video_player/video_player.dart';
 import 'services/api_service.dart';
 import 'utils/panne_display.dart';
 
@@ -18,6 +19,7 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
   late io.Socket _socket;
   late String _machineId;
   late AnimationController _pulseCtrl;
+  late VideoPlayerController _temperatureVideoController;
 
   double _thermal = 0;
   double _pressure = 0;
@@ -67,6 +69,14 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
   void initState() {
     super.initState();
     _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 700))..repeat(reverse: true);
+    _temperatureVideoController = VideoPlayerController.asset('assets/videos/temp_motor.mp4')
+      ..setLooping(true)
+      ..setVolume(0)
+      ..initialize().then((_) {
+        if (!mounted) return;
+        _temperatureVideoController.play();
+        setState(() {});
+      });
     _machineId = _normalizeId(widget.machineId, widget.machineName);
     _zone = _machineId == 'MAC_HATHA'
         ? 'Zone A-01'
@@ -288,6 +298,7 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
   @override
   void dispose() {
     _pulseCtrl.dispose();
+    _temperatureVideoController.dispose();
     _socket.dispose();
     super.dispose();
   }
@@ -725,7 +736,15 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
     Color infraredColor = _infrared >= 75 ? _error : (_infrared >= 60 ? const Color(0xFFFFD166) : _green);
 
     final cards = <Widget>[
-      _metricCard('Thermal', 'thermal', '${_thermal.toStringAsFixed(1)} °C', Icons.thermostat, thermalColor, hints),
+      _metricCard(
+        'Thermal',
+        'thermal',
+        '${_thermal.toStringAsFixed(1)} °C',
+        Icons.thermostat,
+        thermalColor,
+        hints,
+        showTemperatureVideo: true,
+      ),
       _metricCard('Pressure', 'pressure', '${_pressure.toStringAsFixed(1)} bar', Icons.compress, pressureColor, hints),
       _metricCard('Power / Electricity', 'power', '${_power.toStringAsFixed(1)} kWh', Icons.bolt, powerColor, hints),
       _metricCard('Ultrasonic', 'ultrasonic', '${_ultrasonic.toStringAsFixed(1)} cm', Icons.waves, ultrasonicColor, hints),
@@ -744,7 +763,15 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
     );
   }
 
-  Widget _metricCard(String title, String highlightKey, String value, IconData icon, Color accent, PanneUiHints hints) {
+  Widget _metricCard(
+    String title,
+    String highlightKey,
+    String value,
+    IconData icon,
+    Color accent,
+    PanneUiHints hints, {
+    bool showTemperatureVideo = false,
+  }) {
     final isCritical = accent == _error;
     final isWarning = accent == const Color(0xFFFFD166);
     final status = isCritical ? 'CRITIQUE' : (isWarning ? 'SURVEILLANCE' : 'NORMAL');
@@ -790,10 +817,19 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
               ],
             ),
             const Spacer(),
+            if (showTemperatureVideo && _temperatureVideoController.value.isInitialized)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: AspectRatio(
+                  aspectRatio: _temperatureVideoController.value.aspectRatio,
+                  child: VideoPlayer(_temperatureVideoController),
+                ),
+              ),
+            if (showTemperatureVideo) const SizedBox(height: 10),
             Text(
               value,
               style: GoogleFonts.inter(
-                fontSize: 28,
+                fontSize: showTemperatureVideo ? 22 : 28,
                 color: stress ? const Color(0xFFFFB4AB) : _onSurface,
                 fontWeight: FontWeight.w900,
               ),

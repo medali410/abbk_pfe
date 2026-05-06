@@ -10,6 +10,8 @@ class ApiService {
   static const _kClientName = 'api_client_name';
   static const _kClientEmail = 'api_client_email';
   static const _kClientLocation = 'api_client_location';
+  static const _kClientPhotoUrl = 'api_client_photo_url';
+  static const _kClientBackgroundUrl = 'api_client_background_url';
   static const _kTechnicianProfileJson = 'api_technician_profile_json';
 
   static String? _authToken;
@@ -18,12 +20,16 @@ class ApiService {
   static String? _savedClientName;
   static String? _savedClientEmail;
   static String? _savedClientLocation;
+  static String? _savedClientPhotoUrl;
+  static String? _savedClientBackgroundUrl;
 
   static String? get authToken => _authToken;
   static String? get savedClientId => _savedClientId;
   static String? get savedClientName => _savedClientName;
   static String? get savedClientEmail => _savedClientEmail;
   static String? get savedClientLocation => _savedClientLocation;
+  static String? get savedClientPhotoUrl => _savedClientPhotoUrl;
+  static String? get savedClientBackgroundUrl => _savedClientBackgroundUrl;
 
   /// Rôle issu du dernier login (persisté), ex. `conception`, `technician`.
   static String? get savedUserRole => _userRole;
@@ -55,6 +61,8 @@ class ApiService {
     _savedClientName = p.getString(_kClientName);
     _savedClientEmail = p.getString(_kClientEmail);
     _savedClientLocation = p.getString(_kClientLocation);
+    _savedClientPhotoUrl = p.getString(_kClientPhotoUrl);
+    _savedClientBackgroundUrl = p.getString(_kClientBackgroundUrl);
     final techRaw = p.getString(_kTechnicianProfileJson);
     if (techRaw != null && techRaw.isNotEmpty) {
       try {
@@ -94,6 +102,8 @@ class ApiService {
     _savedClientName = null;
     _savedClientEmail = null;
     _savedClientLocation = null;
+    _savedClientPhotoUrl = null;
+    _savedClientBackgroundUrl = null;
     final p = await SharedPreferences.getInstance();
     await p.remove(_kToken);
     await p.remove(_kRole);
@@ -101,6 +111,8 @@ class ApiService {
     await p.remove(_kClientName);
     await p.remove(_kClientEmail);
     await p.remove(_kClientLocation);
+    await p.remove(_kClientPhotoUrl);
+    await p.remove(_kClientBackgroundUrl);
     _savedTechnicianProfile = null;
     await p.remove(_kTechnicianProfileJson);
   }
@@ -125,11 +137,19 @@ class ApiService {
     required String clientName,
     String clientEmail = '',
     String clientLocation = '',
+    String? clientPhotoUrl,
+    String? clientBackgroundUrl,
   }) async {
     _savedClientId = clientId.trim();
     _savedClientName = clientName.trim();
     _savedClientEmail = clientEmail.trim();
     _savedClientLocation = clientLocation.trim();
+    if (clientPhotoUrl != null) {
+      _savedClientPhotoUrl = clientPhotoUrl.trim();
+    }
+    if (clientBackgroundUrl != null) {
+      _savedClientBackgroundUrl = clientBackgroundUrl.trim();
+    }
 
     final p = await SharedPreferences.getInstance();
     if (_savedClientId != null && _savedClientId!.isNotEmpty) {
@@ -151,6 +171,17 @@ class ApiService {
       await p.setString(_kClientLocation, _savedClientLocation!);
     } else {
       await p.remove(_kClientLocation);
+    }
+    if (_savedClientPhotoUrl != null && _savedClientPhotoUrl!.isNotEmpty) {
+      await p.setString(_kClientPhotoUrl, _savedClientPhotoUrl!);
+    } else {
+      await p.remove(_kClientPhotoUrl);
+    }
+    if (_savedClientBackgroundUrl != null &&
+        _savedClientBackgroundUrl!.isNotEmpty) {
+      await p.setString(_kClientBackgroundUrl, _savedClientBackgroundUrl!);
+    } else {
+      await p.remove(_kClientBackgroundUrl);
     }
   }
 

@@ -1,7 +1,10 @@
 import 'dart:ui';
 import 'dart:math' as math;
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:video_player/video_player.dart';
 import 'services/api_service.dart';
 
 class AiAnalysisView extends StatefulWidget {
@@ -24,9 +27,19 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulseCtrl;
   late final Animation<double> _pulseAnim;
+  VideoPlayerController? _temperatureVideoController;
+  String? _temperatureVideoError;
   bool _predictLoading = false;
   String? _predictError;
   Map<String, dynamic>? _predictResult;
+  bool _historyLoading = false;
+  String? _historyError;
+  List<Map<String, dynamic>> _history5Days = <Map<String, dynamic>>[];
+  int _historyDays = 5;
+  Timer? _liveRefreshTimer;
+  double _diagTemperature = 0;
+  double _diagPressure = 0;
+  double _diagHumidity = 0;
 
   // ── Colors from Tailwind config ──
   static const _bg = Color(0xFF10102B);
@@ -52,9 +65,26 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
         vsync: this, duration: const Duration(milliseconds: 1500))
       ..repeat(reverse: true);
     _pulseAnim = Tween<double>(begin: 0.2, end: 1.0).animate(_pulseCtrl);
+    _initTemperatureVideo();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (widget.machineId.isNotEmpty) _runLivePrediction();
+      if (widget.machineId.isNotEmpty) {
+        _runLivePrediction();
+        _loadTelemetryHistory();
+      }
     });
+    _liveRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted || widget.machineId.isEmpty || _predictLoading) return;
+      _runLivePrediction();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant AiAnalysisView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.machineId != widget.machineId) {
+      _runLivePrediction();
+      _loadTelemetryHistory();
+    }
   }
 
   int get _gaugePercent {
@@ -71,32 +101,919 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
 
   @override
   void dispose() {
+    _liveRefreshTimer?.cancel();
+    _temperatureVideoController?.dispose();
     _pulseCtrl.dispose();
     super.dispose();
   }
 
+  Future<void> _initTemperatureVideo() async {
+    const path = 'assets/videos/temp_motor.mp4';
+    String? initError;
+    final controller = VideoPlayerController.asset(path)
+      ..setLooping(true)
+      ..setVolume(0);
+    try {
+      await controller.initialize();
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      await _temperatureVideoController?.dispose();
+      _temperatureVideoController = controller;
+      controller.play();
+      setState(() => _temperatureVideoError = null);
+      return;
+    } catch (e) {
+      initError = e.toString();
+      await controller.dispose();
+    }
+    if (!mounted) return;
+    setState(() {
+      _temperatureVideoError = initError == null
+          ? 'temp_motor.mp4 illisible'
+          : 'temp_motor.mp4 illisible ($initError)';
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isDesktop = MediaQuery.of(context).size.width > 992;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildPageHeader(),
-        const SizedBox(height: 16),
-        _buildLiveIaCard(),
-        const SizedBox(height: 32),
-        // Top Grid: Gauge + Chart
-        _buildTopGrid(isDesktop),
-        const SizedBox(height: 32),
-        // Middle Grid: 3D Visualization + Indicators
-        _buildMiddleGrid(isDesktop),
-        const SizedBox(height: 32),
-        // Bottom: Recommendations
-        _buildRecommendations(),
-        const SizedBox(height: 48),
+        _buildIaDashboardCard(),
+        const SizedBox(height: 12),
+        _buildDiagnosticsWindowLikeCapture(),
+        const SizedBox(height: 24),
+        _buildTelemetry5DaysCard(),
       ],
     );
+  }
+
+  Widget _buildDiagnosticsWindowLikeCapture() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 1024;
+          if (!isWide) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildMainDashboardArea(),
+                const SizedBox(height: 12),
+                _diagRightPanel(),
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 62, child: _buildMainDashboardArea()),
+              const SizedBox(width: 12),
+              Expanded(flex: 38, child: _diagRightPanel()),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildMainDashboardArea() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Etat de machine',
+          style: GoogleFonts.inter(
+            fontSize: 40,
+            fontWeight: FontWeight.w900,
+            color: _onSurface,
+            height: 0.95,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            _tinyHeaderChip('OPERATIONAL', _green),
+            const SizedBox(width: 8),
+            _tinyHeaderChip('INITIATE_SYNC', _secondary),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: _diagMiniCard(
+                'TEMPERATURE',
+                '${_diagTemperature.toStringAsFixed(1)} °C',
+                showTemperatureVideo: false,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _diagMiniCard(
+                'PRESSION',
+                '${_diagPressure.toStringAsFixed(1)} bar',
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _diagMiniCard(
+                'HUMIDITE',
+                '${_diagHumidity.toStringAsFixed(0)} %',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(flex: 58, child: _diagBarsCard()),
+            const SizedBox(width: 8),
+            Expanded(flex: 42, child: _diagIntegrityCard()),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _diagLogCard(),
+      ],
+    );
+  }
+
+  Widget _tinyHeaderChip(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: _surfaceContainerHighest.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onSurfaceVariant, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _diagMiniCard(
+    String title,
+    String value, {
+    bool showTemperatureVideo = false,
+  }) {
+    return Container(
+      height: 120,
+      decoration: BoxDecoration(
+        color: _surfaceContainer.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          if (showTemperatureVideo)
+            Positioned.fill(
+              child: (_temperatureVideoController != null &&
+                      _temperatureVideoController!.value.isInitialized)
+                  ? Builder(
+                      builder: (context) {
+                        final controllerValue = _temperatureVideoController!.value;
+                        if (!controllerValue.isPlaying) {
+                          _temperatureVideoController!.play();
+                        }
+                        final safeWidth =
+                            controllerValue.size.width <= 1 ? 1280.0 : controllerValue.size.width;
+                        final safeHeight =
+                            controllerValue.size.height <= 1 ? 720.0 : controllerValue.size.height;
+                        return FittedBox(
+                          fit: BoxFit.cover,
+                          child: SizedBox(
+                            width: safeWidth,
+                            height: safeHeight,
+                            child: VideoPlayer(_temperatureVideoController!),
+                          ),
+                        );
+                      },
+                    )
+                  : Container(
+                      color: Colors.black26,
+                      alignment: Alignment.center,
+                      child: _temperatureVideoError == null
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              child: Text(
+                                _temperatureVideoError!,
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.inter(
+                                  fontSize: 10,
+                                  color: Colors.white.withOpacity(0.8),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                    ),
+            ),
+          if (showTemperatureVideo)
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withOpacity(0.20),
+                      Colors.black.withOpacity(0.08),
+                      Colors.black.withOpacity(0.28),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(10),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(
+                title,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 9,
+                  color: _onSurfaceVariant,
+                  letterSpacing: 1.0,
+                ),
+              ),
+              const Spacer(),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: GoogleFonts.inter(
+                    fontSize: 34,
+                    color: _onSurface,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ]),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _diagLogCard() {
+    return Container(
+      height: 86,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: _surfaceContainer.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: Text(
+        '14:22:01  Hydraulique pression calibree\n13:45:19  Optimisation chemin neural complete\n11:02:44  Variance vibration detectee',
+        style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onSurfaceVariant, height: 1.45),
+      ),
+    );
+  }
+
+  Widget _diagBarsCard() {
+    final res = _predictResult;
+    final prob = _gaugePercent;
+    final bool hasError = (_predictError ?? '').isNotEmpty;
+    final scenario = (res?['panne_type'] ?? '').toString().trim();
+    final hasValidIa = res != null &&
+        !hasError &&
+        scenario.isNotEmpty &&
+        scenario != '-' &&
+        !scenario.toLowerCase().contains('erreur');
+    final String state = hasError
+        ? 'A CONTROLER'
+        : (prob >= 70 ? 'EN PANNE' : (prob >= 40 ? 'A CONTROLER' : 'EN MARCHE'));
+    final String detail = hasError
+        ? 'Analyse IA indisponible. Verification capteurs/MQTT recommandee.'
+        : (_predictResult == null
+            ? 'En attente des donnees IA pour evaluer l etat de machine.'
+            : 'Probabilite panne: $prob%${_predictResult?['panne_type'] != null ? ' · Scenario: ${_predictResult!['panne_type']}' : ''}.');
+
+    return Container(
+      height: 170,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _surfaceContainer.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: !hasValidIa
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('ETAT MACHINE', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onSurfaceVariant)),
+                const SizedBox(height: 8),
+                Text(
+                  '------------',
+                  style: GoogleFonts.inter(
+                    fontSize: 22,
+                    color: _onSurfaceVariant.withOpacity(0.55),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            )
+          : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('ETAT MACHINE (IA)', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onSurfaceVariant)),
+              const SizedBox(height: 10),
+              Text(
+                state,
+                style: GoogleFonts.inter(
+                  fontSize: 28,
+                  color: state == 'EN PANNE' ? _error : (state == 'A CONTROLER' ? _primaryLight : _green),
+                  fontWeight: FontWeight.w900,
+                  height: 0.95,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                detail,
+                style: GoogleFonts.inter(fontSize: 11, color: _onSurfaceVariant, height: 1.35),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ]),
+    );
+  }
+
+  Widget _diagIntegrityCard() {
+    return Container(
+      height: 170,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _surfaceContainer.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('RISQUE IA', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _secondary)),
+        const SizedBox(height: 8),
+        Text(
+          'Risque de panne',
+          style: GoogleFonts.inter(
+            fontSize: 16,
+            color: _onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const Spacer(),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            '${_gaugePercent}%',
+            maxLines: 1,
+            softWrap: false,
+            style: GoogleFonts.inter(
+              fontSize: 56,
+              color: _onSurface,
+              fontWeight: FontWeight.w900,
+              height: 0.9,
+            ),
+          ),
+        ),
+        const Spacer(),
+        Text('Niveau de risque machine', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onSurfaceVariant)),
+      ]),
+    );
+  }
+
+  Widget _diagRightPanel() {
+    final hasIa = _predictResult != null && (_predictError ?? '').isEmpty;
+    final risk = _gaugePercent;
+    final iaState = risk >= 70 ? 'EN PANNE' : (risk >= 40 ? 'A CONTROLER' : 'EN MARCHE');
+    final iaMessage = hasIa
+        ? 'Etat detecte: $iaState.\nRisque estime: $risk%.\nSouhaitez-vous un plan d action maintenance ?'
+        : 'Bonjour, je suis le chatbot IA.\nJe suis en attente des donnees machine pour lancer le diagnostic.';
+
+    return Container(
+      height: 310,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _surfaceContainer.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('CHATBOT IA', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onSurfaceVariant)),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: _bg.withOpacity(0.55),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white.withOpacity(0.06)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: _secondary.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.smart_toy_outlined, size: 14, color: _secondary),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    iaMessage,
+                    style: GoogleFonts.inter(fontSize: 11, color: _onSurfaceVariant, height: 1.35),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Spacer(),
+          Container(
+            height: 42,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: _bg,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white.withOpacity(0.08)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Ecrire un message au chatbot...',
+                    style: GoogleFonts.inter(fontSize: 11, color: _onSurfaceVariant.withOpacity(0.7)),
+                  ),
+                ),
+                const Icon(Icons.send_rounded, size: 16, color: _secondary),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _loadTelemetryHistory() async {
+    setState(() {
+      _historyLoading = true;
+      _historyError = null;
+    });
+    try {
+      final history = await ApiService.getTelemetryHistory(widget.machineId, limit: 500);
+      final now = DateTime.now();
+      final cutoff = now.subtract(Duration(days: _historyDays));
+      var filtered = history.where((item) {
+        final dt = _readItemDate(item);
+        if (dt == null) return false;
+        return dt.isAfter(cutoff);
+      }).toList();
+      // Fallback: si le backend ne renvoie pas de date parsable, on garde
+      // les N derniers points au lieu d'afficher "Aucune donnée".
+      if (filtered.isEmpty && history.isNotEmpty) {
+        final fallbackCount = _historyDays == 1 ? 48 : (_historyDays == 7 ? 200 : 400);
+        filtered = history.take(fallbackCount).toList();
+      }
+      filtered.sort((a, b) {
+        final da = _readItemDate(a) ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final db = _readItemDate(b) ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return da.compareTo(db);
+      });
+      if (!mounted) return;
+      setState(() => _history5Days = filtered);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _historyError = e.toString());
+    } finally {
+      if (mounted) setState(() => _historyLoading = false);
+    }
+  }
+
+  DateTime? _readItemDate(Map<String, dynamic> item) {
+    final raw =
+        item['createdAt'] ??
+        item['created_at'] ??
+        item['timestamp'] ??
+        item['ts'] ??
+        item['date'] ??
+        item['time'];
+    if (raw == null) return null;
+    if (raw is DateTime) return raw;
+    if (raw is int) {
+      // gère timestamp sec/ms
+      if (raw > 1000000000000) return DateTime.fromMillisecondsSinceEpoch(raw);
+      return DateTime.fromMillisecondsSinceEpoch(raw * 1000);
+    }
+    if (raw is double) {
+      final v = raw.toInt();
+      if (v > 1000000000000) return DateTime.fromMillisecondsSinceEpoch(v);
+      return DateTime.fromMillisecondsSinceEpoch(v * 1000);
+    }
+    final s = raw.toString().trim();
+    final parsed = DateTime.tryParse(s);
+    if (parsed != null) return parsed;
+    final asInt = int.tryParse(s);
+    if (asInt != null) {
+      if (asInt > 1000000000000) return DateTime.fromMillisecondsSinceEpoch(asInt);
+      return DateTime.fromMillisecondsSinceEpoch(asInt * 1000);
+    }
+    return null;
+  }
+
+  double _metricOf(Map<String, dynamic> item, String metric) {
+    final metrics = item['metrics'];
+    if (metric == 'temperature') {
+      final v = item['temperature'] ?? (metrics is Map ? metrics['thermal'] : null);
+      return (v is num) ? v.toDouble() : double.tryParse(v?.toString() ?? '') ?? 0;
+    }
+    if (metric == 'vibration') {
+      final v = item['vibration'] ?? (metrics is Map ? metrics['vibration'] : null);
+      return (v is num) ? v.toDouble() : double.tryParse(v?.toString() ?? '') ?? 0;
+    }
+    final v = item['powerConsumption'] ?? item['power'] ?? (metrics is Map ? metrics['power'] : null);
+    return (v is num) ? v.toDouble() : double.tryParse(v?.toString() ?? '') ?? 0;
+  }
+
+  String get _machineStatus {
+    final p = _gaugePercent;
+    if (p >= 70) return 'CRITIQUE';
+    if (p >= 40) return 'SURVEILLANCE';
+    return 'STABLE';
+  }
+
+  Color get _machineStatusColor {
+    final p = _gaugePercent;
+    if (p >= 70) return _error;
+    if (p >= 40) return _primary;
+    return _green;
+  }
+
+  Widget _buildIaDashboardCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Wrap(
+        runSpacing: 10,
+        spacing: 10,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          _chipInfo('MACHINE', widget.machineName.toUpperCase(), _secondary),
+          _chipInfo('ID', widget.machineId, _onSurfaceVariant),
+          _chipInfo('ÉTAT', _machineStatus, _machineStatusColor),
+        ],
+      ),
+    );
+  }
+
+  Widget _chipInfo(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: _surfaceContainerHighest.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label,
+              style: GoogleFonts.spaceGrotesk(
+                  fontSize: 9,
+                  letterSpacing: 1.4,
+                  color: _onSurfaceVariant.withOpacity(0.9))),
+          const SizedBox(height: 3),
+          Text(value,
+              style: GoogleFonts.inter(
+                  fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTelemetry5DaysCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('Etat de machine',
+                    style: GoogleFonts.spaceGrotesk(
+                        fontSize: 11,
+                        color: _onSurfaceVariant,
+                        letterSpacing: 1.4,
+                        fontWeight: FontWeight.w700)),
+              ),
+              const SizedBox(width: 8),
+              _rangeChip(1, '24H'),
+              const SizedBox(width: 6),
+              _rangeChip(7, '7J'),
+              const SizedBox(width: 6),
+              _rangeChip(30, '30J'),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _legendItem(_primary, 'Température'),
+              const SizedBox(width: 12),
+              _legendItem(_secondary, 'Vibration'),
+              const SizedBox(width: 12),
+              _legendItem(_green, 'Puissance'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text('Fenêtre: ${_historyDays == 1 ? '24 heures' : '$_historyDays jours'}',
+              style: GoogleFonts.spaceGrotesk(
+                  fontSize: 10, color: _onSurfaceVariant.withOpacity(0.85))),
+          const SizedBox(height: 12),
+          if (_historyLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            )
+          else if (_historyError != null)
+            Text('Erreur chargement historique: $_historyError',
+                style: GoogleFonts.inter(color: _error, fontSize: 12))
+          else ...[
+            _combinedMetricChart(),
+          ],
+          if (!_historyLoading && _historyError == null && _history5Days.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Mode par défaut: axes affichés en attente de données.',
+                style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 11),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _combinedMetricChart() {
+    final hasData = _history5Days.isNotEmpty;
+    final tempSpots = hasData ? _normalizedSpots('temperature') : _defaultSpots(0);
+    final vibrationSpots = hasData ? _normalizedSpots('vibration') : _defaultSpots(1);
+    final powerSpots = hasData ? _normalizedSpots('power') : _defaultSpots(2);
+    final count = hasData ? _history5Days.length : 8;
+    final step = count > 2 ? ((count - 1) / 2).round() : 1;
+
+    return SizedBox(
+      height: 220,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Graphe multi-lignes (échelle normalisée)',
+            style: GoogleFonts.inter(fontSize: 12, color: _onSurface),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: LineChart(
+              LineChartData(
+                minY: 0,
+                maxY: 100,
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: true,
+                  verticalInterval: count > 1 ? (count - 1) / 4 : 1,
+                  horizontalInterval: 25,
+                  getDrawingHorizontalLine: (_) =>
+                      FlLine(color: Colors.white.withOpacity(0.08), strokeWidth: 1),
+                  getDrawingVerticalLine: (_) =>
+                      FlLine(color: Colors.white.withOpacity(0.05), strokeWidth: 1),
+                ),
+                titlesData: FlTitlesData(
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 32,
+                      interval: 25,
+                      getTitlesWidget: (value, meta) => Text(
+                        value.toInt().toString(),
+                        style: GoogleFonts.inter(
+                          fontSize: 9,
+                          color: _onSurfaceVariant.withOpacity(0.8),
+                        ),
+                      ),
+                    ),
+                  ),
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 20,
+                      interval: step.toDouble(),
+                      getTitlesWidget: (value, meta) {
+                        final idx = value.toInt().clamp(0, count - 1);
+                        return Text(
+                          _historyLabelAt(idx),
+                          style: GoogleFonts.inter(
+                            fontSize: 9,
+                            color: _onSurfaceVariant.withOpacity(0.85),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                borderData: FlBorderData(show: false),
+                lineTouchData: LineTouchData(
+                  touchTooltipData: LineTouchTooltipData(
+                    getTooltipColor: (_) => _surfaceContainerHighest.withOpacity(0.9),
+                    getTooltipItems: (spotsTouched) => spotsTouched.map((s) {
+                      final idx = s.x.toInt().clamp(0, _history5Days.length - 1);
+                      final m = _history5Days[idx];
+                      final t = _metricOf(m, 'temperature');
+                      final v = _metricOf(m, 'vibration');
+                      final p = _metricOf(m, 'power');
+                      return LineTooltipItem(
+                        'T ${t.toStringAsFixed(1)}°C\nV ${v.toStringAsFixed(2)}\nP ${p.toStringAsFixed(0)}W',
+                        GoogleFonts.inter(
+                          color: _onSurface,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: tempSpots,
+                    isCurved: true,
+                    color: _primary,
+                    barWidth: 2.3,
+                    dotData: const FlDotData(show: false),
+                    dashArray: hasData ? null : [5, 4],
+                  ),
+                  LineChartBarData(
+                    spots: vibrationSpots,
+                    isCurved: true,
+                    color: _secondary,
+                    barWidth: 2.3,
+                    dotData: const FlDotData(show: false),
+                    dashArray: hasData ? null : [5, 4],
+                  ),
+                  LineChartBarData(
+                    spots: powerSpots,
+                    isCurved: true,
+                    color: _green,
+                    barWidth: 2.3,
+                    dotData: const FlDotData(show: false),
+                    dashArray: hasData ? null : [5, 4],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<FlSpot> _defaultSpots(int variant) {
+    final base = [22.0, 42.0, 30.0, 55.0, 40.0, 63.0, 48.0, 58.0];
+    return List<FlSpot>.generate(base.length, (i) {
+      final v = base[i] + (variant * 6.0);
+      return FlSpot(i.toDouble(), v.clamp(0, 100));
+    });
+  }
+
+  List<FlSpot> _normalizedSpots(String metric) {
+    final raw = <double>[];
+    for (var i = 0; i < _history5Days.length; i++) {
+      raw.add(_metricOf(_history5Days[i], metric));
+    }
+    if (raw.isEmpty) return const <FlSpot>[];
+    final min = raw.reduce(math.min);
+    final max = raw.reduce(math.max);
+    final range = (max - min).abs();
+    if (range < 0.00001) {
+      return List<FlSpot>.generate(raw.length, (i) => FlSpot(i.toDouble(), 50));
+    }
+    return List<FlSpot>.generate(raw.length, (i) {
+      final n = ((raw[i] - min) / range) * 100.0;
+      return FlSpot(i.toDouble(), n.clamp(0, 100));
+    });
+  }
+
+  Widget _rangeChip(int days, String label) {
+    final active = _historyDays == days;
+    return InkWell(
+      onTap: () {
+        if (_historyDays == days) return;
+        setState(() => _historyDays = days);
+        _loadTelemetryHistory();
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? _primary.withOpacity(0.18) : _surfaceContainerHighest.withOpacity(0.35),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: active ? _primary : Colors.white.withOpacity(0.09)),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 10,
+            color: active ? _primaryLight : _onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _legendItem(Color color, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)),
+        ),
+        const SizedBox(width: 6),
+        Text(label, style: GoogleFonts.inter(fontSize: 11, color: _onSurfaceVariant)),
+      ],
+    );
+  }
+
+  String _historyLabelAt(int index) {
+    if (_history5Days.isEmpty) {
+      if (_historyDays == 1) {
+        final labels = ['-24h', '-20h', '-16h', '-12h', '-8h', '-4h', '-2h', 'now'];
+        final i = index.clamp(0, labels.length - 1);
+        return labels[i];
+      }
+      final labels = _historyDays == 7
+          ? ['J-7', 'J-6', 'J-5', 'J-4', 'J-3', 'J-2', 'J-1', 'J']
+          : ['J-30', 'J-24', 'J-18', 'J-12', 'J-6', 'J-3', 'J-1', 'J'];
+      final i = index.clamp(0, labels.length - 1);
+      return labels[i];
+    }
+    final i = index.clamp(0, _history5Days.length - 1);
+    final dt = _readItemDate(_history5Days[i]);
+    if (dt == null) return '--';
+    final dd = dt.day.toString().padLeft(2, '0');
+    final mm = dt.month.toString().padLeft(2, '0');
+    if (_historyDays == 1) {
+      final hh = dt.hour.toString().padLeft(2, '0');
+      final min = dt.minute.toString().padLeft(2, '0');
+      return '$hh:$min';
+    }
+    return '$dd/$mm';
   }
 
   Future<void> _runLivePrediction() async {
@@ -118,16 +1035,26 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
         }
       } catch (_) {}
 
-      double temp = 62;
-      double pressure = 0.03;
-      double power = 62000;
-      double vibration = 1.2;
-      int presence = 1;
-      double magnetic = 0.55;
-      double infrared = 62;
-      int rpm = 1750;
-      int torque = 45;
-      int toolWear = 80;
+      double temp = 0;
+      double pressure = 0;
+      double power = 0;
+      double vibration = 0;
+      int presence = 0;
+      double magnetic = 0;
+      double infrared = 0;
+      int rpm = 0;
+      int torque = 0;
+      int toolWear = 0;
+
+      final diagTemp = (latest?['temperature'] as num?)?.toDouble() ??
+          (metrics?['thermal'] as num?)?.toDouble() ??
+          0;
+      final diagPressure = (latest?['pressure'] as num?)?.toDouble() ??
+          (metrics?['pressure'] as num?)?.toDouble() ??
+          0;
+      final diagHumidity = (latest?['humidity'] as num?)?.toDouble() ??
+          (metrics?['humidity'] as num?)?.toDouble() ??
+          0;
 
       if (latest != null) {
         temp = (latest['temperature'] as num?)?.toDouble() ??
@@ -164,6 +1091,9 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
       if (!mounted) return;
       setState(() {
         _predictResult = result;
+        _diagTemperature = diagTemp;
+        _diagPressure = diagPressure;
+        _diagHumidity = diagHumidity;
       });
     } catch (e) {
       if (!mounted) return;
@@ -311,9 +1241,9 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
       return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(flex: 4, child: _buildGaugeCard()),
-          const SizedBox(width: 32),
           Expanded(flex: 8, child: _buildChartCard()),
+          const SizedBox(width: 32),
+          Expanded(flex: 4, child: _buildGaugeCard()),
         ],
       );
     }

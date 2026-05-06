@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>5.3. Solution proposée</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #c5c5c5;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 12pt;
+      line-height: 1.45;
+      color: #111;
+    }
+    .page {
+      max-width: 21cm;
+      min-height: 29.7cm;
+      margin: 24px auto;
+      padding: 2.5cm 2cm;
+      background: #fff;
+      box-shadow: 0 4px 24px rgba(0,0,0,.15);
+    }
+    h1 {
+      font-size: 14pt;
+      font-weight: bold;
+      margin: 0 0 1em;
+    }
+    p {
+      margin: 0 0 0.85em;
+      text-align: justify;
+    }
+    h2 {
+      font-size: 12pt;
+      font-weight: bold;
+      margin: 1.25em 0 0.6em;
+    }
+    ul {
+      margin: 0.5em 0 0;
+      padding-left: 1.35em;
+    }
+    li { margin-bottom: 0.45em; }
+    @media print {
+      body { background: #fff; }
+      .page { margin: 0; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>5.3. Solution proposée</h1>
+    <p>
+      Pour corriger les limites des outils actuels, nous proposons une plateforme unique, mobile, centrée sur la maintenance et enrichie par l’intelligence artificielle. Elle regroupe ce dont les équipes ont besoin au quotidien. Les techniciens disposent d’une application mobile développée avec Flutter : depuis leur smartphone, sur le terrain, ils consultent l’état des machines, reçoivent les alertes et enregistrent leurs interventions au plus près de l’équipement, sans dépendre d’un poste fixe. Une couche d’intelligence artificielle suit en continu les grandeurs fournies par les capteurs, par exemple la température, la pression ou les vibrations ; lorsqu’un comportement sort de l’ordinaire, une alerte est émise afin d’agir tôt, avant une panne complète. Un serveur central, mis en œuvre avec Node.js et une base de données, reçoit et organise toutes les informations ; il conserve un historique des machines, des utilisateurs et des interventions, afin que les données et les actions restent traçables et disponibles pour le suivi. Les capteurs envoient leurs mesures de façon rapide et fiable, notamment via le protocole MQTT, tandis que l’application échange avec le serveur au moyen d’API REST, ce qui permet une mise à jour cohérente des informations affichées aux utilisateurs.
+    </p>
+    <h2>Ce que cette solution apporte :</h2>
+    <ul>
+      <li><strong>Tout-en-un</strong> : moins besoin d’assembler plusieurs logiciels qui ne se parlent pas.</li>
+      <li><strong>Pensée pour le terrain</strong> : l’outil principal est mobile, là où se trouvent les techniciens.</li>
+      <li><strong>Orientation préventive</strong> : réduire les pannes en détectant les signaux faibles, et non seulement réparer après l’arrêt.</li>
+      <li><strong>Usage simple</strong> : interface et logique orientées utilisateurs, avec une solution plus légère que les grandes chaînes SCADA classiques.</li>
+    </ul>
+  </div>
+</body>
+</html>

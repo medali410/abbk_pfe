@@ -40,6 +40,7 @@ class MachineControlCalendarPanel extends StatefulWidget {
     this.technicianName,
     /// Saisie libre + envoi API (désactiver ex. vue gestionnaire lecture seule).
     this.allowSaisieTerrain = true,
+    this.showCalendar = false,
   });
 
   final String machineId;
@@ -53,6 +54,7 @@ class MachineControlCalendarPanel extends StatefulWidget {
   final String? technicianId;
   final String? technicianName;
   final bool allowSaisieTerrain;
+  final bool showCalendar;
 
   @override
   State<MachineControlCalendarPanel> createState() => _MachineControlCalendarPanelState();
@@ -332,6 +334,8 @@ class _MachineControlCalendarPanelState extends State<MachineControlCalendarPane
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.showCalendar) return const SizedBox.shrink();
+
     final title = widget.machineName.isNotEmpty ? 'CALENDRIER · ${widget.machineName}' : 'CALENDRIER INTERVENTIONS';
     final monthLabel = DateFormat.yMMMM('fr_FR').format(_visibleMonth);
     final cellSize = widget.compact ? 30.0 : 38.0;

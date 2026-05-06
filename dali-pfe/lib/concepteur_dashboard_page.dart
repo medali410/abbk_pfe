@@ -42,8 +42,12 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   // State variables
   List<Map<String, dynamic>> _allMachines = [];
   List<Map<String, dynamic>> _purchaseRequests = [];
-  List<Map<String, dynamic>> _archives = [];
   final Set<String> _reviewedRequestIds = <String>{};
+  final Map<String, String> _machineTokensById = <String, String>{};
+  final List<Map<String, String>> _machineNotifications =
+      <Map<String, String>>[];
+  bool _machineSnapshotInitialized = false;
+  int _unreadMachineNotifications = 0;
   Future<List<Map<String, dynamic>>>? _clientsFuture;
   Future<List<Map<String, dynamic>>>? _selectedClientMachinesFuture;
   String? _selectedCatalogClientId;
@@ -62,7 +66,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   String _maintenanceSearchQuery = '';
   bool _loading = true;
   bool _loadingRequests = false;
-  bool _loadingArchives = false;
+  bool _showAllPurchaseRequests = false;
   String? _error;
   bool _hasFleetSession = true;
   bool _silentRecoveryTried = false;
@@ -70,6 +74,12 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   final TextEditingController _searchController = TextEditingController();
   String _selectedCategory = 'Toutes les catégories';
   String _selectedStatus = 'Tous';
+  String _profileDisplayName = 'Equipe Design';
+  static const String _defaultProfilePhotoUrl =
+      'https://i.pinimg.com/736x/88/15/b8/8815b887439c3eac83eb8ea723e1206a.jpg';
+  String _profilePhotoUrl = _defaultProfilePhotoUrl;
+  String _concepteurProfileId = '';
+  Map<String, dynamic> _concepteurProfileData = const <String, dynamic>{};
 
   bool _looksLikeNetworkImage(String value) {
     final v = value.trim().toLowerCase();
@@ -178,6 +188,20 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       if (aid.isEmpty) return false;
       for (final k in clientKeys) {
         if (_linkedIdMatches(aid, k)) return true;
+      }
+      return false;
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> _concepteursForClientKeys(
+    List<Map<String, dynamic>> concepteurs,
+    Set<String> clientKeys,
+  ) {
+    return concepteurs.where((c) {
+      final companyId = (c['companyId'] ?? c['clientId'] ?? '').toString().trim();
+      if (companyId.isEmpty) return false;
+      for (final k in clientKeys) {
+        if (_linkedIdMatches(companyId, k)) return true;
       }
       return false;
     }).toList();
@@ -491,6 +515,99 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   String _machineNameOf(Map<String, dynamic> m) =>
       (m['name'] ?? 'Machine').toString();
 
+  String _machineTokenOf(Map<String, dynamic> m) {
+    final values = <String>[
+      _machineIdOf(m),
+      _machineNameOf(m),
+      (m['status'] ?? '').toString(),
+      (m['isPublished'] ?? '').toString(),
+      (m['type'] ?? m['category'] ?? '').toString(),
+      (m['location'] ?? m['googleMapsUrl'] ?? '').toString(),
+      (m['updatedAt'] ?? '').toString(),
+      (m['createdAt'] ?? m['dateAjout'] ?? '').toString(),
+      (m['temperature'] ?? '').toString(),
+      (m['vibration'] ?? '').toString(),
+      (m['riskLevel'] ?? m['risk'] ?? '').toString(),
+    ];
+    return values.join('|');
+  }
+
+  void _appendMachineNotification({
+    required String title,
+    required String machineName,
+  }) {
+    final nowIso = DateTime.now().toIso8601String();
+    _machineNotifications.insert(0, {
+      'title': title,
+      'machineName': machineName,
+      'at': nowIso,
+    });
+    if (_machineNotifications.length > 80) {
+      _machineNotifications.removeRange(80, _machineNotifications.length);
+    }
+  }
+
+  void _showMachineNotificationsDialog() {
+    setState(() => _unreadMachineNotifications = 0);
+    showDialog<void>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: sidebarColor,
+            title: Text(
+              'Notifications machines',
+              style: GoogleFonts.inter(color: textColor),
+            ),
+            content: SizedBox(
+              width: 560,
+              child:
+                  _machineNotifications.isEmpty
+                      ? Text(
+                        'Aucun changement détecté pour le moment.',
+                        style: GoogleFonts.inter(color: mutedTextColor),
+                      )
+                      : ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: _machineNotifications.length,
+                        separatorBuilder:
+                            (_, __) => Divider(
+                              color: Colors.white.withOpacity(0.08),
+                              height: 12,
+                            ),
+                        itemBuilder: (_, i) {
+                          final n = _machineNotifications[i];
+                          final at = _formatDateTime(n['at']);
+                          return ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              n['title'] ?? 'Changement machine',
+                              style: GoogleFonts.inter(
+                                color: textColor,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '${n['machineName'] ?? 'Machine'}${at.isNotEmpty ? ' • $at' : ''}',
+                              style: GoogleFonts.inter(
+                                color: mutedTextColor,
+                                fontSize: 12,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Fermer'),
+              ),
+            ],
+          ),
+    );
+  }
+
   Widget _buildMachineImageWidget(
     String rawImageValue, {
     required double height,
@@ -652,9 +769,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       _techniciansFuture = ApiService.getTechnicians();
       _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
     });
+    await _loadConcepteurProfileFromBackend();
     _fetchMachines();
     _fetchPurchaseRequests();
-    _fetchArchives();
   }
 
   Future<String> _trySilentSessionRecovery() async {
@@ -664,9 +781,140 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     return (ApiService.authToken ?? '').trim();
   }
 
+  String _pickFirstString(Map<String, dynamic> src, List<String> keys) {
+    for (final k in keys) {
+      final v = (src[k] ?? '').toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+    return '';
+  }
+
+  String _pickProfilePhotoFromWorkspace(
+    Map<String, dynamic> workspace,
+    Map<String, dynamic> profile,
+  ) {
+    const photoKeys = [
+      'photoUrl',
+      'avatarUrl',
+      'profilePhotoUrl',
+      'image',
+      'photo',
+      'avatar',
+      'profileImage',
+      'picture',
+      'imageUrl',
+    ];
+
+    final fromProfile = _pickFirstString(profile, photoKeys);
+    if (fromProfile.isNotEmpty) return fromProfile;
+
+    final fromWorkspace = _pickFirstString(workspace, photoKeys);
+    if (fromWorkspace.isNotEmpty) return fromWorkspace;
+
+    final nestedCandidates = <dynamic>[
+      workspace['concepteur'],
+      workspace['designer'],
+      workspace['profile'],
+      workspace['user'],
+      workspace['account'],
+      workspace['currentUser'],
+      workspace['me'],
+      workspace['data'],
+      profile['user'],
+      profile['account'],
+      profile['profile'],
+    ];
+    for (final candidate in nestedCandidates) {
+      if (candidate is Map) {
+        final found = _pickFirstString(
+          Map<String, dynamic>.from(candidate),
+          photoKeys,
+        );
+        if (found.isNotEmpty) return found;
+      }
+    }
+    return '';
+  }
+
+  String _normalizeProfilePhotoUrl(String raw) {
+    final v = raw.trim();
+    if (v.isEmpty) return '';
+    final lower = v.toLowerCase();
+    if (lower.startsWith('data:image/')) return v;
+    if (lower.startsWith('http://') || lower.startsWith('https://')) return v;
+    if (v.startsWith('//')) return 'https:$v';
+    if (v.startsWith('/')) {
+      final socketBase = ApiService.socketBaseUrl;
+      return '$socketBase$v';
+    }
+    if (v.startsWith('./')) {
+      final socketBase = ApiService.socketBaseUrl;
+      return '$socketBase/${v.substring(2)}';
+    }
+    if (v.startsWith('../')) {
+      final socketBase = ApiService.socketBaseUrl;
+      return '$socketBase/${v.replaceFirst(RegExp(r'^\.\./+'), '')}';
+    }
+    if (v.contains('/')) {
+      // Chemin relatif API fréquent: "uploads/xxx.jpg".
+      final socketBase = ApiService.socketBaseUrl;
+      return '$socketBase/$v';
+    }
+    // Cas fréquent: "cdn.site.com/image.jpg" sans schéma.
+    return 'https://$v';
+  }
+
+  Map<String, dynamic> _extractConcepteurProfileMap(Map<String, dynamic> workspace) {
+    final candidates = <dynamic>[
+      workspace['concepteur'],
+      workspace['designer'],
+      workspace['profile'],
+      workspace['user'],
+      workspace['account'],
+      workspace['currentUser'],
+      workspace['me'],
+      workspace['data'],
+    ];
+    for (final c in candidates) {
+      if (c is Map) return Map<String, dynamic>.from(c);
+    }
+    final rootId = _pickFirstString(workspace, const ['concepteurId', 'id', '_id']);
+    if (rootId.isNotEmpty) return Map<String, dynamic>.from(workspace);
+    return <String, dynamic>{};
+  }
+
+  Future<void> _loadConcepteurProfileFromBackend() async {
+    try {
+      final workspace = await ApiService.getConceptionWorkspace();
+      final profile = _extractConcepteurProfileMap(workspace);
+      if (!mounted) return;
+      final profileSource = profile.isEmpty ? workspace : profile;
+      final nextId = _pickFirstString(
+        profileSource,
+        const ['concepteurId', 'id', '_id', 'userId'],
+      );
+      final nextName = _pickFirstString(
+        profileSource,
+        const ['name', 'fullName', 'displayName'],
+      );
+      final nextPhoto = _pickProfilePhotoFromWorkspace(workspace, profile);
+      setState(() {
+        _concepteurProfileData = Map<String, dynamic>.from(profileSource);
+        if (nextId.isNotEmpty) _concepteurProfileId = nextId;
+        if (nextName.isNotEmpty) _profileDisplayName = nextName;
+        if (nextPhoto.isNotEmpty) {
+          _profilePhotoUrl = _normalizeProfilePhotoUrl(nextPhoto);
+        }
+      });
+    } catch (_) {
+      // Le dashboard reste fonctionnel même si le profil n'est pas fourni par l'API.
+    }
+  }
+
   void _onSidebarSelect(String title) {
     if (!_hasFleetSession &&
         (title == 'CLIENT CATALOG' ||
+            title == 'PROJECT TEAM' ||
             title == 'TECHNICIANS' ||
             title == 'MAINTENANCE' ||
             title == 'SETTINGS')) {
@@ -687,6 +935,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       } else if (title == 'MAINTENANCE') {
         _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
       } else if (title == 'CLIENT CATALOG') {
+        _clientsFuture = ApiService.getClients();
+        _techniciansFuture = ApiService.getTechnicians();
+        _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
+      } else if (title == 'PROJECT TEAM') {
         _clientsFuture = ApiService.getClients();
         _techniciansFuture = ApiService.getTechnicians();
         _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
@@ -951,11 +1203,24 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     setState(() => _loadingRequests = true);
     try {
       final rows = await ApiService.getPurchaseRequests();
+      final sortedRows = List<Map<String, dynamic>>.from(rows)
+        ..sort((a, b) {
+          final aRaw = (a['createdAt'] ?? a['purchaseAt'] ?? '').toString();
+          final bRaw = (b['createdAt'] ?? b['purchaseAt'] ?? '').toString();
+          final aDate = DateTime.tryParse(aRaw);
+          final bDate = DateTime.tryParse(bRaw);
+
+          if (aDate != null && bDate != null) return bDate.compareTo(aDate);
+          if (aDate != null) return -1;
+          if (bDate != null) return 1;
+          return 0;
+        });
       if (!mounted) return;
       setState(() {
-        _purchaseRequests = rows;
+        _purchaseRequests = sortedRows;
+        _showAllPurchaseRequests = false;
         final currentIds =
-            rows
+            sortedRows
                 .map((r) => (r['id'] ?? r['_id'] ?? '').toString())
                 .where((id) => id.isNotEmpty)
                 .toSet();
@@ -965,6 +1230,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       if (!mounted) return;
       setState(() {
         _purchaseRequests = [];
+        _showAllPurchaseRequests = false;
         _reviewedRequestIds.clear();
       });
     } finally {
@@ -1103,20 +1369,6 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     setState(() {
       _reviewedRequestIds.add(reqId);
     });
-  }
-
-  Future<void> _fetchArchives() async {
-    setState(() => _loadingArchives = true);
-    try {
-      final rows = await ApiService.getInterventionArchives();
-      if (!mounted) return;
-      setState(() => _archives = rows);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _archives = []);
-    } finally {
-      if (mounted) setState(() => _loadingArchives = false);
-    }
   }
 
   Future<void> _validateAndProvisionTeam(
@@ -1544,51 +1796,6 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     }
   }
 
-  Future<void> _showArchiveExport(Map<String, dynamic> a) async {
-    final interventionId = (a['interventionId'] ?? '').toString();
-    if (interventionId.isEmpty) return;
-    try {
-      final archive = await ApiService.exportInterventionArchive(
-        interventionId,
-      );
-      if (!mounted) return;
-      showDialog<void>(
-        context: context,
-        builder:
-            (ctx) => AlertDialog(
-              backgroundColor: sidebarColor,
-              title: Text(
-                'Archive $interventionId',
-                style: GoogleFonts.inter(color: textColor),
-              ),
-              content: SizedBox(
-                width: 600,
-                child: SingleChildScrollView(
-                  child: SelectableText(
-                    const JsonEncoder.withIndent('  ').convert(archive),
-                    style: GoogleFonts.spaceGrotesk(
-                      color: textColor,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Fermer'),
-                ),
-              ],
-            ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Export impossible: $e')));
-    }
-  }
-
   Future<void> _fetchMachines() async {
     if (!_hasFleetSession) return;
     setState(() {
@@ -1598,8 +1805,55 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     try {
       final data = await _loadMachinesFromBackend();
       if (mounted) {
+        final nextTokens = <String, String>{};
+        var newNotifications = 0;
+
+        for (final m in data) {
+          final id = _machineIdOf(m).trim();
+          if (id.isEmpty) continue;
+          nextTokens[id] = _machineTokenOf(m);
+        }
+
+        if (_machineSnapshotInitialized) {
+          for (final m in data) {
+            final id = _machineIdOf(m).trim();
+            if (id.isEmpty) continue;
+            final name = _machineNameOf(m);
+            final prev = _machineTokensById[id];
+            final curr = nextTokens[id];
+            if (prev == null) {
+              _appendMachineNotification(
+                title: 'Nouvelle machine ajoutée',
+                machineName: name,
+              );
+              newNotifications++;
+            } else if (curr != null && prev != curr) {
+              _appendMachineNotification(
+                title: 'Mise à jour détectée',
+                machineName: name,
+              );
+              newNotifications++;
+            }
+          }
+
+          for (final previousId in _machineTokensById.keys) {
+            if (!nextTokens.containsKey(previousId)) {
+              _appendMachineNotification(
+                title: 'Machine supprimée',
+                machineName: previousId,
+              );
+              newNotifications++;
+            }
+          }
+        }
+
         setState(() {
           _allMachines = data;
+          _machineTokensById
+            ..clear()
+            ..addAll(nextTokens);
+          _machineSnapshotInitialized = true;
+          _unreadMachineNotifications += newNotifications;
           _loading = false;
         });
       }
@@ -1814,6 +2068,23 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           } catch (_) {}
           return;
         }
+        if (selectedMenu == 'PROJECT TEAM') {
+          setState(() {
+            _clientsFuture = ApiService.getClients();
+            _techniciansFuture = ApiService.getTechnicians();
+            _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
+          });
+          try {
+            await _clientsFuture;
+          } catch (_) {}
+          try {
+            await _techniciansFuture;
+          } catch (_) {}
+          try {
+            await _maintenanceAgentsFuture;
+          } catch (_) {}
+          return;
+        }
         if (selectedMenu == 'TECHNICIANS') {
           setState(() => _techniciansFuture = ApiService.getTechnicians());
           try {
@@ -1841,6 +2112,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           } catch (_) {}
           return;
         }
+        if (selectedMenu == 'PROFILE') return;
         await _fetchMachines();
       },
       color: primaryColor,
@@ -1852,16 +2124,18 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           children: [
             if (selectedMenu == 'CLIENT CATALOG')
               _buildClientCatalogPanel()
+            else if (selectedMenu == 'PROJECT TEAM')
+              _buildProjectTeamPanel()
             else if (selectedMenu == 'TECHNICIANS')
               _buildTechniciansPanel()
             else if (selectedMenu == 'MAINTENANCE')
               _buildMaintenanceAgentsPanel()
             else if (selectedMenu == 'SETTINGS')
               _buildClientLoginSurveyPanel()
+            else if (selectedMenu == 'PROFILE')
+              _buildProfilePanel()
             else ...[
               _buildPurchaseRequestsPanel(),
-              const SizedBox(height: 20),
-              _buildArchivesPanel(),
               const SizedBox(height: 20),
               _buildStatsGrid(),
               const SizedBox(height: 32),
@@ -2862,6 +3136,187 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             },
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildProjectTeamPanel() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: sidebarColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: FutureBuilder<List<dynamic>>(
+        future: Future.wait<dynamic>([
+          _clientsFuture ?? ApiService.getClients(),
+          _techniciansFuture ?? ApiService.getTechnicians(),
+          (_maintenanceAgentsFuture ?? ApiService.getMaintenanceAgents())
+              .catchError((_) => <Map<String, dynamic>>[]),
+          ApiService.getConcepteurs().catchError((_) => <Map<String, dynamic>>[]),
+        ]),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 42),
+              child: Center(child: CircularProgressIndicator(color: primaryColor)),
+            );
+          }
+          if (snap.hasError) {
+            return Text(
+              'Erreur chargement équipe projet: ${snap.error}',
+              style: GoogleFonts.inter(color: alertColor),
+            );
+          }
+          final raw = snap.data ?? const <dynamic>[];
+          final clients =
+              (raw.isNotEmpty ? raw[0] : const <dynamic>[])
+                  .cast<Map<String, dynamic>>();
+          final techs =
+              (raw.length > 1 ? raw[1] : const <dynamic>[])
+                  .cast<Map<String, dynamic>>();
+          final agents =
+              (raw.length > 2 ? raw[2] : const <dynamic>[])
+                  .cast<Map<String, dynamic>>();
+          final concepteurs =
+              (raw.length > 3 ? raw[3] : const <dynamic>[])
+                  .cast<Map<String, dynamic>>();
+
+          if (clients.isEmpty) {
+            return _maintenanceEmptyPane(
+              icon: Icons.business_outlined,
+              message: 'Aucun client disponible.',
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.account_tree_outlined, color: primaryColor),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Clients, machines et équipe projet',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: textColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              ...clients.map((c) {
+                final clientKeys = _clientLinkedIdKeys(c);
+                final t = _techniciansForClientKeys(techs, clientKeys);
+                final m = _maintenanceAgentsForClientKeys(agents, clientKeys);
+                final d = _concepteursForClientKeys(concepteurs, clientKeys);
+                final cid = _clientIdOf(c);
+                final cname = _clientNameOf(c);
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: cardColor.withOpacity(0.55),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white.withOpacity(0.08)),
+                  ),
+                  child: ExpansionTile(
+                    iconColor: primaryColor,
+                    collapsedIconColor: mutedTextColor,
+                    title: Text(
+                      '$cname (${cid.isEmpty ? 'ID inconnu' : cid})',
+                      style: GoogleFonts.inter(
+                        color: textColor,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Techniciens: ${t.length} • Maintenance: ${m.length} • Concepteurs: ${d.length}',
+                      style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
+                    ),
+                    childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                    children: [
+                      FutureBuilder<List<Map<String, dynamic>>>(
+                        future:
+                            cid.trim().isEmpty
+                                ? Future.value(const <Map<String, dynamic>>[])
+                                : ApiService.getMachinesForClient(
+                                  cid,
+                                ).catchError((_) => <Map<String, dynamic>>[]),
+                        builder: (context, mSnap) {
+                          final machines =
+                              mSnap.data ?? const <Map<String, dynamic>>[];
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Machines (${machines.length})',
+                                style: GoogleFonts.inter(
+                                  color: primaryColor,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                machines.isEmpty
+                                    ? 'Aucune machine pour ce client.'
+                                    : machines
+                                        .map((x) => _machineNameOf(x))
+                                        .join(', '),
+                                style: GoogleFonts.inter(
+                                  color: mutedTextColor,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                'Equipe projet',
+                                style: GoogleFonts.inter(
+                                  color: primaryColor,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Techniciens: ${t.isEmpty ? '—' : t.map((e) => _technicianNameOf(e)).join(', ')}',
+                                style: GoogleFonts.inter(
+                                  color: mutedTextColor,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Maintenance: ${m.isEmpty ? '—' : m.map((e) => _maintenanceAgentNameOf(e)).join(', ')}',
+                                style: GoogleFonts.inter(
+                                  color: mutedTextColor,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Concepteurs: ${d.isEmpty ? '—' : d.map((e) => (e['name'] ?? 'Concepteur').toString()).join(', ')}',
+                                style: GoogleFonts.inter(
+                                  color: mutedTextColor,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          );
+        },
       ),
     );
   }
@@ -4113,8 +4568,11 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               'Aucune demande d\'achat en attente.',
               style: GoogleFonts.inter(color: mutedTextColor),
             )
-          else
-            ..._purchaseRequests.take(8).map((r) {
+          else ...[
+            ...(_showAllPurchaseRequests
+                    ? _purchaseRequests
+                    : _purchaseRequests.take(3))
+                .map((r) {
               final status = (r['status'] ?? 'PENDING').toString();
               final pending = status == 'PENDING';
               final reqId = (r['id'] ?? r['_id'] ?? '').toString();
@@ -4254,81 +4712,21 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                         ),
               );
             }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildArchivesPanel() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: sidebarColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.inventory_2_outlined, color: accentColor),
-              const SizedBox(width: 8),
-              Text(
-                'Archives pannes (rapport final)',
-                style: GoogleFonts.spaceGrotesk(
-                  color: textColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: _loadingArchives ? null : _fetchArchives,
-                icon: const Icon(Icons.refresh, size: 16),
-                label: const Text('Actualiser'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (_loadingArchives)
-            const Padding(
-              padding: EdgeInsets.all(12),
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          else if (_archives.isEmpty)
-            Text(
-              'Aucune archive disponible.',
-              style: GoogleFonts.inter(color: mutedTextColor),
-            )
-          else
-            ..._archives.take(8).map((a) {
-              final iid = (a['interventionId'] ?? '').toString();
-              return ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  '${a['scenarioLabel'] ?? 'Intervention'}',
-                  style: GoogleFonts.inter(
-                    color: textColor,
-                    fontWeight: FontWeight.w700,
+            if (_purchaseRequests.length > 3)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed:
+                      () => setState(
+                        () =>
+                            _showAllPurchaseRequests = !_showAllPurchaseRequests,
+                      ),
+                  child: Text(
+                    _showAllPurchaseRequests ? 'Voir moins' : 'Voir plus',
                   ),
                 ),
-                subtitle: Text(
-                  'Intervention: $iid • Machine: ${(a['machineId'] ?? '').toString()}',
-                  style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
-                ),
-                trailing: OutlinedButton.icon(
-                  onPressed: () => _showArchiveExport(a),
-                  icon: const Icon(
-                    Icons.download_for_offline_outlined,
-                    size: 16,
-                  ),
-                  label: const Text('Exporter'),
-                ),
-              );
-            }),
+              ),
+          ],
         ],
       ),
     );
@@ -4408,6 +4806,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               child: Row(
                 children: [
                   _topNavItem(Icons.grid_view_rounded, 'DASHBOARD'),
+                  _topNavItem(Icons.person_outline_rounded, 'PROFILE'),
                   _topNavItem(
                     Icons.precision_manufacturing_outlined,
                     'MY MACHINES',
@@ -4420,6 +4819,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   _topNavItem(Icons.build_circle_outlined, 'MAINTENANCE'),
                   _topNavItem(Icons.support_agent_rounded, 'AGENTS'),
                   _topNavItem(Icons.menu_book_rounded, 'CLIENT CATALOG'),
+                  _topNavItem(Icons.account_tree_outlined, 'PROJECT TEAM'),
                   _topNavItem(Icons.settings_outlined, 'SETTINGS'),
                 ],
               ),
@@ -4483,19 +4883,14 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       ),
       child: Row(
         children: [
-          const CircleAvatar(
-            radius: 16,
-            backgroundImage: NetworkImage(
-              'https://i.pravatar.cc/150?u=concepteur',
-            ),
-          ),
+          _profileAvatar(16),
           const SizedBox(width: 8),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Equipe Design',
+                _profileDisplayName,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.inter(
                   fontSize: 12,
@@ -4515,6 +4910,743 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildProfilePanel() {
+    final role = (ApiService.savedUserRole ?? 'Concepteur').toUpperCase();
+    String pickProfileValue(List<String> keys) {
+      for (final k in keys) {
+        final v = (_concepteurProfileData[k] ?? '').toString().trim();
+        if (v.isNotEmpty) return v;
+      }
+      return '';
+    }
+
+    final email = pickProfileValue(const ['email', 'mail']);
+    final phone = pickProfileValue(
+      const ['phone', 'telephone', 'mobile', 'phoneNumber'],
+    );
+    final company = pickProfileValue(
+      const ['companyName', 'company', 'organization', 'clientName'],
+    );
+    final concepteurId = _concepteurProfileId.isNotEmpty
+        ? _concepteurProfileId
+        : pickProfileValue(const ['concepteurId', 'id', '_id', 'userId']);
+    final speciality = pickProfileValue(
+      const ['speciality', 'specialty', 'poste', 'title', 'jobTitle'],
+    );
+    final address = pickProfileValue(const ['address', 'adresse', 'street']);
+    final city = pickProfileValue(const ['city', 'ville']);
+    final country = pickProfileValue(const ['country', 'pays']);
+    final status = pickProfileValue(const ['status', 'statut']);
+    final websiteUrl = pickProfileValue(
+      const ['websiteUrl', 'siteWeb', 'website', 'url'],
+    );
+    final profileUrl = pickProfileValue(
+      const ['profileUrl', 'linkedinUrl', 'portfolioUrl'],
+    );
+
+    final isCompact = MediaQuery.of(context).size.width < 900;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withOpacity(0.08)),
+          ),
+          child: Wrap(
+            spacing: 20,
+            runSpacing: 20,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _profileAvatar(46),
+              SizedBox(
+                width: isCompact ? double.infinity : 420,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'PROFILE DASHBOARD',
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        color: textColor,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'PARAMETRES DU COMPTE ET ETAT DE SESSION',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        color: mutedTextColor,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      _profileDisplayName,
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Role: $role',
+                      style: GoogleFonts.inter(fontSize: 13, color: mutedTextColor),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      _hasFleetSession
+                          ? 'Session active. Vous pouvez acceder aux modules du dashboard.'
+                          : 'Session expiree. Reconnectez-vous pour synchroniser vos donnees.',
+                      style: GoogleFonts.inter(fontSize: 13, color: mutedTextColor),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 8,
+                      children: [
+                        if (concepteurId.isNotEmpty)
+                          _profileInfoChip('ID', concepteurId),
+                        if (email.isNotEmpty) _profileInfoChip('Email', email),
+                        if (phone.isNotEmpty) _profileInfoChip('Tel', phone),
+                        if (company.isNotEmpty) _profileInfoChip('Societe', company),
+                        if (speciality.isNotEmpty)
+                          _profileInfoChip('Specialite', speciality),
+                        if (address.isNotEmpty) _profileInfoChip('Adresse', address),
+                        if (city.isNotEmpty) _profileInfoChip('Ville', city),
+                        if (country.isNotEmpty) _profileInfoChip('Pays', country),
+                        if (status.isNotEmpty) _profileInfoChip('Statut', status),
+                        if (websiteUrl.isNotEmpty)
+                          _profileInfoChip('Site web', websiteUrl),
+                        if (profileUrl.isNotEmpty)
+                          _profileInfoChip('Profil URL', profileUrl),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _profileInfoRow('Email', email),
+                    _profileInfoRow('Telephone', phone),
+                    _profileInfoRow('Societe', company),
+                    _profileInfoRow('Specialite', speciality),
+                    _profileInfoRow('Adresse', address),
+                    _profileInfoRow('Ville', city),
+                    _profileInfoRow('Pays', country),
+                    _profileInfoRow('Statut', status),
+                    _profileInfoRow('Site web', websiteUrl),
+                    _profileInfoRow('Profil URL', profileUrl),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: _showEditProfileDialog,
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      label: const Text('MODIFIER LE PROFIL'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: BorderSide(color: Colors.white.withOpacity(0.25)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        textStyle: GoogleFonts.inter(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildProjectTeamPanel(),
+      ],
+    );
+  }
+
+  Widget _profileInfoChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: sidebarColor.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.14)),
+      ),
+      child: Text(
+        '$label: $value',
+        style: GoogleFonts.inter(
+          fontSize: 11,
+          color: Colors.white.withOpacity(0.92),
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  Widget _profileInfoRow(String label, String value) {
+    final v = value.trim();
+    if (v.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: RichText(
+        text: TextSpan(
+          style: GoogleFonts.inter(fontSize: 12, color: mutedTextColor),
+          children: [
+            TextSpan(
+              text: '$label: ',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: textColor,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            TextSpan(text: v),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _profileAvatar(double radius) {
+    final normalized = _normalizeProfilePhotoUrl(_profilePhotoUrl);
+    final effectiveUrl =
+        normalized.isEmpty ? _defaultProfilePhotoUrl : normalized;
+    if (normalized.toLowerCase().startsWith('data:image/')) {
+      try {
+        final bytes = base64Decode(normalized.split(',').last);
+        return CircleAvatar(
+          radius: radius,
+          backgroundColor: sidebarColor,
+          child: ClipOval(
+            child: Image.memory(
+              bytes,
+              width: radius * 2,
+              height: radius * 2,
+              fit: BoxFit.cover,
+              errorBuilder:
+                  (_, __, ___) => Icon(
+                    Icons.person,
+                    color: mutedTextColor,
+                    size: radius,
+                  ),
+            ),
+          ),
+        );
+      } catch (_) {}
+    }
+    final urlCandidates = <String>[
+      effectiveUrl,
+      // Proxy utile quand certaines sources externes refusent l'affichage direct.
+      if (effectiveUrl.contains('pinimg.com'))
+        'https://images.weserv.nl/?url=${Uri.encodeComponent(effectiveUrl.replaceFirst(RegExp(r'^https?://'), ''))}',
+      'https://i.pravatar.cc/200?u=profile-fallback',
+    ];
+
+    Widget buildNetworkCandidate(int index) {
+      if (index >= urlCandidates.length) {
+        return Icon(
+          Icons.person,
+          color: mutedTextColor,
+          size: radius,
+        );
+      }
+      return Image.network(
+        urlCandidates[index],
+        width: radius * 2,
+        height: radius * 2,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => buildNetworkCandidate(index + 1),
+      );
+    }
+
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: sidebarColor,
+      child: ClipOval(
+        child: buildNetworkCandidate(0),
+      ),
+    );
+  }
+
+  Future<void> _showEditProfileDialog() async {
+    final nameController = TextEditingController(text: _profileDisplayName);
+    final urlController = TextEditingController(text: _profilePhotoUrl);
+    final emailController = TextEditingController(
+      text: (_concepteurProfileData['email'] ?? _concepteurProfileData['mail'] ?? '')
+          .toString(),
+    );
+    final phoneController = TextEditingController(
+      text:
+          (_concepteurProfileData['phone'] ??
+                  _concepteurProfileData['telephone'] ??
+                  _concepteurProfileData['mobile'] ??
+                  _concepteurProfileData['phoneNumber'] ??
+                  '')
+              .toString(),
+    );
+    final companyController = TextEditingController(
+      text:
+          (_concepteurProfileData['companyName'] ??
+                  _concepteurProfileData['company'] ??
+                  _concepteurProfileData['organization'] ??
+                  _concepteurProfileData['clientName'] ??
+                  '')
+              .toString(),
+    );
+    final specialityController = TextEditingController(
+      text:
+          (_concepteurProfileData['speciality'] ??
+                  _concepteurProfileData['specialty'] ??
+                  _concepteurProfileData['poste'] ??
+                  _concepteurProfileData['title'] ??
+                  _concepteurProfileData['jobTitle'] ??
+                  '')
+              .toString(),
+    );
+    final addressController = TextEditingController(
+      text:
+          (_concepteurProfileData['address'] ??
+                  _concepteurProfileData['adresse'] ??
+                  _concepteurProfileData['street'] ??
+                  '')
+              .toString(),
+    );
+    final cityController = TextEditingController(
+      text:
+          (_concepteurProfileData['city'] ??
+                  _concepteurProfileData['ville'] ??
+                  '')
+              .toString(),
+    );
+    final countryController = TextEditingController(
+      text:
+          (_concepteurProfileData['country'] ??
+                  _concepteurProfileData['pays'] ??
+                  '')
+              .toString(),
+    );
+    final statusController = TextEditingController(
+      text:
+          (_concepteurProfileData['status'] ??
+                  _concepteurProfileData['statut'] ??
+                  '')
+              .toString(),
+    );
+    final websiteUrlController = TextEditingController(
+      text:
+          (_concepteurProfileData['websiteUrl'] ??
+                  _concepteurProfileData['siteWeb'] ??
+                  _concepteurProfileData['website'] ??
+                  _concepteurProfileData['url'] ??
+                  '')
+              .toString(),
+    );
+    final profileUrlController = TextEditingController(
+      text:
+          (_concepteurProfileData['profileUrl'] ??
+                  _concepteurProfileData['linkedinUrl'] ??
+                  _concepteurProfileData['portfolioUrl'] ??
+                  '')
+              .toString(),
+    );
+    await showDialog<void>(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: sidebarColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(color: Colors.white.withOpacity(0.08)),
+            ),
+            title: Text(
+              'Modifier le profil',
+              style: GoogleFonts.spaceGrotesk(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            content: SizedBox(
+              width: 430,
+              child: Scrollbar(
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      style: GoogleFonts.inter(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Nom affiche',
+                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
+                        filled: true,
+                        fillColor: cardColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: emailController,
+                      style: GoogleFonts.inter(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Email',
+                        hintText: 'nom@domaine.com',
+                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
+                        hintStyle: GoogleFonts.inter(color: mutedTextColor),
+                        filled: true,
+                        fillColor: cardColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: phoneController,
+                      style: GoogleFonts.inter(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Telephone',
+                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
+                        filled: true,
+                        fillColor: cardColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: companyController,
+                      style: GoogleFonts.inter(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Societe',
+                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
+                        filled: true,
+                        fillColor: cardColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: specialityController,
+                      style: GoogleFonts.inter(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Specialite',
+                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
+                        filled: true,
+                        fillColor: cardColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: urlController,
+                      style: GoogleFonts.inter(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'URL photo',
+                        hintText: 'https://...',
+                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
+                        hintStyle: GoogleFonts.inter(color: mutedTextColor),
+                        filled: true,
+                        fillColor: cardColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: websiteUrlController,
+                      style: GoogleFonts.inter(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'URL site web',
+                        hintText: 'https://monsite.com',
+                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
+                        hintStyle: GoogleFonts.inter(color: mutedTextColor),
+                        filled: true,
+                        fillColor: cardColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: profileUrlController,
+                      style: GoogleFonts.inter(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'URL profil (LinkedIn/Portfolio)',
+                        hintText: 'https://...',
+                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
+                        hintStyle: GoogleFonts.inter(color: mutedTextColor),
+                        filled: true,
+                        fillColor: cardColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: addressController,
+                      style: GoogleFonts.inter(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Adresse',
+                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
+                        filled: true,
+                        fillColor: cardColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: cityController,
+                      style: GoogleFonts.inter(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Ville',
+                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
+                        filled: true,
+                        fillColor: cardColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: countryController,
+                      style: GoogleFonts.inter(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Pays',
+                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
+                        filled: true,
+                        fillColor: cardColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: statusController,
+                      style: GoogleFonts.inter(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Statut',
+                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
+                        filled: true,
+                        fillColor: cardColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            final dataUrl = await _pickImageAsDataUrl();
+                            if (dataUrl == null || dataUrl.isEmpty) return;
+                            urlController.text = dataUrl;
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Image locale selectionnee.'),
+                                backgroundColor: successColor,
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.photo_library_outlined, size: 18),
+                          label: const Text('Choisir image locale'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: BorderSide(color: Colors.white.withOpacity(0.25)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Conseil: si une URL externe ne s affiche pas, utilisez une image locale.',
+                      style: GoogleFonts.inter(fontSize: 11, color: mutedTextColor),
+                    ),
+                  ],
+                  ),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: Text(
+                  'Annuler',
+                  style: GoogleFonts.inter(color: mutedTextColor),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final nextName = nameController.text.trim();
+                  final nextEmail = emailController.text.trim();
+                  final nextPhone = phoneController.text.trim();
+                  final nextCompany = companyController.text.trim();
+                  final nextSpeciality = specialityController.text.trim();
+                  final nextAddress = addressController.text.trim();
+                  final nextCity = cityController.text.trim();
+                  final nextCountry = countryController.text.trim();
+                  final nextStatus = statusController.text.trim();
+                  final nextWebsiteUrl = websiteUrlController.text.trim();
+                  final nextProfileUrl = profileUrlController.text.trim();
+                  final nextUrl = _normalizeProfilePhotoUrl(urlController.text);
+                  if (nextName.isEmpty) return;
+                  if (nextUrl.isEmpty ||
+                      !(nextUrl.startsWith('http://') ||
+                          nextUrl.startsWith('https://') ||
+                          nextUrl.toLowerCase().startsWith('data:image/'))) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('URL photo invalide.'),
+                        backgroundColor: alertColor,
+                      ),
+                    );
+                    return;
+                  }
+                  final previousName = _profileDisplayName;
+                  final previousPhoto = _profilePhotoUrl;
+                  final previousProfileData =
+                      Map<String, dynamic>.from(_concepteurProfileData);
+                  setState(() {
+                    _profileDisplayName = nextName;
+                    _profilePhotoUrl = nextUrl;
+                    _concepteurProfileData = {
+                      ..._concepteurProfileData,
+                      'name': nextName,
+                      'email': nextEmail,
+                      'mail': nextEmail,
+                      'phone': nextPhone,
+                      'telephone': nextPhone,
+                      'mobile': nextPhone,
+                      'companyName': nextCompany,
+                      'company': nextCompany,
+                      'organization': nextCompany,
+                      'speciality': nextSpeciality,
+                      'specialty': nextSpeciality,
+                      'poste': nextSpeciality,
+                      'title': nextSpeciality,
+                      'address': nextAddress,
+                      'adresse': nextAddress,
+                      'street': nextAddress,
+                      'city': nextCity,
+                      'ville': nextCity,
+                      'country': nextCountry,
+                      'pays': nextCountry,
+                      'status': nextStatus,
+                      'statut': nextStatus,
+                      'websiteUrl': nextWebsiteUrl,
+                      'siteWeb': nextWebsiteUrl,
+                      'website': nextWebsiteUrl,
+                      'url': nextWebsiteUrl,
+                      'profileUrl': nextProfileUrl,
+                      'linkedinUrl': nextProfileUrl,
+                      'portfolioUrl': nextProfileUrl,
+                      'photoUrl': nextUrl,
+                      'avatarUrl': nextUrl,
+                      'profilePhotoUrl': nextUrl,
+                      'image': nextUrl,
+                    };
+                  });
+                  var savedInDb = false;
+                  try {
+                    if (_concepteurProfileId.isEmpty) {
+                      await _loadConcepteurProfileFromBackend();
+                    }
+                    if (_concepteurProfileId.isNotEmpty) {
+                      await ApiService.updateConcepteur(_concepteurProfileId, {
+                        'name': nextName,
+                        'email': nextEmail,
+                        'mail': nextEmail,
+                        'phone': nextPhone,
+                        'telephone': nextPhone,
+                        'mobile': nextPhone,
+                        'companyName': nextCompany,
+                        'company': nextCompany,
+                        'organization': nextCompany,
+                        'speciality': nextSpeciality,
+                        'specialty': nextSpeciality,
+                        'poste': nextSpeciality,
+                        'title': nextSpeciality,
+                        'address': nextAddress,
+                        'adresse': nextAddress,
+                        'street': nextAddress,
+                        'city': nextCity,
+                        'ville': nextCity,
+                        'country': nextCountry,
+                        'pays': nextCountry,
+                        'status': nextStatus,
+                        'statut': nextStatus,
+                        'websiteUrl': nextWebsiteUrl,
+                        'siteWeb': nextWebsiteUrl,
+                        'website': nextWebsiteUrl,
+                        'url': nextWebsiteUrl,
+                        'profileUrl': nextProfileUrl,
+                        'linkedinUrl': nextProfileUrl,
+                        'portfolioUrl': nextProfileUrl,
+                        'photoUrl': nextUrl,
+                        'avatarUrl': nextUrl,
+                        'profilePhotoUrl': nextUrl,
+                        'image': nextUrl,
+                      });
+                      savedInDb = true;
+                    }
+                  } catch (_) {
+                    if (mounted) {
+                      setState(() {
+                        _profileDisplayName = previousName;
+                        _profilePhotoUrl = previousPhoto;
+                        _concepteurProfileData = previousProfileData;
+                      });
+                    }
+                  }
+                  if (!mounted) return;
+                  Navigator.of(ctx).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        savedInDb
+                            ? 'Profil enregistre dans la base de donnees.'
+                            : 'Profil local modifie, mais sauvegarde base impossible.',
+                      ),
+                      backgroundColor: savedInDb ? successColor : alertColor,
+                    ),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.black,
+                ),
+                child: Text(
+                  'Enregistrer',
+                  style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
     );
   }
 
@@ -4735,24 +5867,39 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   Stack(
                     children: [
                       IconButton(
-                        onPressed: () {},
+                        onPressed: _showMachineNotificationsDialog,
                         icon: const Icon(
                           Icons.notifications_outlined,
                           color: Colors.white,
                         ),
                       ),
-                      Positioned(
-                        right: 8,
-                        top: 8,
-                        child: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: const BoxDecoration(
-                            color: primaryColor,
-                            shape: BoxShape.circle,
+                      if (_unreadMachineNotifications > 0)
+                        Positioned(
+                          right: 6,
+                          top: 6,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: primaryColor,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            constraints: const BoxConstraints(minWidth: 16),
+                            child: Text(
+                              _unreadMachineNotifications > 99
+                                  ? '99+'
+                                  : _unreadMachineNotifications.toString(),
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.inter(
+                                color: Colors.black,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
                     ],
                   ),
                   const SizedBox(width: 8),

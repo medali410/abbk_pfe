@@ -366,6 +366,14 @@ class _LoginPageState extends State<LoginPage> {
         clientName: clientName,
         clientEmail: (response['email'] ?? email).toString(),
         clientLocation: (response['location'] ?? '').toString(),
+        clientPhotoUrl:
+            (response['photoUrl'] ??
+                    response['avatarUrl'] ??
+                    response['profilePhotoUrl'] ??
+                    response['imageUrl'] ??
+                    response['image'] ??
+                    '')
+                .toString(),
       );
       if (widget.returnToHomeAfterClientLogin) {
         Navigator.pop(context, true);
