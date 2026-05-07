@@ -143,6 +143,76 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   String _clientNameOf(Map<String, dynamic> c) =>
       (c['name'] ?? c['clientName'] ?? 'Client').toString();
 
+  String _entityAvatarUrlOf(Map<String, dynamic> data) {
+    for (final key in const [
+      'avatarUrl',
+      'photoUrl',
+      'profilePhotoUrl',
+      'imageUrl',
+      'image',
+      'avatar',
+      'photo',
+      'profileImage',
+    ]) {
+      final value = (data[key] ?? '').toString().trim();
+      if (value.isNotEmpty) return value;
+    }
+    return '';
+  }
+
+  String _initialsFromName(String name) {
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((e) => e.trim().isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return 'U';
+    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+    return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
+  }
+
+  Widget _entityAvatar(
+    Map<String, dynamic> data,
+    String displayName, {
+    double radius = 18,
+  }) {
+    final imageValue = _entityAvatarUrlOf(data);
+    final size = radius * 2;
+    final initials = _initialsFromName(displayName);
+    final fallback = Container(
+      height: size,
+      width: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E2D),
+        shape: BoxShape.circle,
+        border: Border.all(color: const Color(0xFF222233)),
+      ),
+      child: Text(
+        initials,
+        style: GoogleFonts.inter(
+          color: primaryColor,
+          fontWeight: FontWeight.w700,
+          fontSize: radius * 0.72,
+        ),
+      ),
+    );
+    if (imageValue.isEmpty) return fallback;
+    return ClipOval(
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: _buildMachineImageWidget(
+          imageValue,
+          height: size,
+          width: size,
+          fit: BoxFit.cover,
+          fallback: fallback,
+        ),
+      ),
+    );
+  }
+
   Set<String> _clientLinkedIdKeys(Map<String, dynamic> client) {
     final s = <String>{};
     for (final k in ['clientId', 'id', '_id']) {
@@ -382,14 +452,29 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     final cid = (clientId ?? '').trim();
     final Map<String, dynamic>? initialData =
         cid.isEmpty ? null : <String, dynamic>{'companyId': cid};
-    final r = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(
-        builder:
-            (ctx) => AddTechnicianPage(
-              initialData: initialData,
-              onBack: () => Navigator.of(ctx).pop(true),
+    final r = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        final size = MediaQuery.of(ctx).size;
+        final dialogWidth = size.width * 0.94 > 1320 ? 1320.0 : size.width * 0.94;
+        final dialogHeight = size.height * 0.94 > 920 ? 920.0 : size.height * 0.94;
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: SizedBox(
+              width: dialogWidth,
+              height: dialogHeight,
+              child: AddTechnicianPage(
+                initialData: initialData,
+                onBack: () => Navigator.of(ctx).pop(true),
+              ),
             ),
-      ),
+          ),
+        );
+      },
     );
     if (r == true && mounted) {
       await _reloadClientsTechniciansMaintenance();
@@ -431,6 +516,66 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Suppression impossible: $e'),
+          backgroundColor: alertColor,
+        ),
+      );
+    }
+  }
+
+  bool _isPendingTechnician(Map<String, dynamic> t) {
+    final approval = (t['approvalStatus'] ?? '').toString().toUpperCase().trim();
+    final status = (t['status'] ?? '').toString().toLowerCase().trim();
+    return approval == 'PENDING' || status == 'en attente' || status == 'pending';
+  }
+
+  Future<void> _approvePendingTechnician(Map<String, dynamic> t) async {
+    final id = _technicianIdOf(t);
+    if (id.isEmpty) return;
+    try {
+      await ApiService.updateTechnician(id, {
+        'status': 'Disponible',
+        'approvalStatus': 'APPROVED',
+      });
+      if (!mounted) return;
+      await _reloadClientsTechniciansMaintenance();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Demande technicien validée par le concepteur.'),
+          backgroundColor: successColor,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Validation impossible: $e'),
+          backgroundColor: alertColor,
+        ),
+      );
+    }
+  }
+
+  Future<void> _rejectPendingTechnician(Map<String, dynamic> t) async {
+    final id = _technicianIdOf(t);
+    if (id.isEmpty) return;
+    try {
+      await ApiService.updateTechnician(id, {
+        'status': 'Rejeté',
+        'approvalStatus': 'REJECTED',
+      });
+      if (!mounted) return;
+      await _reloadClientsTechniciansMaintenance();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Demande technicien refusée.'),
+          backgroundColor: alertColor,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Refus impossible: $e'),
           backgroundColor: alertColor,
         ),
       );
@@ -1777,6 +1922,73 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     }
   }
 
+  Future<void> _validateTechnicianAddRequest(Map<String, dynamic> req) async {
+    final reqId = (req['id'] ?? req['_id'] ?? '').toString().trim();
+    if (reqId.isEmpty) return;
+
+    final metadataRaw = req['metadata'];
+    final metadata =
+        metadataRaw is Map ? Map<String, dynamic>.from(metadataRaw) : <String, dynamic>{};
+    final machineIds =
+        (metadata['machineIds'] is List)
+            ? (metadata['machineIds'] as List)
+                .map((e) => e.toString().trim())
+                .where((e) => e.isNotEmpty)
+                .toList()
+            : <String>[];
+
+    final requestedName = (req['requesterName'] ?? '').toString().trim();
+    final email = (req['requesterEmail'] ?? '').toString().trim().toLowerCase();
+    final linkedClientId = (req['linkedClientId'] ?? '').toString().trim();
+    final location = (req['location'] ?? '').toString().trim();
+    final specialization = (metadata['specialization'] ?? 'Demande client').toString().trim();
+    final description = (metadata['description'] ?? req['note'] ?? '').toString().trim();
+    final normalizedName =
+        requestedName.contains('@')
+            ? requestedName
+            : '${requestedName.replaceAll(' ', '').toLowerCase()}@technicien';
+    final generatedPassword =
+        'Tmp${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}!';
+
+    try {
+      await ApiService.addTechnician({
+        'name': normalizedName,
+        'email': email,
+        'phone': (req['requesterPhone'] ?? '').toString().trim(),
+        'location': location,
+        'specialization': specialization,
+        'technicalDescription': description,
+        if (linkedClientId.isNotEmpty) 'companyId': linkedClientId,
+        'status': 'Disponible',
+        'approvalStatus': 'APPROVED',
+        'machineIds': machineIds,
+        'password': generatedPassword,
+      });
+      await ApiService.updatePurchaseRequestStatus(
+        reqId,
+        'VALIDATED',
+        reviewedByName: 'Concepteur',
+      );
+      if (!mounted) return;
+      await _fetchPurchaseRequests();
+      setState(() => _techniciansFuture = ApiService.getTechnicians());
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Demande technicien validée et technicien créé.'),
+          backgroundColor: successColor,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Validation demande technicien impossible: $e'),
+          backgroundColor: alertColor,
+        ),
+      );
+    }
+  }
+
   Future<void> _rejectRequest(Map<String, dynamic> req) async {
     final id = (req['id'] ?? req['_id'] ?? '').toString();
     if (id.isEmpty) return;
@@ -2369,773 +2581,478 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
   Widget _buildClientCatalogPanel() {
     final width = MediaQuery.of(context).size.width;
-    final isDesktop = width >= 1050;
-    final fourCol = width >= 1440;
-    final wide = width >= 1020;
+    final wide = width >= 1024;
+    final xWide = width >= 1480;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: sidebarColor,
+        color: const Color(0xFF0A0A0F),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white.withOpacity(0.08)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (isMobileLayout(context))
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.menu_book_rounded, color: primaryColor),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Client Catalog',
-                        style: GoogleFonts.spaceGrotesk(
-                          color: textColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _clientSearchController,
-                  onChanged: (v) => setState(() => _clientSearchQuery = v),
-                  decoration: InputDecoration(
-                    hintText: 'Rechercher par nom, ID ou email...',
-                    hintStyle: GoogleFonts.inter(
-                      color: mutedTextColor.withOpacity(0.6),
-                      fontSize: 13,
-                    ),
-                    filled: true,
-                    fillColor: cardColor,
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                  ),
-                  style: GoogleFonts.inter(color: textColor, fontSize: 13),
-                ),
-              ],
-            )
-          else
-            Row(
-              children: [
-                const Icon(Icons.menu_book_rounded, color: primaryColor),
-                const SizedBox(width: 8),
-                Text(
-                  'Client Catalog',
-                  style: GoogleFonts.spaceGrotesk(
-                    color: textColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-                const Spacer(),
-                SizedBox(
-                  width: isDesktop ? 340 : 260,
-                  child: TextField(
-                    controller: _clientSearchController,
-                    onChanged: (v) => setState(() => _clientSearchQuery = v),
-                    decoration: InputDecoration(
-                      hintText: 'Rechercher par nom, ID ou email...',
-                      hintStyle: GoogleFonts.inter(
-                        color: mutedTextColor.withOpacity(0.6),
-                        fontSize: 13,
-                      ),
-                      filled: true,
-                      fillColor: cardColor,
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                    ),
-                    style: GoogleFonts.inter(color: textColor, fontSize: 13),
-                  ),
-                ),
-              ],
-            ),
-          const SizedBox(height: 16),
-          FutureBuilder<List<dynamic>>(
-            future: Future.wait<dynamic>([
-              _clientsFuture ?? ApiService.getClients(),
-              _techniciansFuture ?? ApiService.getTechnicians(),
-              (_maintenanceAgentsFuture ?? ApiService.getMaintenanceAgents())
-                  .catchError((_) => <Map<String, dynamic>>[]),
-            ]),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 48),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              if (snapshot.hasError) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: Text(
-                    'Erreur chargement catalogue: ${snapshot.error}',
-                    style: GoogleFonts.inter(color: alertColor),
+      child: FutureBuilder<List<dynamic>>(
+        future: Future.wait<dynamic>([
+          _clientsFuture ?? ApiService.getClients(),
+          _techniciansFuture ?? ApiService.getTechnicians(),
+          (_maintenanceAgentsFuture ?? ApiService.getMaintenanceAgents())
+              .catchError((_) => <Map<String, dynamic>>[]),
+        ]),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 48),
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (snapshot.hasError) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Text(
+                'Erreur chargement catalogue: ${snapshot.error}',
+                style: GoogleFonts.inter(color: alertColor),
+              ),
+            );
+          }
+
+          final raw = snapshot.data ?? const <dynamic>[];
+          final allClients = (raw.isNotEmpty ? raw[0] : const <dynamic>[]) as List<dynamic>;
+          final allTechs = (raw.length > 1 ? raw[1] : const <dynamic>[]) as List<dynamic>;
+          final allAgents = (raw.length > 2 ? raw[2] : const <dynamic>[]) as List<dynamic>;
+          final clientRows = allClients.cast<Map<String, dynamic>>();
+          final technicianRows = allTechs.cast<Map<String, dynamic>>();
+          final maintenanceRows = allAgents.cast<Map<String, dynamic>>();
+          final q = _clientSearchQuery.toLowerCase().trim();
+
+          final filtered = clientRows.where((c) {
+            if (q.isEmpty) return true;
+            final id = _clientIdOf(c).toLowerCase();
+            final name = _clientNameOf(c).toLowerCase();
+            final email = (c['email'] ?? '').toString().toLowerCase();
+            return id.contains(q) || name.contains(q) || email.contains(q);
+          }).toList();
+
+          if (filtered.isEmpty) {
+            return Center(
+              child: Text(
+                'Aucun client trouve.',
+                style: GoogleFonts.inter(color: mutedTextColor),
+              ),
+            );
+          }
+
+          final selectedName = _selectedCatalogClientId == null
+              ? ''
+              : _clientNameOf(
+                  clientRows.firstWhere(
+                    (c) => _clientIdOf(c) == _selectedCatalogClientId,
+                    orElse: () => filtered.first,
                   ),
                 );
-              }
 
-              final raw = snapshot.data ?? const <dynamic>[];
-              final allClients =
-                  (raw.isNotEmpty ? raw[0] : const <dynamic>[])
-                      as List<dynamic>;
-              final allTechs =
-                  (raw.length > 1 ? raw[1] : const <dynamic>[])
-                      as List<dynamic>;
-              final allAgents =
-                  (raw.length > 2 ? raw[2] : const <dynamic>[])
-                      as List<dynamic>;
-              final clientRows = allClients.cast<Map<String, dynamic>>();
-              final technicianRows = allTechs.cast<Map<String, dynamic>>();
-              final maintenanceRows = allAgents.cast<Map<String, dynamic>>();
-              final q = _clientSearchQuery.toLowerCase().trim();
+          Map<String, dynamic>? selectedClientRow() {
+            final sid = _selectedCatalogClientId;
+            if (sid == null || sid.isEmpty) return null;
+            try {
+              return clientRows.firstWhere((c) => _clientIdOf(c) == sid);
+            } catch (_) {
+              return null;
+            }
+          }
 
-              final filtered =
-                  clientRows.where((c) {
-                    if (q.isEmpty) return true;
-                    final id = _clientIdOf(c).toLowerCase();
-                    final name = _clientNameOf(c).toLowerCase();
-                    final email = (c['email'] ?? '').toString().toLowerCase();
-                    return id.contains(q) ||
-                        name.contains(q) ||
-                        email.contains(q);
-                  }).toList();
+          Set<String> selectedClientKeys() {
+            final sid = (_selectedCatalogClientId ?? '').trim();
+            final keys = <String>{};
+            if (sid.isNotEmpty) keys.add(sid);
+            final row = selectedClientRow();
+            if (row != null) {
+              keys.addAll(_clientLinkedIdKeys(row));
+            }
+            return keys;
+          }
 
-              if (filtered.isEmpty) {
-                return Text(
-                  'Aucun client trouvé.',
-                  style: GoogleFonts.inter(color: mutedTextColor),
-                );
-              }
-
-              final selectedName =
-                  _selectedCatalogClientId == null
-                      ? ''
-                      : _clientNameOf(
-                        clientRows.firstWhere(
-                          (c) => _clientIdOf(c) == _selectedCatalogClientId,
-                          orElse: () => filtered.first,
-                        ),
-                      );
-
-              Map<String, dynamic>? selectedClientRow() {
-                final sid = _selectedCatalogClientId;
-                if (sid == null || sid.isEmpty) return null;
-                try {
-                  return clientRows.firstWhere((c) => _clientIdOf(c) == sid);
-                } catch (_) {
-                  return null;
-                }
-              }
-
-              Set<String> selectedClientKeys() {
-                final sid = (_selectedCatalogClientId ?? '').trim();
-                final keys = <String>{};
-                if (sid.isNotEmpty) keys.add(sid);
-                final row = selectedClientRow();
-                if (row != null) {
-                  keys.addAll(_clientLinkedIdKeys(row));
-                }
-                return keys;
-              }
-
-              Widget clientsList() {
-                return ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: filtered.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, i) {
-                    final c = filtered[i];
-                    final cid = _clientIdOf(c);
-                    final selected =
-                        cid.isNotEmpty && cid == _selectedCatalogClientId;
-                    return Container(
-                      decoration: BoxDecoration(
-                        color:
-                            selected
-                                ? primaryColor.withOpacity(0.08)
-                                : Colors.transparent,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color:
-                              selected
-                                  ? primaryColor.withOpacity(0.45)
-                                  : Colors.white.withOpacity(0.06),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          InkWell(
-                            borderRadius: const BorderRadius.vertical(
-                              top: Radius.circular(11),
-                            ),
-                            onTap: () {
-                              if (cid.isEmpty) return;
-                              setState(() {
-                                _selectedCatalogClientId = cid;
-                                _selectedClientMachinesFuture =
-                                    ApiService.getMachinesForClient(cid);
-                              });
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _clientNameOf(c),
-                                    style: GoogleFonts.inter(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      color:
-                                          selected ? primaryColor : textColor,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'ID: $cid',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 12,
-                                      color: mutedTextColor,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  if ((c['email'] ?? '')
-                                      .toString()
-                                      .trim()
-                                      .isNotEmpty)
-                                    Text(
-                                      (c['email'] ?? '').toString(),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: GoogleFonts.inter(
-                                        fontSize: 12,
-                                        color: mutedTextColor,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          _catalogEditDeleteRow(
-                            onEdit: () => _openEditClient(c),
-                            onDelete: () => _deleteClientEntity(c),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              }
-
-              Widget catalogTechBlock(Set<String> keys) {
-                final list = _techniciansForClientKeys(technicianRows, keys);
-                final selectedCid = (_selectedCatalogClientId ?? '').trim();
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _maintenanceSectionTitle(
-                            'Techniciens',
-                            Icons.engineering_outlined,
-                          ),
-                        ),
-                        ElevatedButton.icon(
-                          onPressed:
-                              () => _openAddTechnician(clientId: selectedCid),
-                          icon: const Icon(Icons.person_add_alt_1, size: 16),
-                          label: Text(
-                            'Add Technicien',
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: primaryColor,
-                            foregroundColor: bgColor,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                          ),
-                        ),
-                      ],
+          Widget clientsList() {
+            return ListView.separated(
+              itemCount: filtered.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, i) {
+                final c = filtered[i];
+                final cid = _clientIdOf(c);
+                final selected = cid.isNotEmpty && cid == _selectedCatalogClientId;
+                return Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF14141F),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: selected ? primaryColor.withOpacity(0.6) : const Color(0xFF222233),
                     ),
-                    const SizedBox(height: 10),
-                    if (list.isEmpty)
-                      _maintenanceEmptyPane(
-                        icon: Icons.engineering_outlined,
-                        message:
-                            'Aucun technicien lié à ce client (companyId).',
-                      )
-                    else
-                      ListView.separated(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: list.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (context, i) {
-                          final t = list[i];
-                          final tid = _technicianIdOf(t);
-                          return Container(
-                            padding: const EdgeInsets.fromLTRB(8, 8, 8, 2),
-                            decoration: BoxDecoration(
-                              color: cardColor.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.08),
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 18,
-                                      backgroundColor: primaryColor.withOpacity(
-                                        0.12,
-                                      ),
-                                      child: Icon(
-                                        Icons.engineering_outlined,
-                                        color: primaryColor,
-                                        size: 18,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            _technicianNameOf(t),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: GoogleFonts.inter(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                              color: textColor,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            tid,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: GoogleFonts.inter(
-                                              fontSize: 10,
-                                              color: mutedTextColor,
-                                            ),
-                                          ),
-                                          if ((t['email'] ?? '')
-                                              .toString()
-                                              .trim()
-                                              .isNotEmpty)
-                                            Text(
-                                              (t['email'] ?? '').toString(),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: GoogleFonts.inter(
-                                                fontSize: 10,
-                                                color: mutedTextColor,
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                _catalogEditDeleteRow(
-                                  onEdit: () => _openEditTechnician(t),
-                                  onDelete: () => _deleteTechnicianEntity(t),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                  ],
-                );
-              }
-
-              Widget catalogMaintBlock(Set<String> keys) {
-                final list = _maintenanceAgentsForClientKeys(
-                  maintenanceRows,
-                  keys,
-                );
-                final selectedCid = (_selectedCatalogClientId ?? '').trim();
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _maintenanceSectionTitle(
-                            'Agents maintenance',
-                            Icons.build_circle_outlined,
-                          ),
-                        ),
-                        ElevatedButton.icon(
-                          onPressed:
-                              () => _openAddMaintenanceAgent(
-                                clientId: selectedCid,
-                              ),
-                          icon: const Icon(Icons.handyman_outlined, size: 16),
-                          label: Text(
-                            'Add Maintenance',
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: primaryColor,
-                            foregroundColor: bgColor,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    if (list.isEmpty)
-                      _maintenanceEmptyPane(
-                        icon: Icons.build_circle_outlined,
-                        message: 'Aucun agent maintenance lié à ce client.',
-                      )
-                    else
-                      ListView.separated(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: list.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (context, i) {
-                          final a = list[i];
-                          final aid = _maintenanceAgentIdOf(a);
-                          return Container(
-                            padding: const EdgeInsets.fromLTRB(8, 8, 8, 2),
-                            decoration: BoxDecoration(
-                              color: cardColor.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.08),
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 18,
-                                      backgroundColor: primaryColor.withOpacity(
-                                        0.12,
-                                      ),
-                                      child: Icon(
-                                        Icons.handyman_outlined,
-                                        color: primaryColor,
-                                        size: 18,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            _maintenanceAgentNameOf(a),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: GoogleFonts.inter(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                              color: textColor,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            aid,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: GoogleFonts.inter(
-                                              fontSize: 10,
-                                              color: mutedTextColor,
-                                            ),
-                                          ),
-                                          if ((a['email'] ?? '')
-                                              .toString()
-                                              .trim()
-                                              .isNotEmpty)
-                                            Text(
-                                              (a['email'] ?? '').toString(),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: GoogleFonts.inter(
-                                                fontSize: 10,
-                                                color: mutedTextColor,
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                _catalogEditDeleteRow(
-                                  onEdit: () => _openEditMaintenanceAgent(a),
-                                  onDelete:
-                                      () => _deleteMaintenanceAgentEntity(a),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                  ],
-                );
-              }
-
-              Widget machinesPanel() {
-                final cid = _selectedCatalogClientId ?? '';
-                if (cid.isEmpty) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _maintenanceSectionTitle(
-                        'Machines',
-                        Icons.precision_manufacturing_outlined,
-                      ),
-                      const SizedBox(height: 10),
-                      _maintenanceEmptyPane(
-                        icon: Icons.touch_app_outlined,
-                        message:
-                            'Sélectionnez un client pour afficher techniciens, agents maintenance et machines.',
-                      ),
-                    ],
-                  );
-                }
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _maintenanceSectionTitle(
-                      'Machines',
-                      Icons.precision_manufacturing_outlined,
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4, bottom: 10),
-                      child: Text(
-                        selectedName.isNotEmpty
-                            ? 'Pour $selectedName'
-                            : 'Client sélectionné',
-                        style: GoogleFonts.inter(
-                          fontSize: 12,
-                          color: mutedTextColor,
-                        ),
-                      ),
-                    ),
-                    FutureBuilder<List<Map<String, dynamic>>>(
-                      future: _selectedClientMachinesFuture,
-                      builder: (context, mSnap) {
-                        if (mSnap.connectionState == ConnectionState.waiting) {
-                          return const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 30),
-                            child: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        if (mSnap.hasError) {
-                          return Text(
-                            'Erreur machines: ${mSnap.error}',
-                            style: GoogleFonts.inter(color: alertColor),
-                          );
-                        }
-                        final machines =
-                            mSnap.data ?? const <Map<String, dynamic>>[];
-                        if (machines.isEmpty) {
-                          return _maintenanceEmptyPane(
-                            icon: Icons.precision_manufacturing_outlined,
-                            message: 'Aucune machine achetée pour ce client.',
-                          );
-                        }
-
-                        return ListView.separated(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: machines.length,
-                          separatorBuilder:
-                              (_, __) => const SizedBox(height: 12),
-                          itemBuilder: (context, i) {
-                            final m = machines[i];
-                            final mid = _machineIdOf(m);
-                            final name = _machineNameOf(m);
-                            final location = (m['location'] ?? '').toString();
-                            final rawImg =
-                                (m['imageUrl'] ?? m['image'] ?? '').toString();
-                            return Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: cardColor.withOpacity(0.55),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.08),
-                                ),
-                              ),
-                              child: Row(
+                      InkWell(
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
+                        onTap: () {
+                          if (cid.isEmpty) return;
+                          setState(() {
+                            _selectedCatalogClientId = cid;
+                            _selectedClientMachinesFuture = ApiService.getMachinesForClient(cid);
+                          });
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: SizedBox(
-                                      width: 72,
-                                      height: 56,
-                                      child: _buildMachineImageWidget(
-                                        rawImg,
-                                        height: 56,
-                                        width: 72,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
+                                  _entityAvatar(c, _clientNameOf(c), radius: 18),
+                                  const SizedBox(width: 10),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          name,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
+                                          _clientNameOf(c),
                                           style: GoogleFonts.inter(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.bold,
-                                            color: textColor,
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w700,
+                                            color: selected ? primaryColor : textColor,
                                           ),
                                         ),
+                                        const SizedBox(height: 6),
+                                        Text('ID: $cid', style: GoogleFonts.inter(fontSize: 11, color: mutedTextColor)),
                                         const SizedBox(height: 4),
-                                        Text(
-                                          'ID: $mid',
-                                          style: GoogleFonts.inter(
-                                            fontSize: 12,
-                                            color: mutedTextColor,
-                                          ),
-                                        ),
-                                        if (location.trim().isNotEmpty)
+                                        if ((c['email'] ?? '').toString().trim().isNotEmpty)
                                           Text(
-                                            location,
+                                            (c['email'] ?? '').toString(),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
-                                            style: GoogleFonts.inter(
-                                              fontSize: 12,
-                                              color: mutedTextColor,
-                                            ),
+                                            style: GoogleFonts.inter(fontSize: 11, color: mutedTextColor),
                                           ),
                                       ],
                                     ),
                                   ),
                                 ],
                               ),
-                            );
-                          },
-                        );
-                      },
+                            ],
+                          ),
+                        ),
+                      ),
+                      _catalogEditDeleteRow(onEdit: () => _openEditClient(c), onDelete: () => _deleteClientEntity(c)),
+                    ],
+                  ),
+                );
+              },
+            );
+          }
+
+          Widget catalogTechBlock(Set<String> keys) {
+            final list = _techniciansForClientKeys(technicianRows, keys);
+            final selectedCid = (_selectedCatalogClientId ?? '').trim();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: _maintenanceSectionTitle('Techniciens', Icons.tune_rounded)),
+                    ElevatedButton.icon(
+                      onPressed: () => _openAddTechnician(clientId: selectedCid),
+                      icon: const Icon(Icons.person_add_alt_1, size: 14),
+                      label: Text('Add Technicien', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryColor,
+                        foregroundColor: bgColor,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                      ),
                     ),
                   ],
-                );
-              }
+                ),
+                const SizedBox(height: 10),
+                if (list.isEmpty)
+                  _maintenanceEmptyPane(icon: Icons.engineering_outlined, message: 'Aucun technicien lie a ce client.')
+                else
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: list.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, i) {
+                      final t = list[i];
+                      return Container(
+                        padding: const EdgeInsets.fromLTRB(10, 10, 10, 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF14141F),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFF222233)),
+                        ),
+                        child: Column(
+                          children: [
+                            ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: _entityAvatar(t, _technicianNameOf(t), radius: 16),
+                              title: Text(_technicianNameOf(t), style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w700, fontSize: 13)),
+                              subtitle: Text('${_technicianIdOf(t)}\n${(t['email'] ?? '').toString()}',
+                                  maxLines: 2, overflow: TextOverflow.ellipsis, style: GoogleFonts.inter(color: mutedTextColor, fontSize: 10)),
+                            ),
+                            _catalogEditDeleteRow(onEdit: () => _openEditTechnician(t), onDelete: () => _deleteTechnicianEntity(t)),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            );
+          }
 
-              Widget catalogDetailArea() {
-                final keys = selectedClientKeys();
-                final cid = _selectedCatalogClientId ?? '';
-                if (cid.isEmpty) {
-                  return machinesPanel();
-                }
-                if (fourCol) {
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(width: 288, child: catalogTechBlock(keys)),
-                      const SizedBox(width: 14),
-                      SizedBox(width: 288, child: catalogMaintBlock(keys)),
-                      const SizedBox(width: 14),
-                      Expanded(child: machinesPanel()),
+          Widget catalogMaintBlock(Set<String> keys) {
+            final list = _maintenanceAgentsForClientKeys(maintenanceRows, keys);
+            final selectedCid = (_selectedCatalogClientId ?? '').trim();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: _maintenanceSectionTitle('Agents maintenance', Icons.handyman_outlined)),
+                    ElevatedButton.icon(
+                      onPressed: () => _openAddMaintenanceAgent(clientId: selectedCid),
+                      icon: const Icon(Icons.build_outlined, size: 14),
+                      label: Text('Add Maintenance', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryColor,
+                        foregroundColor: bgColor,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                if (list.isEmpty)
+                  _maintenanceEmptyPane(icon: Icons.build_circle_outlined, message: 'Aucun agent maintenance lie a ce client.')
+                else
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: list.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, i) {
+                      final a = list[i];
+                      return Container(
+                        padding: const EdgeInsets.fromLTRB(10, 10, 10, 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF14141F),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFF222233)),
+                        ),
+                        child: Column(
+                          children: [
+                            ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: _entityAvatar(a, _maintenanceAgentNameOf(a), radius: 16),
+                              title: Text(_maintenanceAgentNameOf(a), style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w700, fontSize: 13)),
+                              subtitle: Text('${_maintenanceAgentIdOf(a)}\n${(a['email'] ?? '').toString()}',
+                                  maxLines: 2, overflow: TextOverflow.ellipsis, style: GoogleFonts.inter(color: mutedTextColor, fontSize: 10)),
+                            ),
+                            _catalogEditDeleteRow(onEdit: () => _openEditMaintenanceAgent(a), onDelete: () => _deleteMaintenanceAgentEntity(a)),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            );
+          }
+
+          Widget machinesPanel() {
+            final cid = _selectedCatalogClientId ?? '';
+            if (cid.isEmpty) {
+              return _maintenanceEmptyPane(
+                icon: Icons.touch_app_outlined,
+                message: 'Selectionnez un client pour afficher les machines.',
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _maintenanceSectionTitle('Machines', Icons.precision_manufacturing_outlined),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, bottom: 10),
+                  child: Text(
+                    selectedName.isNotEmpty ? 'Pour $selectedName' : 'Client selectionne',
+                    style: GoogleFonts.inter(fontSize: 12, color: mutedTextColor),
+                  ),
+                ),
+                FutureBuilder<List<Map<String, dynamic>>>(
+                  future: _selectedClientMachinesFuture,
+                  builder: (context, mSnap) {
+                    if (mSnap.connectionState == ConnectionState.waiting) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 30),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    if (mSnap.hasError) {
+                      return Text('Erreur machines: ${mSnap.error}', style: GoogleFonts.inter(color: alertColor));
+                    }
+                    final machines = mSnap.data ?? const <Map<String, dynamic>>[];
+                    if (machines.isEmpty) {
+                      return _maintenanceEmptyPane(icon: Icons.precision_manufacturing_outlined, message: 'Aucune machine achetee pour ce client.');
+                    }
+                    return ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: machines.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, i) {
+                        final m = machines[i];
+                        final mid = _machineIdOf(m);
+                        final name = _machineNameOf(m);
+                        final rawImg = (m['imageUrl'] ?? m['image'] ?? '').toString();
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF14141F),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFF222233)),
+                          ),
+                          child: Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: SizedBox(
+                                  width: 64,
+                                  height: 52,
+                                  child: _buildMachineImageWidget(rawImg, height: 52, width: 64, fit: BoxFit.cover),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w700)),
+                                    const SizedBox(height: 4),
+                                    Text('ID: $mid', style: GoogleFonts.inter(fontSize: 11, color: mutedTextColor)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ],
+            );
+          }
+
+          final keys = selectedClientKeys();
+
+          return Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.08))),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _clientSearchController,
+                        onChanged: (v) => setState(() => _clientSearchQuery = v),
+                        decoration: InputDecoration(
+                          hintText: 'Rechercher par nom, ID ou email...',
+                          hintStyle: GoogleFonts.inter(color: mutedTextColor.withOpacity(0.65), fontSize: 13),
+                          prefixIcon: const Icon(Icons.search_rounded, size: 18, color: Colors.white54),
+                          filled: true,
+                          fillColor: const Color(0xFF1E1E2D),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                        style: GoogleFonts.inter(color: textColor, fontSize: 13),
+                      ),
+                    ),
+                    if (wide) ...[
+                      const SizedBox(width: 12),
+                      ElevatedButton.icon(
+                        onPressed: _showAddMachineDialog,
+                        icon: const Icon(Icons.add, size: 16),
+                        label: Text('Ajouter une machine', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700)),
+                        style: ElevatedButton.styleFrom(backgroundColor: primaryColor, foregroundColor: bgColor),
+                      ),
                     ],
-                  );
-                }
-                if (wide) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: wide
+                    ? SizedBox(
+                        height: 740,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: 320,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF10101A),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: const Color(0xFF222233)),
+                                ),
+                                padding: const EdgeInsets.all(12),
+                                child: clientsList(),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: SingleChildScrollView(
+                                child: Column(
+                                  children: [
+                                    if (xWide)
+                                      Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Expanded(child: catalogTechBlock(keys)),
+                                          const SizedBox(width: 12),
+                                          Expanded(child: catalogMaintBlock(keys)),
+                                        ],
+                                      )
+                                    else ...[
+                                      catalogTechBlock(keys),
+                                      const SizedBox(height: 14),
+                                      catalogMaintBlock(keys),
+                                    ],
+                                    const SizedBox(height: 14),
+                                    machinesPanel(),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Expanded(child: catalogTechBlock(keys)),
-                          const SizedBox(width: 12),
-                          Expanded(child: catalogMaintBlock(keys)),
+                          SizedBox(height: 440, child: clientsList()),
+                          const SizedBox(height: 14),
+                          catalogTechBlock(keys),
+                          const SizedBox(height: 14),
+                          catalogMaintBlock(keys),
+                          const SizedBox(height: 14),
+                          machinesPanel(),
                         ],
                       ),
-                      const SizedBox(height: 18),
-                      machinesPanel(),
-                    ],
-                  );
-                }
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    catalogTechBlock(keys),
-                    const SizedBox(height: 16),
-                    catalogMaintBlock(keys),
-                    const SizedBox(height: 16),
-                    machinesPanel(),
-                  ],
-                );
-              }
-
-              if (wide) {
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(width: fourCol ? 300 : 280, child: clientsList()),
-                    const SizedBox(width: 16),
-                    Expanded(child: catalogDetailArea()),
-                  ],
-                );
-              }
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  clientsList(),
-                  const SizedBox(height: 18),
-                  catalogDetailArea(),
-                ],
-              );
-            },
-          ),
-        ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -3486,6 +3403,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   itemBuilder: (context, i) {
                     final t = filtered[i];
                     final tid = _technicianIdOf(t);
+                    final pending = _isPendingTechnician(t);
                     final selected =
                         tid.isNotEmpty && tid == _selectedTechnicianId;
                     return Container(
@@ -3575,6 +3493,34 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                             ),
                                           ),
                                         ],
+                                        if (pending) ...[
+                                          const SizedBox(height: 8),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 4,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: const Color(
+                                                0xFFFFB86C,
+                                              ).withOpacity(0.18),
+                                              borderRadius: BorderRadius.circular(
+                                                999,
+                                              ),
+                                              border: Border.all(
+                                                color: const Color(0xFFFFB86C),
+                                              ),
+                                            ),
+                                            child: Text(
+                                              'Demande client en attente',
+                                              style: GoogleFonts.inter(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w700,
+                                                color: const Color(0xFFFFB86C),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ],
                                     ),
                                   ),
@@ -3582,6 +3528,39 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                               ),
                             ),
                           ),
+                          if (pending)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      onPressed:
+                                          () => _rejectPendingTechnician(t),
+                                      style: OutlinedButton.styleFrom(
+                                        side: BorderSide(
+                                          color: alertColor.withOpacity(0.65),
+                                        ),
+                                        foregroundColor: alertColor,
+                                      ),
+                                      child: const Text('Refuser'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: ElevatedButton(
+                                      onPressed:
+                                          () => _approvePendingTechnician(t),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: successColor,
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      child: const Text('Valider'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           _catalogEditDeleteRow(
                             onEdit: () => _openEditTechnician(t),
                             onDelete: () => _deleteTechnicianEntity(t),
@@ -4574,6 +4553,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     : _purchaseRequests.take(3))
                 .map((r) {
               final status = (r['status'] ?? 'PENDING').toString();
+              final requestType = (r['requestType'] ?? '').toString().toUpperCase();
+              final isTechnicianAddRequest = requestType == 'TECHNICIAN_ADD';
               final pending = status == 'PENDING';
               final reqId = (r['id'] ?? r['_id'] ?? '').toString();
               final viewed =
@@ -4591,7 +4572,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${r['requesterName'] ?? 'Client'} • ${(r['machineName'] ?? r['machineId'] ?? '').toString()}',
+                              '${r['requesterName'] ?? 'Client'} • ${isTechnicianAddRequest ? 'Demande ajout technicien' : (r['machineName'] ?? r['machineId'] ?? '').toString()}',
                               style: GoogleFonts.inter(
                                 color: textColor,
                                 fontWeight: FontWeight.w700,
@@ -4622,10 +4603,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                 if (pending && !viewed)
                                   OutlinedButton(
                                     onPressed:
-                                        () =>
-                                            _showPurchaseRequestMachinePreview(
-                                              r,
-                                            ),
+                                        () => _showPurchaseRequestMachinePreview(r),
                                     child: const Text('Voir'),
                                   ),
                                 if (pending)
@@ -4633,13 +4611,15 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                     onPressed: () => _rejectRequest(r),
                                     child: const Text('Rejeter'),
                                   ),
-                                if (pending && viewed)
+                                if (pending && (viewed || isTechnicianAddRequest))
                                   ElevatedButton(
                                     onPressed:
-                                        () => _validateAndProvisionTeam(
-                                          r,
-                                          requireManualInputs: false,
-                                        ),
+                                        () => isTechnicianAddRequest
+                                            ? _validateTechnicianAddRequest(r)
+                                            : _validateAndProvisionTeam(
+                                                r,
+                                                requireManualInputs: false,
+                                              ),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: primaryColor,
                                       foregroundColor: Colors.black,
@@ -4657,7 +4637,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    '${r['requesterName'] ?? 'Client'} • ${(r['machineName'] ?? r['machineId'] ?? '').toString()}',
+                                    '${r['requesterName'] ?? 'Client'} • ${isTechnicianAddRequest ? 'Demande ajout technicien' : (r['machineName'] ?? r['machineId'] ?? '').toString()}',
                                     style: GoogleFonts.inter(
                                       color: textColor,
                                       fontWeight: FontWeight.w700,
@@ -4695,13 +4675,15 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                 onPressed: () => _rejectRequest(r),
                                 child: const Text('Rejeter'),
                               ),
-                            if (pending && viewed)
+                            if (pending && (viewed || isTechnicianAddRequest))
                               ElevatedButton(
                                 onPressed:
-                                    () => _validateAndProvisionTeam(
-                                      r,
-                                      requireManualInputs: false,
-                                    ),
+                                    () => isTechnicianAddRequest
+                                        ? _validateTechnicianAddRequest(r)
+                                        : _validateAndProvisionTeam(
+                                            r,
+                                            requireManualInputs: false,
+                                          ),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: primaryColor,
                                   foregroundColor: Colors.black,
@@ -4808,15 +4790,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   _topNavItem(Icons.grid_view_rounded, 'DASHBOARD'),
                   _topNavItem(Icons.person_outline_rounded, 'PROFILE'),
                   _topNavItem(
-                    Icons.precision_manufacturing_outlined,
-                    'MY MACHINES',
-                  ),
-                  _topNavItem(
                     Icons.settings_input_component_outlined,
                     'COMPONENTS',
                   ),
-                  _topNavItem(Icons.people_outline_rounded, 'TECHNICIANS'),
-                  _topNavItem(Icons.build_circle_outlined, 'MAINTENANCE'),
                   _topNavItem(Icons.support_agent_rounded, 'AGENTS'),
                   _topNavItem(Icons.menu_book_rounded, 'CLIENT CATALOG'),
                   _topNavItem(Icons.account_tree_outlined, 'PROJECT TEAM'),
