@@ -306,59 +306,63 @@ function ClientCatalog() {
       .join("");
 
   return (
-    <main className="min-h-screen bg-[#0A0A0F] text-slate-200">
-      <header className="sticky top-0 z-50 flex items-center justify-between border-b border-[#222233] bg-[#0A0A0F] px-6 py-3">
+    <main className="relative min-h-screen overflow-hidden bg-gradient-to-br from-blue-50 via-sky-100 to-blue-200 text-slate-800">
+      <div className="pointer-events-none absolute -left-40 -top-40 h-96 w-96 rounded-full bg-blue-400/30 blur-3xl" aria-hidden="true" />
+      <div className="pointer-events-none absolute -right-32 top-1/3 h-[28rem] w-[28rem] rounded-full bg-sky-300/30 blur-3xl" aria-hidden="true" />
+      <div className="pointer-events-none absolute bottom-0 left-1/3 h-80 w-80 rounded-full bg-cyan-300/30 blur-3xl" aria-hidden="true" />
+
+      <header className="sticky top-0 z-50 flex items-center justify-between border-b border-blue-200/60 bg-white/40 px-6 py-3 backdrop-blur-xl">
         <div className="flex items-center gap-8">
           <div className="flex flex-col">
-            <h1 className="text-xl font-bold tracking-wider text-white">KINETIC</h1>
-            <span className="text-[10px] font-bold uppercase tracking-widest text-orange-400">Predictive Intelligence</span>
+            <h1 className="text-xl font-bold tracking-wider text-blue-950">KINETIC</h1>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-orange-500">Predictive Intelligence</span>
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="hidden items-center gap-3 border-r border-[#222233] pr-4 sm:flex">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-orange-400/50 bg-[#1E1E2D] text-xs font-bold text-orange-400">
+          <div className="hidden items-center gap-3 border-r border-blue-200/60 pr-4 sm:flex">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-orange-400/60 bg-white/70 text-xs font-bold text-orange-500 shadow-sm">
               ED
             </div>
             <div>
-              <p className="text-xs font-bold uppercase text-white">Equipe Design</p>
-              <p className="text-[10px] text-slate-400">CONCEPTION</p>
+              <p className="text-xs font-bold uppercase text-blue-950">Equipe Design</p>
+              <p className="text-[10px] text-blue-700/70">CONCEPTION</p>
             </div>
           </div>
-          <button type="button" className="relative text-slate-400 transition hover:text-white" aria-label="Notifications">
+          <button type="button" className="relative text-blue-700/70 transition hover:text-blue-950" aria-label="Notifications">
             <Bell size={22} />
-            <span className="absolute right-0 top-0 h-2 w-2 rounded-full bg-orange-400" />
+            <span className="absolute right-0 top-0 h-2 w-2 rounded-full bg-orange-500" />
           </button>
-          <button type="button" className="text-slate-400 transition hover:text-orange-400" aria-label="Deconnexion">
+          <button type="button" className="text-blue-700/70 transition hover:text-orange-500" aria-label="Deconnexion">
             <LogOut size={22} />
           </button>
         </div>
       </header>
 
-      <div className="border-b border-[#222233] bg-[#0A0A0F] px-6 py-4">
+      <div className="relative border-b border-blue-200/60 bg-white/30 px-6 py-4 backdrop-blur-xl">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-[300px] flex-1 items-center gap-6">
             <div className="relative w-full max-w-md">
-              <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-slate-500" />
+              <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-blue-400" />
               <input
                 value={clientSearch}
                 onChange={(event) => setClientSearch(event.target.value)}
-                className="w-full rounded border-none bg-[#1E1E2D] py-2.5 pl-10 pr-4 text-sm text-white outline-none placeholder:text-slate-500 focus:ring-1 focus:ring-orange-400"
+                className="w-full rounded-lg border border-blue-200/70 bg-white/70 py-2.5 pl-10 pr-4 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/30 backdrop-blur-sm"
                 placeholder="Rechercher une machine..."
               />
             </div>
-            <p className="hidden text-[10px] font-bold uppercase tracking-widest text-slate-500 md:block">Industrial Intelligence</p>
+            <p className="hidden text-[10px] font-bold uppercase tracking-widest text-blue-700/70 md:block">Industrial Intelligence</p>
           </div>
           <div className="flex items-center gap-3">
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-5 py-2.5 text-xs font-bold text-[#0A0A0F] shadow-lg shadow-orange-500/10 transition hover:bg-orange-600"
+              className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-5 py-2.5 text-xs font-bold text-white shadow-lg shadow-orange-500/30 transition hover:bg-orange-600"
             >
               <Briefcase size={14} />
               Ajouter une machine
             </button>
             <button
               type="button"
-              className="rounded-lg border border-[#222233] bg-[#1E1E2D] px-5 py-2.5 text-xs font-bold text-white transition hover:bg-[#222233]"
+              className="rounded-lg border border-blue-300/70 bg-white/60 px-5 py-2.5 text-xs font-bold text-blue-900 transition hover:bg-white/90 backdrop-blur-sm"
             >
               Rafraichir
             </button>
@@ -366,12 +370,12 @@ function ClientCatalog() {
         </div>
       </div>
 
-      <section className="flex min-h-[calc(100vh-145px)] flex-col bg-[#0A0A0F] md:flex-row">
-        <aside className="flex w-full flex-col border-r border-[#222233] bg-[#0A0A0F]/50 md:w-80 lg:w-96">
-          <div className="border-b border-[#222233] p-6">
-            <div className="mb-1 flex items-center gap-3 text-orange-400">
+      <section className="relative flex min-h-[calc(100vh-145px)] flex-col md:flex-row">
+        <aside className="flex w-full flex-col border-r border-blue-200/60 bg-white/30 backdrop-blur-xl md:w-80 lg:w-96">
+          <div className="border-b border-blue-200/60 p-6">
+            <div className="mb-1 flex items-center gap-3 text-orange-500">
               <BookOpen size={20} />
-              <h2 className="text-lg font-bold tracking-tight text-white">Client Catalog</h2>
+              <h2 className="text-lg font-bold tracking-tight text-blue-950">Client Catalog</h2>
             </div>
           </div>
           <div className="flex-1 space-y-3 overflow-y-auto p-4">
@@ -391,10 +395,10 @@ function ClientCatalog() {
                   }}
                   role="button"
                   tabIndex={0}
-                  className={`w-full cursor-pointer rounded-xl border p-4 text-left transition-all duration-200 ${
+                  className={`w-full cursor-pointer rounded-xl border p-4 text-left transition-all duration-200 backdrop-blur-sm ${
                     isSelected
-                      ? "border-orange-400/70 bg-[#14141F] ring-1 ring-orange-400/40"
-                      : "border-[#222233] bg-[#14141F] hover:border-orange-400/50"
+                      ? "border-orange-400/70 bg-white/80 ring-2 ring-orange-400/40 shadow-md shadow-orange-200/40"
+                      : "border-blue-200/60 bg-white/50 hover:border-orange-400/60 hover:bg-white/70"
                   }`}
                 >
                   <div className="flex items-start gap-3">
@@ -403,40 +407,40 @@ function ClientCatalog() {
                         src={client.avatarUrl}
                         alt={`Avatar de ${client.name}`}
                         className={`h-12 w-12 shrink-0 rounded-full object-cover ${
-                          isSelected ? "border border-orange-400" : "border border-[#222233]"
+                          isSelected ? "border-2 border-orange-400" : "border border-blue-200"
                         }`}
                         loading="lazy"
                       />
                     ) : (
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#222233] bg-[#1E1E2D] text-xs font-bold text-orange-400">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-100/70 text-xs font-bold text-orange-500">
                         {initials || "CL"}
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className={`truncate text-sm font-bold ${isSelected ? "text-orange-400" : "text-white"}`}>{client.name}</p>
-                      <p className="truncate text-[10px] uppercase tracking-wide text-slate-400">{client.id}</p>
-                      <p className="mt-1 truncate text-xs text-slate-300">{client.email}</p>
+                      <p className={`truncate text-sm font-bold ${isSelected ? "text-orange-600" : "text-blue-950"}`}>{client.name}</p>
+                      <p className="truncate text-[10px] uppercase tracking-wide text-blue-700/70">{client.id}</p>
+                      <p className="mt-1 truncate text-xs text-slate-700">{client.email}</p>
                     </div>
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-                    <div className="rounded border border-[#222233] bg-[#11111A] px-2 py-1.5">
-                      <p className="text-[10px] uppercase text-slate-500">Machines</p>
-                      <p className="text-xs font-semibold text-white">{client.machines.length}</p>
+                    <div className="rounded-lg border border-blue-200/60 bg-blue-50/60 px-2 py-1.5">
+                      <p className="text-[10px] uppercase text-blue-700/70">Machines</p>
+                      <p className="text-xs font-semibold text-blue-950">{client.machines.length}</p>
                     </div>
-                    <div className="rounded border border-[#222233] bg-[#11111A] px-2 py-1.5">
-                      <p className="text-[10px] uppercase text-slate-500">Techniciens</p>
-                      <p className="text-xs font-semibold text-white">{client.techniciens.length}</p>
+                    <div className="rounded-lg border border-blue-200/60 bg-blue-50/60 px-2 py-1.5">
+                      <p className="text-[10px] uppercase text-blue-700/70">Techniciens</p>
+                      <p className="text-xs font-semibold text-blue-950">{client.techniciens.length}</p>
                     </div>
-                    <div className="rounded border border-[#222233] bg-[#11111A] px-2 py-1.5">
-                      <p className="text-[10px] uppercase text-slate-500">Maintenance</p>
-                      <p className="text-xs font-semibold text-white">{client.maintenanceAgents.length}</p>
+                    <div className="rounded-lg border border-blue-200/60 bg-blue-50/60 px-2 py-1.5">
+                      <p className="text-[10px] uppercase text-blue-700/70">Maintenance</p>
+                      <p className="text-xs font-semibold text-blue-950">{client.maintenanceAgents.length}</p>
                     </div>
                   </div>
                 </div>
               );
             })}
             {!filteredClients.length && (
-              <div className="rounded-xl border border-[#222233] bg-[#14141F] p-4 text-xs text-slate-400">
+              <div className="rounded-xl border border-blue-200/60 bg-white/50 p-4 text-xs text-blue-800/70 backdrop-blur-sm">
                 Aucun client ne correspond a votre recherche.
               </div>
             )}
@@ -446,11 +450,11 @@ function ClientCatalog() {
         <section className="flex-1 overflow-y-auto p-6 md:p-8">
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-end">
             <div className="relative w-full md:w-80">
-              <Search size={14} className="pointer-events-none absolute left-3 top-2.5 text-slate-500" />
+              <Search size={14} className="pointer-events-none absolute left-3 top-2.5 text-blue-400" />
               <input
                 value={detailSearch}
                 onChange={(event) => setDetailSearch(event.target.value)}
-                className="w-full rounded border border-[#222233] bg-[#1E1E2D]/50 py-2 pl-10 pr-4 text-sm text-white outline-none placeholder:text-slate-600 focus:ring-1 focus:ring-orange-400"
+                className="w-full rounded-lg border border-blue-200/70 bg-white/60 py-2 pl-10 pr-4 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-400/30 backdrop-blur-sm"
                 placeholder="Rechercher par nom, ID ou email..."
               />
             </div>
@@ -469,23 +473,23 @@ function ClientCatalog() {
               }}
             />
           ) : (
-            <div className="rounded-xl border border-[#222233] bg-[#14141F] p-4 text-xs text-slate-400">
+            <div className="rounded-xl border border-blue-200/60 bg-white/50 p-4 text-xs text-blue-800/70 backdrop-blur-sm">
               Selectionnez un client pour afficher son profil.
             </div>
           )}
         </section>
       </section>
 
-      <footer className="flex items-center justify-between border-t border-[#222233] bg-[#0A0A0F] px-6 py-3 text-[10px] text-slate-500">
+      <footer className="relative flex items-center justify-between border-t border-blue-200/60 bg-white/40 px-6 py-3 text-[10px] text-blue-800/70 backdrop-blur-xl">
         <div>&copy; 2024 Kinetic Predictive Intelligence. All rights reserved.</div>
         <div className="hidden items-center gap-4 md:flex">
-          <a className="transition hover:text-orange-400" href="#status">
-            Status Systeme: <span className="text-green-500">Operationnel</span>
+          <a className="transition hover:text-orange-500" href="#status">
+            Status Systeme: <span className="text-green-600">Operationnel</span>
           </a>
-          <a className="transition hover:text-orange-400" href="#privacy">
+          <a className="transition hover:text-orange-500" href="#privacy">
             Privacy Policy
           </a>
-          <a className="transition hover:text-orange-400" href="#support">
+          <a className="transition hover:text-orange-500" href="#support">
             Contact Support
           </a>
         </div>

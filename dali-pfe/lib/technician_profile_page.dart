@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'services/api_service.dart';
-import 'add_technician_page.dart';
 import 'machine_detail_ai_page.dart';
+import 'mission_control_page.dart';
+import 'control_calendar_page.dart';
 
 class TechnicianProfilePage extends StatefulWidget {
   const TechnicianProfilePage({super.key});
@@ -40,6 +42,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   String _navTechnicianForCalendar = '';
   /// Incrémenté au retour du calendrier pour recharger « Comptes rendus — contrôles terminés ».
   int _completedControlesRefreshGen = 0;
+  final Map<String, dynamic> _profileOverrides = <String, dynamic>{};
 
   static const _bg = Color(0xFF10102B);
   static const _surfaceContainerLow = Color(0xFF191934);
@@ -55,6 +58,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   static const _outlineVariant = Color(0xFF594136);
   static const _error = Color(0xFFFFB4AB);
   static const _green = Color(0xFF66BB6A);
+  static const _defaultTechnicianImageUrl = 'https://lh3.googleusercontent.com/aida-public/AB6AXuBVqkqnUWBiLb0Zk31JerrE-Ke1jkLq2w23qu64tGR1PBHdL55WDZPq1xaW5VI5-N3Njpr4kjz41To1Hr7NbQ71oaHCu7d78Fayofl6_WNhcI0YsjjoM9eG-9dObtcoOQcMsx735B0ufEAemLbMhzj6rgh_05Hx8ny0G-QIQIvsg73okjpTwTjT_i4OP2f8Q1Y-Ao_Jm-hKOfdVTtUHlwPJ2X5WUpZFpoPic7RKsnUMvN_ZnlmmpWDtBieX_MwC0rwPn7juK2gD9Dw';
 
   @override
   void dispose() {
@@ -84,7 +88,19 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
 
   /// Route > persistance locale (rechargement `/#/technician-profile` sans arguments).
   Future<void> _openControlCalendarFromProfile(Map<String, dynamic> arguments) async {
-    await Navigator.pushNamed<void>(context, '/control-calendar', arguments: arguments);
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      useSafeArea: false,
+      builder:
+          (_) => Dialog(
+            insetPadding: EdgeInsets.zero,
+            backgroundColor: Colors.transparent,
+            child: SizedBox.expand(
+              child: ControlCalendarPage(initialArguments: arguments),
+            ),
+          ),
+    );
     if (mounted) setState(() => _completedControlesRefreshGen++);
   }
 
@@ -93,7 +109,250 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     final saved = ApiService.savedTechnicianProfile;
     if (saved != null) merged.addAll(saved);
     if (routeArgs != null && routeArgs.isNotEmpty) merged.addAll(routeArgs);
+    if (_profileOverrides.isNotEmpty) merged.addAll(_profileOverrides);
     return merged;
+  }
+
+  Future<void> _showQuickProfileEditDialog({
+    required Map<String, dynamic> rawArgs,
+    required String currentName,
+    required String currentImageUrl,
+  }) async {
+    final nameParts = currentName.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    final initialFirstName = nameParts.isNotEmpty ? nameParts.first : '';
+    final initialLastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
+
+    final firstNameController = TextEditingController(text: initialFirstName);
+    final lastNameController = TextEditingController(text: initialLastName);
+    final photoUrlController = TextEditingController(text: currentImageUrl);
+
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: _surfaceContainerLow,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            'Modifier le profil',
+            style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: photoUrlController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(labelText: 'URL photo'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: firstNameController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(labelText: 'Prénom'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: lastNameController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(labelText: 'Nom'),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Annuler', style: GoogleFonts.inter(color: _onSurfaceVariant)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: _primaryContainer),
+              child: const Text('Enregistrer'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (updated != true || !mounted) return;
+
+    final firstName = firstNameController.text.trim();
+    final lastName = lastNameController.text.trim();
+    final fullName = [firstName, lastName].where((p) => p.isNotEmpty).join(' ').trim();
+    final photoUrl = photoUrlController.text.trim();
+
+    if (fullName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez renseigner au moins un prénom ou un nom.'), backgroundColor: Colors.redAccent),
+      );
+      return;
+    }
+
+    if (photoUrl.isNotEmpty) {
+      final parsed = Uri.tryParse(photoUrl);
+      final isValid = parsed != null &&
+          (parsed.scheme == 'http' || parsed.scheme == 'https') &&
+          (parsed.host.isNotEmpty);
+      if (!isValid) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('URL photo invalide. Utilisez un lien http(s) valide.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+        return;
+      }
+    }
+
+    final technicianId = (rawArgs['technicianId'] ?? rawArgs['id'] ?? _technicianId).toString().trim();
+    final effectivePhotoUrl = photoUrl.isNotEmpty ? photoUrl : currentImageUrl;
+
+    final patch = <String, dynamic>{
+      ...rawArgs,
+      'firstName': firstName,
+      'lastName': lastName,
+      'name': fullName,
+      'imageUrl': effectivePhotoUrl,
+      'photoUrl': effectivePhotoUrl,
+      'avatarUrl': effectivePhotoUrl,
+    };
+
+    var savedInDb = false;
+    String? apiError;
+    Map<String, dynamic>? dbProfile;
+    try {
+      final role = (ApiService.savedUserRole ?? '').toLowerCase();
+      if (role == 'technician') {
+        dbProfile = await ApiService.updateMyTechnicianProfile({
+          'name': fullName,
+          'imageUrl': effectivePhotoUrl,
+        });
+        savedInDb = true;
+      } else if (technicianId.isNotEmpty) {
+        dbProfile = await ApiService.updateTechnician(technicianId, {
+          'name': fullName,
+          'imageUrl': effectivePhotoUrl,
+        });
+        savedInDb = true;
+      }
+    } catch (e) {
+      apiError = e.toString().replaceAll('Exception: ', '');
+    }
+
+    if (dbProfile != null && dbProfile!.isNotEmpty) {
+      patch.addAll(dbProfile!);
+      final img = (dbProfile!['imageUrl'] ?? '').toString().trim();
+      if (img.isNotEmpty) {
+        patch['imageUrl'] = img;
+        patch['photoUrl'] = img;
+        patch['avatarUrl'] = img;
+      }
+    }
+
+    await ApiService.saveTechnicianSession(patch);
+    if (!mounted) return;
+    setState(() {
+      _profileOverrides
+        ..clear()
+        ..addAll(patch);
+    });
+
+    if (savedInDb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profil mis à jour en base de données.'), backgroundColor: Colors.green),
+      );
+    } else {
+      final msg = (apiError ?? '').toLowerCase().contains('accès refusé')
+          ? 'Photo mise à jour localement. La base de données refuse la modification pour ce rôle.'
+          : 'Photo mise à jour localement. Synchronisation base non effectuée (${apiError ?? 'erreur inconnue'}).';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.orange),
+      );
+    }
+  }
+
+  String _resolveTechnicianImageUrl(Map<String, dynamic> args) {
+    final candidates = <String?>[
+      args['imageUrl']?.toString(),
+      args['photoUrl']?.toString(),
+      args['avatarUrl']?.toString(),
+      args['profilePhotoUrl']?.toString(),
+      args['image']?.toString(),
+      args['photo']?.toString(),
+      args['avatar']?.toString(),
+    ];
+
+    for (final value in candidates) {
+      final v = _normalizeTechnicianImageUrl((value ?? '').toString());
+      if (v.isNotEmpty) return v;
+    }
+    return _normalizeTechnicianImageUrl(_defaultTechnicianImageUrl);
+  }
+
+  String _normalizeTechnicianImageUrl(String rawValue) {
+    final value = rawValue.trim();
+    if (value.isEmpty) return '';
+    if (value.startsWith('data:image/')) return value;
+    final parsed = Uri.tryParse(value);
+    if (parsed != null && parsed.hasScheme) return value;
+    if (value.startsWith('//')) {
+      final apiScheme = Uri.tryParse(ApiService.baseUrl)?.scheme ?? 'http';
+      return '$apiScheme:$value';
+    }
+    final origin = ApiService.socketBaseUrl.replaceAll(RegExp(r'/$'), '');
+    if (value.startsWith('/')) return '$origin$value';
+    return '$origin/${value.replaceFirst(RegExp(r'^/+'), '')}';
+  }
+
+  Widget _buildTechnicianAvatar({
+    required String imageUrl,
+    required double width,
+    required double height,
+    required BorderRadius borderRadius,
+    double iconSize = 42,
+  }) {
+    Widget fallback() => Container(
+      color: _surfaceContainerHigh,
+      alignment: Alignment.center,
+      child: Icon(Icons.person, color: _onSurfaceVariant, size: iconSize),
+    );
+
+    final src = imageUrl.trim();
+    if (src.startsWith('data:image/')) {
+      try {
+        final bytes = base64Decode(src.split(',').last);
+        return ClipRRect(
+          borderRadius: borderRadius,
+          child: Image.memory(
+            bytes,
+            width: width,
+            height: height,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => fallback(),
+          ),
+        );
+      } catch (_) {
+        return ClipRRect(borderRadius: borderRadius, child: fallback());
+      }
+    }
+
+    if (src.isEmpty) {
+      return ClipRRect(borderRadius: borderRadius, child: fallback());
+    }
+
+    return ClipRRect(
+      borderRadius: borderRadius,
+      child: Image.network(
+        src,
+        key: ValueKey(src),
+        width: width,
+        height: height,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback(),
+      ),
+    );
   }
 
   Future<void> _ensureTechnicianChat(Map<String, dynamic> args, String technicianName) async {
@@ -652,7 +911,12 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
 
     final routeArgs = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
     final Map<String, dynamic> args = _mergeTechnicianProfileArgs(routeArgs);
-    final viewerRoleRaw = (args['viewerRole'] ?? args['role'] ?? '').toString().toLowerCase();
+    final viewerRoleRaw = (args['viewerRole'] ??
+            args['role'] ??
+            ApiService.savedUserRole ??
+            '')
+        .toString()
+        .toLowerCase();
     final isSuperAdminViewer = ApiService.canManageFleet ||
         viewerRoleRaw == 'superadmin' ||
         viewerRoleRaw == 'admin' ||
@@ -690,7 +954,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'Cette page est disponible uniquement pour le super administrateur ou le technicien concerné.',
+                  'Cette page est réservée aux comptes autorisés (technicien connecté, concepteur ou administrateur).',
                   style: GoogleFonts.inter(
                     color: _onSurfaceVariant,
                     fontSize: 13,
@@ -718,11 +982,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     final String id = args['id'] ?? 'TC-9942-B';
     final String specialization = args['specialization'] ?? 'Senior Technician — Industrial Systems & Robotics';
     final String statusLabel = args['status'] ?? 'EN SERVICE';
-    final String phone = args['phone'] ?? '+33 6 42 18 90 22';
-    final String email = args['email'] ?? 'm.lefebvre@industry-cloud.com';
-    final String loginPassword = args['loginPassword'] ?? '********';
-    final String location = args['location'] ?? 'Bâtiment Central, Secteur Sud, Hall B';
-    final String imageUrl = args['imageUrl'] ?? 'https://lh3.googleusercontent.com/aida-public/AB6AXuBVqkqnUWBiLb0Zk31JerrE-Ke1jkLq2w23qu64tGR1PBHdL55WDZPq1xaW5VI5-N3Njpr4kjz41To1Hr7NbQ71oaHCu7d78Fayofl6_WNhcI0YsjjoM9eG-9dObtcoOQcMsx735B0ufEAemLbMhzj6rgh_05Hx8ny0G-QIQIvsg73okjpTwTjT_i4OP2f8Q1Y-Ao_Jm-hKOfdVTtUHlwPJ2X5WUpZFpoPic7RKsnUMvN_ZnlmmpWDtBieX_MwC0rwPn7juK2gD9Dw';
+    final String imageUrl = _resolveTechnicianImageUrl(args);
     final List<String> assignedMachineIds = ((args['machineIds'] as List?) ?? const [])
         .map((e) => e.toString())
         .where((e) => e.isNotEmpty)
@@ -736,7 +996,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
       backgroundColor: _bg,
       body: Row(
         children: [
-          if (isDesktop) _buildSidebar(name, assignedMachineIds, companyIdForMachines),
+          if (isDesktop) _buildSidebar(name, imageUrl, assignedMachineIds, companyIdForMachines),
           Expanded(
             child: Stack(
               children: [
@@ -757,10 +1017,6 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                           _buildMainGrid(
                             isDesktop,
                             context,
-                            phone,
-                            email,
-                            loginPassword,
-                            location,
                             id,
                             name,
                             assignedMachineIds,
@@ -917,7 +1173,166 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     );
   }
 
-  Widget _buildSidebar(String name, List<String> assignedMachineIds, String companyIdForMachines) {
+  Future<void> _showMachineDetailsDialog({
+    required String machineId,
+    required String fallbackMachineName,
+  }) async {
+    if (machineId.trim().isEmpty) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: _surfaceContainerLow,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.precision_manufacturing, color: _secondary, size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Détails machine',
+                  style: GoogleFonts.spaceGrotesk(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 420,
+            child: FutureBuilder<({Map<String, dynamic> info, Map<String, dynamic>? telemetry})>(
+              future: () async {
+                final info = await ApiService.getMachineInfo(machineId);
+                Map<String, dynamic>? telemetry;
+                try {
+                  telemetry = await ApiService.getLatestTelemetry(machineId);
+                } catch (_) {
+                  telemetry = null;
+                }
+                return (info: info, telemetry: telemetry);
+              }(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  );
+                }
+                if (snapshot.hasError) {
+                  return Text(
+                    'Impossible de charger les détails (${snapshot.error}).',
+                    style: GoogleFonts.inter(color: _error, fontSize: 12, height: 1.35),
+                  );
+                }
+                final data = snapshot.data?.info ?? const <String, dynamic>{};
+                final telemetry = snapshot.data?.telemetry ?? const <String, dynamic>{};
+                String readAny(List<String> keys, {String fallback = '—'}) {
+                  for (final k in keys) {
+                    final v = data[k];
+                    if (v == null) continue;
+                    final s = v.toString().trim();
+                    if (s.isNotEmpty) return s;
+                  }
+                  return fallback;
+                }
+
+                final name = readAny(['name', 'machineName'], fallback: fallbackMachineName);
+                final id = readAny(['id', '_id', 'machineId'], fallback: machineId);
+                final status = readAny(['status']);
+                final client = readAny(['companyId', 'clientId']);
+                final type = readAny(['type', 'category']);
+                final location = readAny(['location', 'position']);
+                String sensor(List<String> keys, {String unit = ''}) {
+                  for (final k in keys) {
+                    final v = telemetry[k];
+                    if (v == null) continue;
+                    if (v is num) return unit.isEmpty ? '$v' : '$v $unit';
+                    final s = v.toString().trim();
+                    if (s.isNotEmpty) return unit.isEmpty ? s : '$s $unit';
+                  }
+                  return '—';
+                }
+
+                Widget line(String label, String value) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 90,
+                          child: Text(
+                            '$label:',
+                            style: GoogleFonts.inter(
+                              color: _onSurfaceVariant,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            value,
+                            style: GoogleFonts.inter(color: Colors.white, fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      line('Nom', name),
+                      line('ID', id),
+                      line('Statut', status),
+                      line('Client', client),
+                      line('Type', type),
+                      line('Localisation', location),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Valeurs capteurs',
+                        style: GoogleFonts.spaceGrotesk(
+                          color: _secondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      line('Température', sensor(['temperature', 'thermal'], unit: '°C')),
+                      line('Pression', sensor(['pressure'], unit: 'bar')),
+                      line('Vibration', sensor(['vibration', 'vibrationRms'], unit: 'mm/s')),
+                      line('Vitesse', sensor(['rpm', 'speed'], unit: 'rpm')),
+                      line('Courant', sensor(['current', 'ampere'], unit: 'A')),
+                      line('Tension', sensor(['voltage'], unit: 'V')),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text('Fermer', style: GoogleFonts.inter(color: _onSurfaceVariant)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSidebar(
+    String name,
+    String imageUrl,
+    List<String> assignedMachineIds,
+    String companyIdForMachines,
+  ) {
     return Container(
       width: 256,
       color: _surfaceContainerLow,
@@ -928,14 +1343,12 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             padding: const EdgeInsets.all(24.0),
             child: Row(
               children: [
-                ClipRRect(
+                _buildTechnicianAvatar(
+                  imageUrl: imageUrl,
+                  width: 48,
+                  height: 48,
                   borderRadius: BorderRadius.circular(100),
-                  child: Image.network(
-                    'https://lh3.googleusercontent.com/aida-public/AB6AXuD6XMHTc7EnuwpybN1a7M5-4ByK2xNIZiN_tfQlBnyREkmNG_daynil3m0nLFdLpMbg4DScyNGfT3Loz0tvwq2eYfDYmMBOmaeCRZGo2TQRUQ58chmYrzdqYuf8hrarTbDuKlLgGTy2rXZ9R0mza7SoAWjVX5upN5Hg8Wlj7xGzwjwlWqLxZx1qtFLruQjQz_SvXDpfU-WVse3fGP3OJsvkstlxx_f9VrutqsfJsF9HFU0sJrWmAx6RIr25RZrz3qE-xUmiogt7WU0',
-                    width: 48,
-                    height: 48,
-                    fit: BoxFit.cover,
-                  ),
+                  iconSize: 24,
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -967,14 +1380,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             ),
           ),
           const Divider(color: Colors.white10),
-          _buildSidebarTile(Icons.analytics_outlined, 'Overview'),
-          _buildSidebarTile(Icons.route_outlined, 'Live Location'),
-          _buildSidebarTile(
-            Icons.precision_manufacturing_outlined,
-            'Machine Fleet',
-            onTap: () => _showMachineFleetList(name, assignedMachineIds, companyIdForMachines),
-          ),
-          _buildSidebarTile(Icons.history_edu, 'Service Logs', isActive: true),
+          _buildSidebarTile(Icons.person_outline, 'Profil', isActive: true),
           _buildSidebarTile(Icons.description_outlined, 'Documents'),
           _buildSidebarTile(Icons.calendar_month_outlined, 'Calendrier de Contrôle', onTap: () {
             _openControlCalendarFromProfile({
@@ -1062,218 +1468,142 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               filterQuality: FilterQuality.high,
             ),
           ),
-          Row(
-            children: [
-              InkWell(
-                onTap: () {
-                  final currentRole = (args?['viewerRole'] ?? args?['role'] ?? 'technician').toString().toLowerCase();
-                  final msgRole = currentRole == 'conception' ? 'conception' : 'technician';
-                  Navigator.pushNamed(
-                    context,
-                    '/message-equipe',
-                    arguments: {
-                      'role': msgRole,
-                      'id': _technicianId,
-                      'technicianId': _technicianId,
-                      'companyId': _clientId,
-                      'name': msgRole == 'conception' ? 'Maintenance' : _chatSenderName,
-                    },
-                  );
-                },
-                borderRadius: BorderRadius.circular(20),
-                child: SizedBox(
-                  width: 30,
-                  height: 30,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      const Center(
-                        child: Icon(Icons.mark_chat_unread_outlined, color: _onSurfaceVariant, size: 18),
-                      ),
-                      if (_unreadChatCount > 0)
-                        Positioned(
-                          right: -4,
-                          top: -4,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: _error,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              _unreadChatCount > 99 ? '99+' : '$_unreadChatCount',
-                              style: GoogleFonts.inter(
-                                color: Colors.black,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 9,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 14),
-              const Icon(Icons.notifications_outlined, color: _onSurfaceVariant),
-              const SizedBox(width: 16),
-              const Icon(Icons.settings_outlined, color: _onSurfaceVariant),
-              const SizedBox(width: 16),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(100),
-                child: Image.network(
-                  'https://lh3.googleusercontent.com/aida-public/AB6AXuCsTNFIkjKdXO2X5QRNlDjCHHeQgZBBtWMRjJ0v5I_zJPuWfIQDmn4BxwiCE9hSUkAE4vGspswZAyHf-VUcg6kNsBSwAp4udmh-ctA3VHt25MJWlOfsCPI07pIgO5p9d8MZY7d1BfBpfLBF8Gcba9eG37cMp79VN6773bLcGaXH0_lVmeIsl9qHhcHlwDYeJgrA2A_Adky2mhjbrAcQb_MtAMdXDleOZgoum5OXFnhfNkButAQB7oJiHj5ktJjMVBslJ5ex7zC89iQ',
-                  width: 32,
-                  height: 32,
-                  fit: BoxFit.cover,
-                ),
-              ),
-            ],
-          ),
+          const SizedBox.shrink(),
         ],
       ),
     );
   }
 
   Widget _buildProfileHeader(BuildContext context, bool isDesktop, String name, String id, String specialization, String statusLabel, String imageUrl, Map<String, dynamic> rawArgs, {required bool canManageTechnician}) {
-    return Container(
-      padding: const EdgeInsets.all(32),
-      decoration: BoxDecoration(
-        color: _surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Stack(
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 860),
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: isDesktop ? 28 : 18,
+            vertical: isDesktop ? 24 : 18,
+          ),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF1A1A36), Color(0xFF12122E)],
+            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _outlineVariant.withOpacity(0.35)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Container(
-                width: isDesktop ? 160 : 100,
-                height: isDesktop ? 160 : 100,
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  border: Border.all(color: _primaryContainer.withOpacity(0.2), width: 2),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    imageUrl,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-              Positioned(
-                bottom: -8,
-                right: -8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          Center(
+            child: Stack(
+              children: [
+                Container(
+                  width: isDesktop ? 128 : 88,
+                  height: isDesktop ? 128 : 88,
+                  padding: const EdgeInsets.all(3),
                   decoration: BoxDecoration(
-                    color: _surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 10,
-                        height: 10,
-                        decoration: const BoxDecoration(color: _green, shape: BoxShape.circle),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        statusLabel,
-                        style: GoogleFonts.spaceGrotesk(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1,
-                        ),
+                    border: Border.all(color: const Color(0xFF9EDC9B), width: 1.5),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF9EDC9B).withOpacity(0.12),
+                        blurRadius: 16,
+                        spreadRadius: 1,
                       ),
                     ],
                   ),
+                  child: _buildTechnicianAvatar(
+                    imageUrl: imageUrl,
+                    width: isDesktop ? 128 : 88,
+                    height: isDesktop ? 128 : 88,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 32),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 16,
-                  children: [
-                    Text(
-                      name,
-                      style: GoogleFonts.inter(
-                        color: Colors.white,
-                        fontSize: isDesktop ? 48 : 32,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -1,
-                      ),
+                Positioned(
+                  bottom: -10,
+                  left: 10,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: _surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: _outlineVariant.withOpacity(0.35)),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: _tertiary.withOpacity(0.1),
-                        border: Border.all(color: _tertiary.withOpacity(0.3)),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        'ZONE B EXPERT',
-                        style: GoogleFonts.spaceGrotesk(
-                          color: _tertiary,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 10,
+                          height: 10,
+                          decoration: const BoxDecoration(color: _green, shape: BoxShape.circle),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        Text(
+                          statusLabel,
+                          style: GoogleFonts.spaceGrotesk(
+                            color: _green,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                Text(
-                  specialization,
-                  style: GoogleFonts.inter(
-                    color: _onSurfaceVariant,
-                    fontSize: 18,
                   ),
                 ),
               ],
             ),
           ),
-          if (isDesktop && canManageTechnician)
-            Row(
-              children: [
-                InkWell(
-                  onTap: () async {
-                    final updated = await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => AddTechnicianPage(initialData: rawArgs),
-                      ),
-                    );
-                    if (updated == true && context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Technicien mis à jour'), backgroundColor: Colors.green),
-                      );
-                      Navigator.pop(context, true);
-                    }
-                  },
-                  borderRadius: BorderRadius.circular(8),
-                  child: _buildActionButton(Icons.edit, 'Modifier', _surfaceContainerHighest, Colors.white),
-                ),
-                const SizedBox(width: 12),
+          const SizedBox(height: 16),
+          Text(
+            name,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              color: Colors.white,
+              fontSize: isDesktop ? 42 : 28,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -1,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '$specialization • Tech ID: $id',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              color: _onSurfaceVariant,
+              fontSize: isDesktop ? 18 : 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              InkWell(
+                onTap: () async {
+                  await _showQuickProfileEditDialog(
+                    rawArgs: rawArgs,
+                    currentName: name,
+                    currentImageUrl: imageUrl,
+                  );
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: _buildActionButton(Icons.edit, 'Modifier le profil', _surfaceContainerHighest, Colors.white),
+              ),
+              if (canManageTechnician)
                 InkWell(
                   onTap: () => _confirmDelete(context, id, name),
                   borderRadius: BorderRadius.circular(8),
                   child: _buildActionButton(Icons.delete_outline, 'Supprimer', _error.withOpacity(0.1), _error, isBordered: true),
                 ),
-              ],
-            ),
-        ],
+            ],
+          ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1330,6 +1660,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
         border: isBordered ? Border.all(color: textColor.withOpacity(0.3)) : null,
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, color: textColor, size: 20),
           const SizedBox(width: 8),
@@ -1345,10 +1676,6 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   Widget _buildMainGrid(
     bool isDesktop,
     BuildContext context,
-    String phone,
-    String email,
-    String loginPassword,
-    String location,
     String technicianId,
     String technicianName,
     List<String> assignedMachineIds,
@@ -1356,208 +1683,13 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     bool isConceptionProfile,
     String calendarTechId,
   ) {
-    if (isDesktop) {
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            flex: 4,
-            child: Column(
-              children: [
-                _buildContactCard(phone, email, loginPassword, technicianId, location),
-                const SizedBox(height: 24),
-                _buildLocationCard(),
-              ],
-            ),
-          ),
-          const SizedBox(width: 32),
-          Expanded(
-            flex: 8,
-            child: Column(
-              children: [
-                _buildUpcomingControlesSection(
-                  context,
-                  calendarTechId,
-                  isConceptionProfile,
-                  assignedMachineIds,
-                  technicianName,
-                  technicianId,
-                  companyIdForMachines,
-                ),
-                const SizedBox(height: 20),
-                _buildMachinesSection(
-                  context,
-                  assignedMachineIds,
-                  companyIdForMachines,
-                  isConceptionProfile,
-                  technicianId,
-                  technicianName,
-                ),
-                const SizedBox(height: 32),
-                _buildPerformanceSection(),
-                const SizedBox(height: 24),
-                _buildTechnicianHistorySection(assignedMachineIds, companyIdForMachines, calendarTechId),
-                const SizedBox(height: 24),
-                _buildClientTechnicianMessengerZone(),
-              ],
-            ),
-          ),
-        ],
-      );
-    } else {
-      return Column(
-        children: [
-          _buildContactCard(phone, email, loginPassword, technicianId, location),
-          const SizedBox(height: 24),
-          _buildLocationCard(),
-          const SizedBox(height: 24),
-          _buildUpcomingControlesSection(
-            context,
-            calendarTechId,
-            isConceptionProfile,
-            assignedMachineIds,
-            technicianName,
-            technicianId,
-            companyIdForMachines,
-          ),
-          const SizedBox(height: 20),
-          _buildMachinesSection(
-            context,
-            assignedMachineIds,
-            companyIdForMachines,
-            isConceptionProfile,
-            technicianId,
-            technicianName,
-          ),
-          const SizedBox(height: 24),
-          _buildPerformanceSection(),
-          const SizedBox(height: 24),
-          _buildTechnicianHistorySection(assignedMachineIds, companyIdForMachines, calendarTechId),
-          const SizedBox(height: 24),
-          _buildClientTechnicianMessengerZone(),
-        ],
-      );
-    }
-  }
-
-  Widget _buildContactCard(String phone, String email, String loginPassword, String id, String location) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: _surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'COORDONNÉES',
-            style: GoogleFonts.spaceGrotesk(
-              color: _primaryContainer,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 2,
-            ),
-          ),
-          const SizedBox(height: 24),
-          _buildContactItem(Icons.phone_iphone_outlined, 'TÉLÉPHONE', phone),
-          const SizedBox(height: 20),
-          _buildContactItem(Icons.mail_outline, 'EMAIL', email),
-          const SizedBox(height: 20),
-          _buildContactItem(Icons.lock_outline, 'MOT DE PASSE', loginPassword),
-          const SizedBox(height: 20),
-          _buildContactItem(Icons.badge_outlined, 'ID TECHNIQUE', id),
-          const SizedBox(height: 20),
-          _buildContactItem(Icons.location_on_outlined, 'ANTENNE TECHNIQUE', location),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildContactItem(IconData icon, String label, String value) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: _surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, color: _secondary, size: 20),
-        ),
-        const SizedBox(width: 16),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: GoogleFonts.spaceGrotesk(color: _onSurfaceVariant, fontSize: 10)),
-            Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildLocationCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'TEMPS RÉEL',
-                style: GoogleFonts.spaceGrotesk(
-                  color: _primaryContainer,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 2,
-                ),
-              ),
-              Row(
-                children: [
-                  const Icon(Icons.my_location, color: _secondary, size: 14),
-                  const SizedBox(width: 4),
-                  Text('Hall B - 12m', style: GoogleFonts.spaceGrotesk(color: _secondary, fontSize: 10)),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Stack(
-              children: [
-                Image.network(
-                  'https://lh3.googleusercontent.com/aida-public/AB6AXuD1yncyqE-QteYwr7oV8HPgyCe_0sRXDbqdKSMphq31KkFagCqL71FsCn33Bd8C-_UeTPWOcRFpiRjNTBHkwnMClbgxbfHFqWZwcogDxb88D85M0xdAK6JF_T0onyJB9H1HR7zuomXZnHJnWpJecPlY1TLz3ObbgNP_k53ZDvhzysq8aKlG2JhNZzc_K5h3LyvGt65YM_cqeEvPES3hcz-nydb0GhPowswe7XQWC5-9TuudxfnI3eassSkQn4Ta-OY-n2--2Qxj0ac',
-                  height: 200,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  color: Colors.black.withOpacity(0.5),
-                  colorBlendMode: BlendMode.darken,
-                ),
-                Positioned.fill(
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: _primaryContainer,
-                        shape: BoxShape.circle,
-                        boxShadow: [BoxShadow(color: _primaryContainer.withOpacity(0.5), blurRadius: 20, spreadRadius: 5)],
-                      ),
-                      child: const Icon(Icons.navigation, color: Colors.white, size: 24),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    return _buildMachinesSection(
+      context,
+      assignedMachineIds,
+      companyIdForMachines,
+      isConceptionProfile,
+      technicianId,
+      technicianName,
     );
   }
 
@@ -1823,60 +1955,6 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'UNITÉS SOUS SUPERVISION',
-                      style: GoogleFonts.spaceGrotesk(
-                        color: _tertiary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 2,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      isConceptionProfile
-                          ? 'Machines assignées à ce compte conception'
-                          : 'Machines assignées à ce technicien',
-                      style: TextStyle(color: _onSurfaceVariant, fontSize: 13),
-                    ),
-                    if (!isConceptionProfile) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Indiquez « Machine en marche » pour enregistrer le début de fonctionnement et activer le calcul du temps de marche. Les contrôles préventifs (ex. après X h selon les seuils) apparaissent dans le calendrier.',
-                        style: GoogleFonts.inter(color: _onSurfaceVariant.withOpacity(0.9), fontSize: 11, height: 1.35),
-                      ),
-                    ],
-                  ],
-                ),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '$resolvedCount machine(s)',
-                      style: GoogleFonts.spaceGrotesk(color: _secondary, fontSize: 11, fontWeight: FontWeight.bold),
-                    ),
-                    IconButton(
-                      tooltip: 'Liste des machines',
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                      icon: const Icon(Icons.view_list, color: _secondary, size: 22),
-                      onPressed: () => _showMachineFleetList(
-                        technicianName,
-                        assignedMachineIds,
-                        companyIdForMachines,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
             if (snapshot.connectionState == ConnectionState.waiting)
               const Center(
                 child: Padding(
@@ -2026,9 +2104,9 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               crossAxisCount: constraints.maxWidth > 600 ? 2 : 1,
-              mainAxisSpacing: 24,
-              crossAxisSpacing: 24,
-              childAspectRatio: isConceptionProfile ? 1.5 : 0.62,
+              mainAxisSpacing: 16,
+              crossAxisSpacing: 16,
+              childAspectRatio: isConceptionProfile ? 1.5 : 1.6,
               children: controlledMachines.map((m) {
                 final machineId = _machineIdFromDoc(m);
                 final machineName = (m['name'] ?? 'Machine').toString();
@@ -2078,6 +2156,67 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                           technicianName: technicianName,
                           assignedMachineIds: assignedMachineIds,
                           companyIdForMachines: companyIdForMachines,
+                          onViewDetails: () {
+                            if (machineId.isEmpty) return;
+                            showDialog<void>(
+                              context: context,
+                              barrierDismissible: true,
+                              builder: (dialogContext) => Dialog(
+                                backgroundColor: Colors.transparent,
+                                insetPadding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 18,
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: SizedBox(
+                                    width: 1200,
+                                    height: MediaQuery.of(dialogContext).size.height * 0.9,
+                                    child: MachineDetailAiPage(
+                                      machineId: machineId,
+                                      viewerRole: 'technician',
+                                      viewerName: technicianName,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                          onMissionMessage: () {
+                            if (machineId.isEmpty) return;
+                            showDialog<void>(
+                              context: context,
+                              barrierDismissible: true,
+                              builder:
+                                  (dialogContext) => Dialog(
+                                    backgroundColor: Colors.transparent,
+                                    insetPadding: const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                      vertical: 14,
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(16),
+                                      child: SizedBox(
+                                        width: 1320,
+                                        height:
+                                            MediaQuery.of(
+                                              dialogContext,
+                                            ).size.height *
+                                            0.92,
+                                        child: MissionControlPage(
+                                          initialArgs: {
+                                            'machineId': machineId,
+                                            'techId': machineId,
+                                            'name': technicianName,
+                                            'machineName': machineName,
+                                            'technicianId': technicianId,
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                            );
+                          },
                           debutSessionMarche: sessionDebut,
                         ),
                 );
@@ -2757,6 +2896,8 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     required String technicianName,
     required List<String> assignedMachineIds,
     required String companyIdForMachines,
+    required VoidCallback onViewDetails,
+    required VoidCallback onMissionMessage,
     DateTime? debutSessionMarche,
   }) {
     final running = status.toUpperCase() == 'RUNNING';
@@ -2766,20 +2907,20 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
       children: [
         if (running)
           Padding(
-            padding: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.only(bottom: 8),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.bolt, color: _green, size: 18),
-                const SizedBox(width: 8),
+                Icon(Icons.bolt, color: _green, size: 16),
+                const SizedBox(width: 6),
                 Expanded(
                   child: debutSessionMarche != null
                       ? _MarcheElapsedLive(
                           debut: debutSessionMarche,
-                          captionStyle: GoogleFonts.inter(color: _green, fontSize: 11, fontWeight: FontWeight.w600),
+                          captionStyle: GoogleFonts.inter(color: _green, fontSize: 10, fontWeight: FontWeight.w600),
                           timerStyle: GoogleFonts.jetBrainsMono(
                             color: Colors.white,
-                            fontSize: 15,
+                            fontSize: 13,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 0.5,
                           ),
@@ -2796,7 +2937,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           style: FilledButton.styleFrom(
             backgroundColor: _primaryContainer,
             foregroundColor: Colors.black87,
-            padding: const EdgeInsets.symmetric(vertical: 12),
+            padding: const EdgeInsets.symmetric(vertical: 10),
           ),
           onPressed: busy
               ? null
@@ -2818,7 +2959,35 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               : const Icon(Icons.play_circle_outline, size: 20),
           label: Text(
             running ? 'Actualiser début de session' : 'Machine en marche',
-            style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700, fontSize: 13),
+            style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700, fontSize: 12),
+          ),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.white,
+            side: BorderSide(color: Colors.white.withOpacity(0.25)),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+          ),
+          onPressed: onViewDetails,
+          icon: const Icon(Icons.open_in_new, size: 18),
+          label: Text(
+            'Voir le détail machine',
+            style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700, fontSize: 12),
+          ),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: _secondary,
+            side: BorderSide(color: _secondary.withOpacity(0.35)),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+          ),
+          onPressed: onMissionMessage,
+          icon: const Icon(Icons.chat_bubble_outline, size: 18),
+          label: Text(
+            'Message mission',
+            style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700, fontSize: 12),
           ),
         ),
       ],
@@ -2849,7 +3018,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             onTap: onTap,
             borderRadius: BorderRadius.circular(16),
             child: Container(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
@@ -2876,9 +3045,9 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(8)),
-                child: Icon(icon, color: sessionActiveVisual ? _green : color, size: 24),
+                child: Icon(icon, color: sessionActiveVisual ? _green : color, size: 20),
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -2888,11 +3057,11 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                       children: [
                         TextSpan(
                           text: '$score',
-                          style: GoogleFonts.spaceGrotesk(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),
+                          style: GoogleFonts.spaceGrotesk(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white),
                         ),
                         TextSpan(
                           text: '%',
-                          style: GoogleFonts.spaceGrotesk(fontSize: 14, color: _onSurfaceVariant),
+                          style: GoogleFonts.spaceGrotesk(fontSize: 12, color: _onSurfaceVariant),
                         ),
                       ],
                     ),
@@ -2903,9 +3072,9 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             ],
           ),
           if (actionFooter == null) const Spacer(),
-          if (actionFooter != null) const SizedBox(height: 14),
-          Text(name, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-          Text('Client: $client', style: TextStyle(color: _onSurfaceVariant, fontSize: 13)),
+          if (actionFooter != null) const SizedBox(height: 10),
+          Text(name, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          Text('Client: $client', style: TextStyle(color: _onSurfaceVariant, fontSize: 12)),
           if (isAlert) ...[
             const SizedBox(height: 6),
             Row(
@@ -2923,10 +3092,10 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             ),
           ],
           if (actionFooter != null) ...[
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             actionFooter,
           ],
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           ClipRRect(
             borderRadius: BorderRadius.circular(2),
             child: LinearProgressIndicator(

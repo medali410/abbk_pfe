@@ -7,7 +7,9 @@ import 'package:fl_chart/fl_chart.dart';
 import 'widgets/machine_control_calendar_panel.dart';
 
 class MissionControlPage extends StatefulWidget {
-  const MissionControlPage({super.key});
+  const MissionControlPage({super.key, this.initialArgs});
+
+  final Map<String, dynamic>? initialArgs;
 
   @override
   State<MissionControlPage> createState() => _MissionControlPageState();
@@ -41,7 +43,9 @@ class _MissionControlPageState extends State<MissionControlPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    final args =
+        widget.initialArgs ??
+        (ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?);
     if (args != null) {
       if (args.containsKey('name')) {
         _agentName = args['name'].toString().toUpperCase();

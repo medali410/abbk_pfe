@@ -177,8 +177,6 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
     final normalizedName = _nameCtrl.text.trim();
     if (normalizedName.isEmpty) {
       errors['name'] = 'Nom obligatoire';
-    } else if (!normalizedName.contains('@')) {
-      errors['name'] = 'Le nom technicien doit contenir le caractère @';
     }
     if (!_isEditMode) {
       if (_passCtrl.text.trim().length < 6) {
@@ -455,10 +453,10 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
                 children: [
                   Expanded(
                     child: _input(
-                      'Nom (identifiant avec @)',
+                      'Nom du technicien',
                       _nameCtrl,
                       fieldKey: 'name',
-                      hint: 'ex: marc@terrain',
+                      hint: 'ex: Mohamed Hamma',
                     ),
                   ),
                   const SizedBox(width: 16),

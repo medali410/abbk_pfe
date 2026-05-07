@@ -4,6 +4,8 @@ const technicianSchema = new mongoose.Schema({
     name: { type: String, required: true },
     technicianId: { type: String, required: true, unique: true },
     email: { type: String, required: true, trim: true, lowercase: true },
+    /** Email réel du technicien (utilisé pour la connexion Google quand `email` est synthétique). */
+    contactEmail: { type: String, default: '', trim: true, lowercase: true },
     password: { type: String, required: true },
     phone: { type: String },
     specialization: { type: String },

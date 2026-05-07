@@ -72,6 +72,41 @@ function generateProvisionPassword() {
     return out;
 }
 
+/** Réponse JSON alignée sur POST /api/login pour un technicien (Google ID token vérifié). */
+function buildTechnicianGoogleAuthResponse(technician) {
+    const responseData = technician.toJSON();
+    responseData.role = 'technician';
+    responseData.technicianId = technician.technicianId;
+    responseData.id = technician.technicianId;
+    responseData.name = technician.name;
+    responseData.email = technician.email;
+    responseData.companyId = technician.companyId;
+    responseData.machineIds = technician.machineIds || [];
+    responseData._id = String(technician._id);
+    responseData.token = signAuthToken({
+        sub: String(technician.technicianId || technician._id),
+        role: 'technician',
+        companyId: technician.companyId ? String(technician.companyId) : undefined,
+    });
+    return responseData;
+}
+
+/** Paramètres URL pour redirection web Flutter après OAuth Google (technicien). */
+function technicianGoogleOAuthRedirectParams(technician, authToken) {
+    return {
+        googleAuth: '1',
+        token: authToken,
+        role: 'technician',
+        technicianId: String(technician.technicianId || ''),
+        id: String(technician.technicianId || ''),
+        _id: String(technician._id),
+        name: String(technician.name || ''),
+        email: String(technician.email || ''),
+        companyId: String(technician.companyId || ''),
+        machineIds: (technician.machineIds || []).map((x) => String(x)).join(','),
+    };
+}
+
 function signAuthToken(payload) {
     return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES });
 }
@@ -457,6 +492,55 @@ async function sendClientCredentialsEmail({ to, clientName, plainPassword }) {
     ].join('\n');
     const html = `<p>Bonjour <strong>${_escapeHtmlMail(clientName)}</strong>,</p>
 <p>Votre compte client a ete cree.</p>
+<ul>
+<li><strong>Email</strong> : ${_escapeHtmlMail(to)}</li>
+<li><strong>Mot de passe</strong> : ${_escapeHtmlMail(plainPassword)}</li>
+</ul>
+<p><a href="${_escapeHtmlMail(loginUrl)}">Ouvrir la page de connexion</a></p>`;
+    await transporter.sendMail({ from, to, subject, text, html });
+    return { sent: true };
+}
+
+/** Envoi optionnel des identifiants technicien (SMTP dans .env). */
+async function sendTechnicianCredentialsEmail({ to, technicianName, plainPassword }) {
+    const host = String(process.env.SMTP_HOST || '').trim();
+    if (!host) {
+        return { sent: false, reason: 'smtp_not_configured' };
+    }
+    if (_isSyntheticClientEmail(to)) {
+        return { sent: false, reason: 'synthetic_email_skip' };
+    }
+    let nodemailer;
+    try {
+        nodemailer = require('nodemailer');
+    } catch {
+        return { sent: false, reason: 'nodemailer_missing' };
+    }
+    const port = parseInt(String(process.env.SMTP_PORT || '587'), 10) || 587;
+    const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
+    const user = String(process.env.SMTP_USER || '').trim();
+    const pass = String(process.env.SMTP_PASS || '').trim();
+    const from = String(process.env.MAIL_FROM || user || 'noreply@localhost').trim();
+    if (!user || !pass) {
+        return { sent: false, reason: 'smtp_credentials_missing' };
+    }
+    const loginUrl = String(process.env.APP_LOGIN_URL || 'http://localhost:50666/#/login').trim();
+    const transporter = nodemailer.createTransport({ host, port, secure, auth: { user, pass } });
+    const subject = 'Vos identifiants technicien';
+    const text = [
+        `Bonjour ${technicianName},`,
+        '',
+        'Votre compte technicien a ete cree. Connexion :',
+        '',
+        `Email : ${to}`,
+        `Mot de passe : ${plainPassword}`,
+        '',
+        `Lien : ${loginUrl}`,
+        '',
+        'Conseil : changez ce mot de passe apres la premiere connexion si possible.',
+    ].join('\n');
+    const html = `<p>Bonjour <strong>${_escapeHtmlMail(technicianName)}</strong>,</p>
+<p>Votre compte technicien a ete cree.</p>
 <ul>
 <li><strong>Email</strong> : ${_escapeHtmlMail(to)}</li>
 <li><strong>Mot de passe</strong> : ${_escapeHtmlMail(plainPassword)}</li>
@@ -2059,6 +2143,14 @@ app.post('/api/login', async (req, res) => {
                 email: new RegExp(`^${escapeRegExp(emailTrim)}$`, 'i')
             });
         }
+        if (!technician && emailNorm) {
+            technician = await Technician.findOne({ contactEmail: emailNorm });
+        }
+        if (!technician && emailTrim) {
+            technician = await Technician.findOne({
+                contactEmail: new RegExp(`^${escapeRegExp(emailTrim)}$`, 'i')
+            });
+        }
         if (!technician && emailTrim) {
             technician = await Technician.findOne({
                 name: new RegExp(`^${escapeRegExp(emailTrim)}$`, 'i')
@@ -2102,11 +2194,6 @@ app.post('/api/login', async (req, res) => {
             if (!emailTrim.includes('@')) {
                 return res.status(401).json({
                     message: 'Identifiant technicien invalide : il doit contenir le caractère @.',
-                });
-            }
-            if (!String(technician.name || '').includes('@')) {
-                return res.status(401).json({
-                    message: 'Compte technicien invalide : le nom/identifiant doit contenir @.',
                 });
             }
             const okT = await verifyClientPassword(password, technician.password);
@@ -2364,38 +2451,84 @@ app.post('/api/client-google-auth', async (req, res) => {
             return res.status(401).json({ error: 'Email Google non vérifié' });
         }
 
-        const [dupUser, dupTech, dupConcepteur, dupMaint] = await Promise.all([
-            User.findOne({ email }),
-            Technician.findOne({ email }),
-            Concepteur.findOne({ email }),
-            MaintenanceAgent.findOne({ email }),
-        ]);
-        if (dupUser || dupTech || dupConcepteur || dupMaint) {
-            return res.status(409).json({ error: 'Cet email est déjà utilisé par un autre rôle' });
+        const emailNorm = email;
+
+        const fleetUser =
+            (await User.findOne({ email: emailNorm })) ||
+            (await User.findOne({
+                email: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            }));
+
+        if (fleetUser) {
+            return res.status(403).json({
+                error: 'Compte administrateur : utilisez la connexion par email et mot de passe.',
+            });
         }
 
-        let client = await Client.findOne({ email });
-        let created = false;
-        if (!client) {
-            const hash = await bcrypt.hash(generateProvisionPassword(), 10);
-            const clientId = `CLI-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
-            client = await Client.create({
-                clientId,
-                name,
-                email,
-                password: hash,
-                location: fallbackLocation || 'Inconnu',
-                address: fallbackLocation || '',
-                provider: 'google',
-                googleSub,
-                motorType: 'ac-induction',
-                machines: 0,
-                techs: 0,
-                alerts: 0,
-                health: 1.0,
+        let concepteur =
+            (await Concepteur.findOne({ email: emailNorm })) ||
+            (await Concepteur.findOne({
+                email: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            }));
+        if (concepteur) {
+            const responseData = serializeConcepteurUser(concepteur);
+            responseData.machineIds = concepteur.machineIds || [];
+            const emailNormC = concepteur.email ? String(concepteur.email).toLowerCase().trim() : '';
+            const userNormC = concepteur.username ? String(concepteur.username).trim() : '';
+            responseData.token = signAuthToken({
+                sub: concepteur._id.toString(),
+                role: 'conception',
+                companyId: concepteur.companyId ? String(concepteur.companyId) : undefined,
+                cMail: emailNormC || undefined,
+                cUser: userNormC || undefined,
             });
-            created = true;
-        } else {
+            return res.status(200).json(responseData);
+        }
+
+        let technician =
+            (await Technician.findOne({ email: emailNorm })) ||
+            (await Technician.findOne({
+                email: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            })) ||
+            (await Technician.findOne({ contactEmail: emailNorm })) ||
+            (await Technician.findOne({
+                contactEmail: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            }));
+        if (technician) {
+            return res.status(200).json(buildTechnicianGoogleAuthResponse(technician));
+        }
+
+        let maintenanceAgent =
+            (await MaintenanceAgent.findOne({ email: emailNorm })) ||
+            (await MaintenanceAgent.findOne({
+                email: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            }));
+        if (maintenanceAgent) {
+            const responseData = maintenanceAgent.toJSON();
+            responseData.role = 'maintenance';
+            responseData.maintenanceAgentId = maintenanceAgent.maintenanceAgentId;
+            responseData.id =
+                maintenanceAgent.maintenanceAgentId || maintenanceAgent._id.toString();
+            responseData.name =
+                `${maintenanceAgent.firstName || ''} ${maintenanceAgent.lastName || ''}`.trim();
+            responseData.email = maintenanceAgent.email;
+            responseData.companyId = maintenanceAgent.clientId;
+            responseData.machineIds = maintenanceAgent.machineIds || [];
+            responseData.token = signAuthToken({
+                sub: String(maintenanceAgent._id),
+                role: 'maintenance',
+                companyId: maintenanceAgent.clientId ? String(maintenanceAgent.clientId) : undefined,
+            });
+            return res.status(200).json(responseData);
+        }
+
+        let client =
+            (await Client.findOne({ email: emailNorm })) ||
+            (await Client.findOne({
+                email: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            }));
+
+        if (client) {
             const updates = {};
             if (!String(client.name || '').trim()) updates.name = name;
             if (!String(client.location || '').trim() && fallbackLocation) {
@@ -2410,7 +2543,36 @@ app.post('/api/client-google-auth', async (req, res) => {
                 await Client.updateOne({ _id: client._id }, { $set: updates });
                 client = await Client.findById(client._id);
             }
+            const out = client.toJSON();
+            out.role = 'client';
+            out.clientId = client.clientId;
+            out.id = client._id.toString();
+            out.provider = 'google';
+            out.token = signAuthToken({
+                sub: client._id.toString(),
+                role: 'client',
+                clientId: client.clientId ? String(client.clientId) : undefined,
+            });
+            return res.status(200).json(out);
         }
+
+        const hash = await bcrypt.hash(generateProvisionPassword(), 10);
+        const clientId = `CLI-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+        client = await Client.create({
+            clientId,
+            name,
+            email: emailNorm,
+            password: hash,
+            location: fallbackLocation || 'Inconnu',
+            address: fallbackLocation || '',
+            provider: 'google',
+            googleSub,
+            motorType: 'ac-induction',
+            machines: 0,
+            techs: 0,
+            alerts: 0,
+            health: 1.0,
+        });
 
         const out = client.toJSON();
         out.role = 'client';
@@ -2422,7 +2584,7 @@ app.post('/api/client-google-auth', async (req, res) => {
             role: 'client',
             clientId: client.clientId ? String(client.clientId) : undefined,
         });
-        return res.status(created ? 201 : 200).json(out);
+        return res.status(201).json(out);
     } catch (err) {
         return res.status(401).json({ error: err.message || 'Échec auth Google' });
     }
@@ -2561,47 +2723,134 @@ app.get('/api/auth/google/callback', async (req, res) => {
             );
         }
 
-        const [dupUser, dupTech, dupConcepteur, dupMaint] = await Promise.all([
-            User.findOne({ email }),
-            Technician.findOne({ email }),
-            Concepteur.findOne({ email }),
-            MaintenanceAgent.findOne({ email }),
-        ]);
-        if (dupUser || dupTech || dupConcepteur || dupMaint) {
+        const emailNorm = email;
+
+        const fleetUser =
+            (await User.findOne({ email: emailNorm })) ||
+            (await User.findOne({
+                email: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            }));
+
+        if (fleetUser) {
             return res.redirect(
                 buildAppRedirectUrl(returnUrl, {
                     googleAuth: '0',
-                    error: 'Email déjà utilisé par un autre rôle',
+                    error: 'Compte administrateur : utilisez email et mot de passe.',
                 })
             );
         }
 
-        let client = await Client.findOne({ email });
-        if (!client) {
-            const hash = await bcrypt.hash(generateProvisionPassword(), 10);
-            const clientId = `CLI-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
-            client = await Client.create({
-                clientId,
-                name,
-                email,
-                password: hash,
-                location: 'Inconnu',
-                address: '',
-                provider: 'google',
-                googleSub,
-                motorType: 'ac-induction',
-                machines: 0,
-                techs: 0,
-                alerts: 0,
-                health: 1.0,
+        let concepteur =
+            (await Concepteur.findOne({ email: emailNorm })) ||
+            (await Concepteur.findOne({
+                email: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            }));
+        if (concepteur) {
+            const emailNormC = concepteur.email ? String(concepteur.email).toLowerCase().trim() : '';
+            const userNormC = concepteur.username ? String(concepteur.username).trim() : '';
+            const authToken = signAuthToken({
+                sub: concepteur._id.toString(),
+                role: 'conception',
+                companyId: concepteur.companyId ? String(concepteur.companyId) : undefined,
+                cMail: emailNormC || undefined,
+                cUser: userNormC || undefined,
             });
-        } else {
+            return res.redirect(
+                buildAppRedirectUrl(returnUrl, {
+                    googleAuth: '1',
+                    token: authToken,
+                    role: 'conception',
+                    id: String(concepteur._id),
+                    email: String(concepteur.email || ''),
+                    name: String(concepteur.username || concepteur.email || ''),
+                    companyId: String(concepteur.companyId || ''),
+                })
+            );
+        }
+
+        let technician =
+            (await Technician.findOne({ email: emailNorm })) ||
+            (await Technician.findOne({
+                email: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            })) ||
+            (await Technician.findOne({ contactEmail: emailNorm })) ||
+            (await Technician.findOne({
+                contactEmail: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            }));
+        if (technician) {
+            const techPayload = buildTechnicianGoogleAuthResponse(technician);
+            return res.redirect(
+                buildAppRedirectUrl(returnUrl, technicianGoogleOAuthRedirectParams(technician, techPayload.token))
+            );
+        }
+
+        let maintenanceAgent =
+            (await MaintenanceAgent.findOne({ email: emailNorm })) ||
+            (await MaintenanceAgent.findOne({
+                email: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            }));
+        if (maintenanceAgent) {
+            const authToken = signAuthToken({
+                sub: String(maintenanceAgent._id),
+                role: 'maintenance',
+                companyId: maintenanceAgent.clientId ? String(maintenanceAgent.clientId) : undefined,
+            });
+            return res.redirect(
+                buildAppRedirectUrl(returnUrl, {
+                    googleAuth: '1',
+                    token: authToken,
+                    role: 'maintenance',
+                })
+            );
+        }
+
+        let client =
+            (await Client.findOne({ email: emailNorm })) ||
+            (await Client.findOne({
+                email: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            }));
+
+        if (client) {
             const updates = { provider: 'google' };
             if (googleSub) updates.googleSub = googleSub;
             if (!String(client.name || '').trim()) updates.name = name;
             await Client.updateOne({ _id: client._id }, { $set: updates });
             client = await Client.findById(client._id);
+
+            const authToken = signAuthToken({
+                sub: client._id.toString(),
+                role: 'client',
+                clientId: client.clientId ? String(client.clientId) : undefined,
+            });
+
+            return res.redirect(
+                buildAppRedirectUrl(returnUrl, {
+                    googleAuth: '1',
+                    token: authToken,
+                    role: 'client',
+                    clientId: client.clientId ? String(client.clientId) : '',
+                    name: String(client.name || ''),
+                    email: String(client.email || ''),
+                    location: String(client.location || ''),
+                })
+            );
         }
+
+        client = await Client.create({
+            clientId: `CLI-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
+            name,
+            email: emailNorm,
+            password: await bcrypt.hash(generateProvisionPassword(), 10),
+            location: 'Inconnu',
+            address: '',
+            provider: 'google',
+            googleSub,
+            motorType: 'ac-induction',
+            machines: 0,
+            techs: 0,
+            alerts: 0,
+            health: 1.0,
+        });
 
         const authToken = signAuthToken({
             sub: client._id.toString(),
@@ -3576,9 +3825,6 @@ app.post('/api/maintenance-agents', requireAuth, requireSuperAdminOrConception, 
         if (!effectiveIdentifier) {
             return res.status(400).json({ error: 'Nom maintenance obligatoire' });
         }
-        if (!effectiveIdentifier.includes('@')) {
-            return res.status(400).json({ error: 'Le nom maintenance doit contenir le caractère @' });
-        }
         const emailNorm = emailRaw.includes('@')
             ? emailRaw
             : `${_slugEmailPart(effectiveIdentifier, 'maintenance')}.auto@dali-pfe.local`;
@@ -3661,9 +3907,6 @@ app.put('/api/maintenance-agents/:id', requireAuth, requireFleetManager, async (
             const identifierName = String(req.body.name || '').trim();
             if (!identifierName) {
                 return res.status(400).json({ error: 'Nom maintenance obligatoire' });
-            }
-            if (!identifierName.includes('@')) {
-                return res.status(400).json({ error: 'Le nom maintenance doit contenir le caractère @' });
             }
             doc.firstName = identifierName;
             if (!String(doc.lastName || '').trim()) {
@@ -4228,6 +4471,7 @@ app.post('/api/technicians', requireAuth, requireFleetManager, async (req, res) 
         delete techData.technicianId;
         delete techData.id;
         const emailInput = (techData.email || '').toString().trim().toLowerCase();
+        const contactEmailInput = (techData.contactEmail || '').toString().trim().toLowerCase();
         const password = (techData.password || '').toString();
         const fullName = (techData.name || '').toString().trim();
         const companyId = techData.companyId;
@@ -4237,11 +4481,6 @@ app.post('/api/technicians', requireAuth, requireFleetManager, async (req, res) 
 
         if (!fullName) {
             return res.status(400).json({ error: 'Nom technicien obligatoire' });
-        }
-        if (!fullName.includes('@')) {
-            return res.status(400).json({
-                error: 'Nom technicien invalide : le caractère @ est obligatoire (ex: technicien@terrain).'
-            });
         }
         const effectiveEmail = emailInput.includes('@')
             ? emailInput
@@ -4299,6 +4538,10 @@ app.post('/api/technicians', requireAuth, requireFleetManager, async (req, res) 
         techData.technicianId = generated;
 
         techData.email = effectiveEmail;
+        techData.contactEmail =
+            contactEmailInput && contactEmailInput.includes('@')
+                ? contactEmailInput
+                : (emailInput && emailInput !== effectiveEmail ? emailInput : '');
         techData.password = await bcrypt.hash(password, 10);
         techData.machineIds = machineIds;
         delete techData._id;
@@ -4308,8 +4551,30 @@ app.post('/api/technicians', requireAuth, requireFleetManager, async (req, res) 
 
         await applyTechDeltaToOwner(technician.companyId, 1);
 
+        let techCredentialsEmail = { sent: false, reason: 'no_valid_destination' };
+        const mailTo = String(techData.contactEmail || techData.email || '').trim().toLowerCase();
+        if (mailTo && mailTo.includes('@')) {
+            try {
+                techCredentialsEmail = await sendTechnicianCredentialsEmail({
+                    to: mailTo,
+                    technicianName: fullName,
+                    plainPassword: password,
+                });
+            } catch (mailErr) {
+                console.error('[mail] technician credentials:', mailErr.message);
+                techCredentialsEmail = {
+                    sent: false,
+                    reason: 'send_failed',
+                    detail: String(mailErr.message || ''),
+                };
+            }
+        }
+
         console.log(`✅ Technicien ajouté : ${technician.name} (${machineIds.length} machine(s))`);
-        res.status(201).json(technician.toJSON());
+        res.status(201).json({
+            ...technician.toJSON(),
+            credentialsEmail: techCredentialsEmail,
+        });
     } catch (err) {
         console.error('❌ Erreur Ajout Technicien:', err.message);
         if (err.code === 11000) {
@@ -4346,11 +4611,6 @@ app.put('/api/technicians/:id', requireAuth, requireFleetManager, async (req, re
             const updatedName = String(raw.name || '').trim();
             if (!updatedName) {
                 return res.status(400).json({ error: 'Nom technicien obligatoire' });
-            }
-            if (!updatedName.includes('@')) {
-                return res.status(400).json({
-                    error: 'Nom technicien invalide : le caractère @ est obligatoire.',
-                });
             }
             raw.name = updatedName;
         }
@@ -4429,6 +4689,50 @@ app.put('/api/technicians/:id', requireAuth, requireFleetManager, async (req, re
     }
 });
 
+app.patch('/api/technician/me', requireAuth, async (req, res) => {
+    try {
+        if (req.auth?.role !== 'technician') {
+            return res.status(403).json({ error: 'Accès refusé' });
+        }
+        const technicianId = String(req.auth?.sub || '').trim();
+        if (!technicianId) {
+            return res.status(401).json({ error: 'Token technicien invalide' });
+        }
+
+        const technician = await Technician.findOne({ technicianId });
+        if (!technician) {
+            return res.status(404).json({ error: 'Technicien non trouvé' });
+        }
+
+        const patch = {};
+        if (Object.prototype.hasOwnProperty.call(req.body || {}, 'name')) {
+            const nextName = String(req.body.name || '').trim();
+            if (!nextName) return res.status(400).json({ error: 'Nom technicien obligatoire' });
+            patch.name = nextName;
+        }
+        if (Object.prototype.hasOwnProperty.call(req.body || {}, 'imageUrl')) {
+            patch.imageUrl = String(req.body.imageUrl || '').trim();
+        }
+
+        if (Object.keys(patch).length < 1) {
+            return res.status(400).json({ error: 'Aucune donnée à mettre à jour' });
+        }
+
+        const updated = await Technician.findOneAndUpdate(
+            { technicianId },
+            patch,
+            { new: true }
+        );
+        if (!updated) {
+            return res.status(404).json({ error: 'Technicien non trouvé' });
+        }
+        return res.json(updated.toJSON());
+    } catch (err) {
+        console.error('❌ Erreur PATCH /api/technician/me:', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 app.delete('/api/technicians/:id', requireAuth, requireFleetManager, async (req, res) => {
     try {
         const paramId = String(req.params.id);
@@ -4467,6 +4771,12 @@ app.post('/api/purchase-requests', async (req, res) => {
         const googleMapsUrl = normalizeGoogleMapsUrl(req.body?.googleMapsUrl);
         const note = String(req.body?.note || '').trim();
         const linkedClientId = String(req.body?.linkedClientId || '').trim();
+        const requestType = String(req.body?.requestType || '').trim();
+        const requestedSpecialty = String(req.body?.requestedSpecialty || '').trim();
+        const requestedMachineIdsRaw = req.body?.requestedMachineIds;
+        const requestedMachineIds = Array.isArray(requestedMachineIdsRaw)
+            ? requestedMachineIdsRaw.map((x) => String(x).trim()).filter(Boolean)
+            : [];
 
         if (!machineId) return res.status(400).json({ error: 'machineId requis' });
         if (!requesterName) return res.status(400).json({ error: 'Nom demandeur requis' });
@@ -4495,6 +4805,9 @@ app.post('/api/purchase-requests', async (req, res) => {
             note,
             linkedClientId,
             status: 'PENDING',
+            requestType,
+            requestedSpecialty,
+            requestedMachineIds,
         });
 
         io.emit('purchase_request_created', {
@@ -5275,8 +5588,33 @@ app.get('/api/clients/:id/technicians', async (req, res) => {
             if (client.name) aliases.add(String(client.name));
         }
 
-        const technicians = await Technician.find({ companyId: { $in: Array.from(aliases) } });
-        res.json(technicians);
+        const aliasList = Array.from(aliases);
+        const technicians = await Technician.find({ companyId: { $in: aliasList } }).lean();
+        const maintenanceAgents = await MaintenanceAgent.find({ clientId: { $in: aliasList } }).lean();
+
+        const technicianEntries = technicians.map((tech) => ({
+            ...tech,
+            _id: tech._id,
+            id: String(tech._id || tech.id || ''),
+            roleType: 'technician',
+            roleLabel: 'Technicien',
+            name: String(tech.name || `${tech.firstName || ''} ${tech.lastName || ''}`.trim() || 'Technicien'),
+            specialization: String(tech.specialization || tech.speciality || 'Maintenance terrain'),
+            status: String(tech.status || 'Disponible'),
+        }));
+
+        const maintenanceEntries = maintenanceAgents.map((agent) => ({
+            ...agent,
+            _id: agent._id,
+            id: String(agent._id || agent.id || ''),
+            roleType: 'maintenance',
+            roleLabel: 'Maintenance man',
+            name: `${agent.firstName || ''} ${agent.lastName || ''}`.trim() || 'Maintenance man',
+            specialization: 'Maintenance operationnelle',
+            status: 'Disponible',
+        }));
+
+        res.json([...technicianEntries, ...maintenanceEntries]);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

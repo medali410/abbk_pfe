@@ -67,6 +67,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   bool _loading = true;
   bool _loadingRequests = false;
   bool _showAllPurchaseRequests = false;
+  bool _showAllTechnicianRequests = false;
   String? _error;
   bool _hasFleetSession = true;
   bool _silentRecoveryTried = false;
@@ -1364,6 +1365,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       setState(() {
         _purchaseRequests = sortedRows;
         _showAllPurchaseRequests = false;
+        _showAllTechnicianRequests = false;
         final currentIds =
             sortedRows
                 .map((r) => (r['id'] ?? r['_id'] ?? '').toString())
@@ -1376,6 +1378,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       setState(() {
         _purchaseRequests = [];
         _showAllPurchaseRequests = false;
+        _showAllTechnicianRequests = false;
         _reviewedRequestIds.clear();
       });
     } finally {
@@ -1929,40 +1932,184 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     final metadataRaw = req['metadata'];
     final metadata =
         metadataRaw is Map ? Map<String, dynamic>.from(metadataRaw) : <String, dynamic>{};
-    final machineIds =
+    final idsFromMeta =
+        (metadata['machineIds'] is List)
+            ? (metadata['machineIds'] as List)
+                .map((e) => e.toString().trim())
+                .where((e) => e.isNotEmpty)
+            : <String>[];
+    final idsFromRoot =
+        (req['requestedMachineIds'] is List)
+            ? (req['requestedMachineIds'] as List)
+                .map((e) => e.toString().trim())
+                .where((e) => e.isNotEmpty)
+            : <String>[];
+    final mergedMachineIds = <String>{...idsFromMeta, ...idsFromRoot};
+    final machineIdSingle = (req['machineId'] ?? '').toString().trim();
+    if (machineIdSingle.isNotEmpty) mergedMachineIds.add(machineIdSingle);
+    final machineIds = mergedMachineIds.toList();
+
+    final requestedName = (req['requesterName'] ?? '').toString().trim();
+    final realEmail = (req['requesterEmail'] ?? '').toString().trim().toLowerCase();
+    final linkedClientId = (req['linkedClientId'] ?? '').toString().trim();
+    final location = (req['location'] ?? '').toString().trim();
+    final specialization = (metadata['specialization'] ??
+            req['requestedSpecialty'] ??
+            'Maintenance terrain')
+        .toString()
+        .trim();
+    final description = (metadata['description'] ?? req['note'] ?? '').toString().trim();
+
+    if (linkedClientId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Demande sans client lié : impossible de créer le technicien.',
+          ),
+          backgroundColor: alertColor,
+        ),
+      );
+      return;
+    }
+
+    if (realEmail.isEmpty || !realEmail.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Email technicien invalide : la demande doit contenir un email valide.',
+          ),
+          backgroundColor: alertColor,
+        ),
+      );
+      return;
+    }
+
+    final epochSuffix = DateTime.now().millisecondsSinceEpoch.toString();
+    final technicianFullName = requestedName.isEmpty ? 'Technicien' : requestedName;
+    final generatedPassword = 'Tmp${epochSuffix.substring(epochSuffix.length - 6)}!';
+
+    try {
+      final createdTechnician = await ApiService.addTechnician({
+        'name': technicianFullName,
+        'email': realEmail,
+        'phone': (req['requesterPhone'] ?? '').toString().trim(),
+        'location': location,
+        'specialization': specialization,
+        'technicalDescription': description.isEmpty
+            ? 'Créé automatiquement depuis demande client'
+            : description,
+        'companyId': linkedClientId,
+        'status': 'Disponible',
+        'machineIds': machineIds,
+        'password': generatedPassword,
+      });
+      String mailHint = '';
+      final mail = createdTechnician['credentialsEmail'];
+      if (mail is Map<String, dynamic>) {
+        if (mail['sent'] == true) {
+          mailHint = ' Identifiants envoyés par email.';
+        } else if (mail['reason'] == 'smtp_not_configured') {
+          mailHint = ' SMTP non configuré (ajoutez SMTP_* dans .env backend).';
+        } else if (mail['reason'] == 'synthetic_email_skip') {
+          mailHint = ' Email de destination non réel: envoi auto ignoré.';
+        }
+      }
+      await ApiService.updatePurchaseRequestStatus(
+        reqId,
+        'VALIDATED',
+        reviewedByName: 'Concepteur',
+      );
+      if (!mounted) return;
+      await _fetchPurchaseRequests();
+      setState(() {
+        _techniciansFuture = ApiService.getTechnicians();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Technicien créé : $realEmail.$mailHint',
+          ),
+          backgroundColor: successColor,
+          duration: const Duration(seconds: 8),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Validation demande technicien impossible: ${e.toString().replaceAll('Exception: ', '')}',
+          ),
+          backgroundColor: alertColor,
+          duration: const Duration(seconds: 8),
+        ),
+      );
+    }
+  }
+
+  Future<void> _validateMaintenanceAddRequest(Map<String, dynamic> req) async {
+    final reqId = (req['id'] ?? req['_id'] ?? '').toString().trim();
+    if (reqId.isEmpty) return;
+
+    final metadataRaw = req['metadata'];
+    final metadata =
+        metadataRaw is Map ? Map<String, dynamic>.from(metadataRaw) : <String, dynamic>{};
+    final idsFromMeta =
         (metadata['machineIds'] is List)
             ? (metadata['machineIds'] as List)
                 .map((e) => e.toString().trim())
                 .where((e) => e.isNotEmpty)
                 .toList()
             : <String>[];
-
-    final requestedName = (req['requesterName'] ?? '').toString().trim();
-    final email = (req['requesterEmail'] ?? '').toString().trim().toLowerCase();
+    final idsFromRoot =
+        (req['requestedMachineIds'] is List)
+            ? (req['requestedMachineIds'] as List)
+                .map((e) => e.toString().trim())
+                .where((e) => e.isNotEmpty)
+                .toList()
+            : <String>[];
+    final machineIds = <String>{...idsFromMeta, ...idsFromRoot}.toList();
     final linkedClientId = (req['linkedClientId'] ?? '').toString().trim();
+    final fullName = (req['requesterName'] ?? '').toString().trim();
+    final email = (req['requesterEmail'] ?? '').toString().trim().toLowerCase();
     final location = (req['location'] ?? '').toString().trim();
-    final specialization = (metadata['specialization'] ?? 'Demande client').toString().trim();
     final description = (metadata['description'] ?? req['note'] ?? '').toString().trim();
-    final normalizedName =
-        requestedName.contains('@')
-            ? requestedName
-            : '${requestedName.replaceAll(' ', '').toLowerCase()}@technicien';
-    final generatedPassword =
-        'Tmp${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}!';
+
+    if (linkedClientId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Demande sans client lié : impossible de créer le maintenance man.'),
+          backgroundColor: alertColor,
+        ),
+      );
+      return;
+    }
+    if (email.isEmpty || !email.contains('@')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Email maintenance invalide : la demande doit contenir un email valide.'),
+          backgroundColor: alertColor,
+        ),
+      );
+      return;
+    }
+
+    final parts = fullName.split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
+    final firstName = parts.isNotEmpty ? parts.first : 'Maintenance';
+    final lastName = parts.length > 1 ? parts.sublist(1).join(' ') : 'agent';
+    final epochSuffix = DateTime.now().millisecondsSinceEpoch.toString();
+    final generatedPassword = 'Tmp${epochSuffix.substring(epochSuffix.length - 6)}!';
 
     try {
-      await ApiService.addTechnician({
-        'name': normalizedName,
+      final createdMaintenance = await ApiService.addMaintenanceAgent({
+        'firstName': firstName,
+        'lastName': lastName,
         'email': email,
-        'phone': (req['requesterPhone'] ?? '').toString().trim(),
-        'location': location,
-        'specialization': specialization,
-        'technicalDescription': description,
-        if (linkedClientId.isNotEmpty) 'companyId': linkedClientId,
-        'status': 'Disponible',
-        'approvalStatus': 'APPROVED',
-        'machineIds': machineIds,
         'password': generatedPassword,
+        'location': location,
+        'address': description,
+        'clientId': linkedClientId,
+        'machineIds': machineIds,
       });
       await ApiService.updatePurchaseRequestStatus(
         reqId,
@@ -1971,19 +2118,27 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       );
       if (!mounted) return;
       await _fetchPurchaseRequests();
-      setState(() => _techniciansFuture = ApiService.getTechnicians());
+      setState(() {
+        _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
+      });
+      final createdEmail =
+          (createdMaintenance['email'] ?? email).toString().trim();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Demande technicien validée et technicien créé.'),
+        SnackBar(
+          content: Text('Maintenance créé : $createdEmail'),
           backgroundColor: successColor,
+          duration: const Duration(seconds: 6),
         ),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Validation demande technicien impossible: $e'),
+          content: Text(
+            'Validation demande maintenance impossible: ${e.toString().replaceAll('Exception: ', '')}',
+          ),
           backgroundColor: alertColor,
+          duration: const Duration(seconds: 8),
         ),
       );
     }
@@ -2298,7 +2453,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           return;
         }
         if (selectedMenu == 'TECHNICIANS') {
-          setState(() => _techniciansFuture = ApiService.getTechnicians());
+          setState(() {
+            _techniciansFuture = ApiService.getTechnicians();
+          });
           try {
             await _techniciansFuture;
           } catch (_) {}
@@ -2306,9 +2463,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           return;
         }
         if (selectedMenu == 'MAINTENANCE') {
-          setState(
-            () => _maintenanceAgentsFuture = ApiService.getMaintenanceAgents(),
-          );
+          setState(() {
+            _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
+          });
           try {
             await _maintenanceAgentsFuture;
           } catch (_) {}
@@ -2348,6 +2505,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               _buildProfilePanel()
             else ...[
               _buildPurchaseRequestsPanel(),
+              const SizedBox(height: 16),
+              _buildTechnicianAddRequestsPanel(),
               const SizedBox(height: 20),
               _buildStatsGrid(),
               const SizedBox(height: 32),
@@ -4472,6 +4631,12 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
   Widget _buildPurchaseRequestsPanel() {
     final isCompact = MediaQuery.of(context).size.width < 720;
+    final purchaseOnly =
+        _purchaseRequests.where((r) {
+          final type = (r['requestType'] ?? '').toString().toUpperCase();
+          return type != 'TECHNICIAN_ADD';
+        }).toList();
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -4542,19 +4707,17 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               padding: EdgeInsets.all(12),
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          else if (_purchaseRequests.isEmpty)
+          else if (purchaseOnly.isEmpty)
             Text(
               'Aucune demande d\'achat en attente.',
               style: GoogleFonts.inter(color: mutedTextColor),
             )
           else ...[
             ...(_showAllPurchaseRequests
-                    ? _purchaseRequests
-                    : _purchaseRequests.take(3))
+                    ? purchaseOnly
+                    : purchaseOnly.take(3))
                 .map((r) {
               final status = (r['status'] ?? 'PENDING').toString();
-              final requestType = (r['requestType'] ?? '').toString().toUpperCase();
-              final isTechnicianAddRequest = requestType == 'TECHNICIAN_ADD';
               final pending = status == 'PENDING';
               final reqId = (r['id'] ?? r['_id'] ?? '').toString();
               final viewed =
@@ -4572,7 +4735,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${r['requesterName'] ?? 'Client'} • ${isTechnicianAddRequest ? 'Demande ajout technicien' : (r['machineName'] ?? r['machineId'] ?? '').toString()}',
+                              '${r['requesterName'] ?? 'Client'} • ${(r['machineName'] ?? r['machineId'] ?? '').toString()}',
                               style: GoogleFonts.inter(
                                 color: textColor,
                                 fontWeight: FontWeight.w700,
@@ -4611,15 +4774,13 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                     onPressed: () => _rejectRequest(r),
                                     child: const Text('Rejeter'),
                                   ),
-                                if (pending && (viewed || isTechnicianAddRequest))
+                                if (pending && viewed)
                                   ElevatedButton(
                                     onPressed:
-                                        () => isTechnicianAddRequest
-                                            ? _validateTechnicianAddRequest(r)
-                                            : _validateAndProvisionTeam(
-                                                r,
-                                                requireManualInputs: false,
-                                              ),
+                                        () => _validateAndProvisionTeam(
+                                          r,
+                                          requireManualInputs: false,
+                                        ),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: primaryColor,
                                       foregroundColor: Colors.black,
@@ -4637,7 +4798,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    '${r['requesterName'] ?? 'Client'} • ${isTechnicianAddRequest ? 'Demande ajout technicien' : (r['machineName'] ?? r['machineId'] ?? '').toString()}',
+                                    '${r['requesterName'] ?? 'Client'} • ${(r['machineName'] ?? r['machineId'] ?? '').toString()}',
                                     style: GoogleFonts.inter(
                                       color: textColor,
                                       fontWeight: FontWeight.w700,
@@ -4675,15 +4836,13 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                 onPressed: () => _rejectRequest(r),
                                 child: const Text('Rejeter'),
                               ),
-                            if (pending && (viewed || isTechnicianAddRequest))
+                            if (pending && viewed)
                               ElevatedButton(
                                 onPressed:
-                                    () => isTechnicianAddRequest
-                                        ? _validateTechnicianAddRequest(r)
-                                        : _validateAndProvisionTeam(
-                                            r,
-                                            requireManualInputs: false,
-                                          ),
+                                    () => _validateAndProvisionTeam(
+                                      r,
+                                      requireManualInputs: false,
+                                    ),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: primaryColor,
                                   foregroundColor: Colors.black,
@@ -4694,7 +4853,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                         ),
               );
             }),
-            if (_purchaseRequests.length > 3)
+            if (purchaseOnly.length > 3)
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
@@ -4705,6 +4864,323 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                       ),
                   child: Text(
                     _showAllPurchaseRequests ? 'Voir moins' : 'Voir plus',
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTechnicianAddRequestsPanel() {
+    final isCompact = MediaQuery.of(context).size.width < 720;
+    final technicianRequests =
+        _purchaseRequests.where((r) {
+          final type = (r['requestType'] ?? '').toString().toUpperCase();
+          return type == 'TECHNICIAN_ADD' || type == 'MAINTENANCE_ADD';
+        }).toList();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: sidebarColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          isCompact
+              ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.engineering_rounded,
+                        color: primaryColor,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Demandes équipe terrain',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.spaceGrotesk(
+                            color: textColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                      if (technicianRequests
+                          .where((r) =>
+                              (r['status'] ?? 'PENDING').toString() == 'PENDING')
+                          .isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: primaryColor.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: primaryColor.withOpacity(0.4),
+                            ),
+                          ),
+                          child: Text(
+                            '${technicianRequests.where((r) => (r['status'] ?? 'PENDING').toString() == 'PENDING').length} en attente',
+                            style: GoogleFonts.spaceGrotesk(
+                              color: primaryColor,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  TextButton.icon(
+                    onPressed: _loadingRequests ? null : _fetchPurchaseRequests,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('Actualiser'),
+                  ),
+                ],
+              )
+              : Row(
+                children: [
+                  const Icon(Icons.engineering_rounded, color: primaryColor),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Demandes équipe terrain',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: textColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  if (technicianRequests
+                      .where((r) =>
+                          (r['status'] ?? 'PENDING').toString() == 'PENDING')
+                      .isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: primaryColor.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: primaryColor.withOpacity(0.4),
+                        ),
+                      ),
+                      child: Text(
+                        '${technicianRequests.where((r) => (r['status'] ?? 'PENDING').toString() == 'PENDING').length} en attente',
+                        style: GoogleFonts.spaceGrotesk(
+                          color: primaryColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: _loadingRequests ? null : _fetchPurchaseRequests,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('Actualiser'),
+                  ),
+                ],
+              ),
+          const SizedBox(height: 8),
+          if (_loadingRequests)
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else if (technicianRequests.isEmpty)
+            Text(
+              'Aucune demande d\'ajout (technicien / maintenance).',
+              style: GoogleFonts.inter(color: mutedTextColor),
+            )
+          else ...[
+            ...(_showAllTechnicianRequests
+                    ? technicianRequests
+                    : technicianRequests.take(3))
+                .map((r) {
+              final status = (r['status'] ?? 'PENDING').toString();
+              final pending = status == 'PENDING';
+              final metadataRaw = r['metadata'];
+              final metadata = metadataRaw is Map
+                  ? Map<String, dynamic>.from(metadataRaw)
+                  : <String, dynamic>{};
+              final reqType =
+                  (r['requestType'] ?? 'TECHNICIAN_ADD').toString().toUpperCase();
+              final isMaintenanceReq = reqType == 'MAINTENANCE_ADD';
+              final roleLabel = isMaintenanceReq ? 'Maintenance' : 'Technicien';
+              final specialization =
+                  (metadata['specialization'] ??
+                          (isMaintenanceReq
+                              ? 'Maintenance opérationnelle'
+                              : 'Maintenance terrain'))
+                      .toString();
+              final clientLabel =
+                  (r['linkedClientId'] ?? r['clientId'] ?? '—').toString();
+              return Container(
+                margin: const EdgeInsets.only(top: 10),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: cardColor,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child:
+                    isCompact
+                        ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${r['requesterName'] ?? roleLabel} • $specialization',
+                              style: GoogleFonts.inter(
+                                color: textColor,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Email: ${(r['requesterEmail'] ?? '—').toString()}',
+                              style: GoogleFonts.inter(
+                                color: mutedTextColor,
+                                fontSize: 12,
+                              ),
+                            ),
+                            Text(
+                              'Client: $clientLabel  •  Localisation: ${(r['location'] ?? '—').toString()}',
+                              style: GoogleFonts.inter(
+                                color: mutedTextColor,
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                _statusBadge(
+                                  status,
+                                  status == 'VALIDATED'
+                                      ? successColor
+                                      : (status == 'REJECTED'
+                                          ? alertColor
+                                          : primaryColor),
+                                ),
+                                if (pending)
+                                  TextButton(
+                                    onPressed: () => _rejectRequest(r),
+                                    child: const Text('Rejeter'),
+                                  ),
+                                if (pending)
+                                  ElevatedButton.icon(
+                                    onPressed:
+                                        () => isMaintenanceReq
+                                            ? _validateMaintenanceAddRequest(r)
+                                            : _validateTechnicianAddRequest(r),
+                                    icon: const Icon(
+                                      Icons.check_circle_outline,
+                                      size: 16,
+                                    ),
+                                    label: const Text('Valider'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: primaryColor,
+                                      foregroundColor: Colors.black,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        )
+                        : Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${r['requesterName'] ?? roleLabel} • $specialization',
+                                    style: GoogleFonts.inter(
+                                      color: textColor,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Email: ${(r['requesterEmail'] ?? '—').toString()}',
+                                    style: GoogleFonts.inter(
+                                      color: mutedTextColor,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Client: $clientLabel  •  Localisation: ${(r['location'] ?? '—').toString()}',
+                                    style: GoogleFonts.inter(
+                                      color: mutedTextColor,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            _statusBadge(
+                              status,
+                              status == 'VALIDATED'
+                                  ? successColor
+                                  : (status == 'REJECTED'
+                                      ? alertColor
+                                      : primaryColor),
+                            ),
+                            const SizedBox(width: 8),
+                            if (pending)
+                              TextButton(
+                                onPressed: () => _rejectRequest(r),
+                                child: const Text('Rejeter'),
+                              ),
+                            if (pending) const SizedBox(width: 8),
+                            if (pending)
+                              ElevatedButton.icon(
+                                onPressed:
+                                    () => isMaintenanceReq
+                                        ? _validateMaintenanceAddRequest(r)
+                                        : _validateTechnicianAddRequest(r),
+                                icon: const Icon(
+                                  Icons.check_circle_outline,
+                                  size: 16,
+                                ),
+                                label: const Text('Valider'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: primaryColor,
+                                  foregroundColor: Colors.black,
+                                ),
+                              ),
+                          ],
+                        ),
+              );
+            }),
+            if (technicianRequests.length > 3)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed:
+                      () => setState(
+                        () =>
+                            _showAllTechnicianRequests =
+                                !_showAllTechnicianRequests,
+                      ),
+                  child: Text(
+                    _showAllTechnicianRequests ? 'Voir moins' : 'Voir plus',
                   ),
                 ),
               ),

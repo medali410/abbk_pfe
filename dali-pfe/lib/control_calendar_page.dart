@@ -20,7 +20,12 @@ class _ChecklistItem {
 }
 
 class ControlCalendarPage extends StatefulWidget {
-  const ControlCalendarPage({super.key});
+  const ControlCalendarPage({
+    super.key,
+    this.initialArguments,
+  });
+
+  final Map<String, dynamic>? initialArguments;
 
   @override
   State<ControlCalendarPage> createState() => _ControlCalendarPageState();
@@ -78,7 +83,9 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
     if (_argsLoaded) return;
     _argsLoaded = true;
 
-    final routeArgs = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    final routeArgs =
+        widget.initialArguments ??
+        (ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?);
     final saved = ApiService.savedTechnicianProfile;
     final Map<String, dynamic> args = <String, dynamic>{
       if (saved != null) ...saved,

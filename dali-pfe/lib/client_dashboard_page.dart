@@ -146,352 +146,6 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     }
   }
 
-  Future<void> _openAddTechnicianRequestPage() async {
-    final cId =
-        (widget.clientId ??
-                widget.clientData?['clientId'] ??
-                widget.clientData?['id'] ??
-                ApiService.savedClientId ??
-                '')
-            .toString()
-            .trim();
-    final clientEmail =
-        (widget.clientData?['email'] ?? ApiService.savedClientEmail ?? '')
-            .toString()
-            .trim();
-    final clientName =
-        (widget.clientData?['name'] ??
-                widget.clientName ??
-                ApiService.savedClientName ??
-                '')
-            .toString()
-            .trim();
-
-    final nameCtrl = TextEditingController();
-    final emailCtrl = TextEditingController(text: clientEmail);
-    final phoneCtrl = TextEditingController();
-    final locationCtrl = TextEditingController(text: clientName);
-    final specializationCtrl = TextEditingController(text: 'Maintenance terrain');
-    final descriptionCtrl = TextEditingController();
-    List<Map<String, dynamic>> availableMachines = const [];
-    final selectedMachineIds = <String>{};
-    bool isSubmitting = false;
-
-    if (cId.isNotEmpty) {
-      try {
-        availableMachines = await ApiService.getMachinesForClient(cId);
-      } catch (_) {
-        availableMachines = const [];
-      }
-    }
-
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            InputDecoration fieldDecoration(String label, {String? hintText}) {
-              return InputDecoration(
-                labelText: label,
-                hintText: hintText,
-                labelStyle: GoogleFonts.inter(
-                  color: _onSurfaceVariant.withOpacity(0.9),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-                hintStyle: GoogleFonts.inter(
-                  color: _onSurfaceVariant.withOpacity(0.5),
-                  fontSize: 12,
-                ),
-                isDense: true,
-                contentPadding: const EdgeInsets.only(top: 8, bottom: 8),
-                enabledBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: _outlineVariant.withOpacity(0.35)),
-                ),
-                focusedBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: _primary.withOpacity(0.9), width: 1.4),
-                ),
-              );
-            }
-
-            return Dialog(
-              backgroundColor: Colors.transparent,
-              insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 20),
-              child: Container(
-                width: (MediaQuery.of(ctx).size.width - 24).clamp(300.0, 620.0).toDouble(),
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(ctx).size.height * 0.9,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF171B2A),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFF262C46)),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 22, 22, 16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Demande ajout technicien',
-                        style: GoogleFonts.inter(
-                          color: _onSurface,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.3,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Flexible(
-                        fit: FlexFit.loose,
-                        child: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              TextField(
-                                controller: nameCtrl,
-                                style: GoogleFonts.inter(color: _onSurface, fontSize: 13),
-                                decoration: fieldDecoration('Nom du technicien'),
-                              ),
-                              const SizedBox(height: 10),
-                              TextField(
-                                controller: emailCtrl,
-                                keyboardType: TextInputType.emailAddress,
-                                style: GoogleFonts.inter(color: _onSurface, fontSize: 13),
-                                decoration: fieldDecoration('Email', hintText: 'exemple@mail.com'),
-                              ),
-                              const SizedBox(height: 10),
-                              TextField(
-                                controller: phoneCtrl,
-                                keyboardType: TextInputType.phone,
-                                style: GoogleFonts.inter(color: _onSurface, fontSize: 13),
-                                decoration: fieldDecoration('Téléphone'),
-                              ),
-                              const SizedBox(height: 10),
-                              TextField(
-                                controller: specializationCtrl,
-                                style: GoogleFonts.inter(color: _onSurface, fontSize: 13),
-                                decoration: fieldDecoration('Spécialité'),
-                              ),
-                              const SizedBox(height: 10),
-                              TextField(
-                                controller: locationCtrl,
-                                style: GoogleFonts.inter(color: _onSurface, fontSize: 13),
-                                decoration: fieldDecoration('Localisation'),
-                              ),
-                              const SizedBox(height: 10),
-                              TextField(
-                                controller: descriptionCtrl,
-                                minLines: 2,
-                                maxLines: 3,
-                                style: GoogleFonts.inter(color: _onSurface, fontSize: 13),
-                                decoration: fieldDecoration('Description technique'),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'MACHINES À CONTRÔLER',
-                                style: GoogleFonts.inter(
-                                  color: _onSurface,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: -0.2,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              if (availableMachines.isEmpty)
-                                Text(
-                                  'Aucune machine disponible pour ce client.',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 12,
-                                    color: _onSurfaceVariant,
-                                  ),
-                                )
-                              else
-                                ...availableMachines.map((m) {
-                                  final machineId =
-                                      (m['id'] ?? m['machineId'] ?? m['_id'] ?? '')
-                                          .toString()
-                                          .trim();
-                                  final machineName =
-                                      (m['name'] ?? machineId).toString().trim();
-                                  if (machineId.isEmpty) return const SizedBox.shrink();
-                                  return CheckboxListTile(
-                                    value: selectedMachineIds.contains(machineId),
-                                    controlAffinity: ListTileControlAffinity.leading,
-                                    contentPadding: EdgeInsets.zero,
-                                    checkboxShape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(3),
-                                    ),
-                                    visualDensity: const VisualDensity(
-                                      horizontal: -4,
-                                      vertical: -3,
-                                    ),
-                                    onChanged: (checked) {
-                                      setDialogState(() {
-                                        if (checked == true) {
-                                          selectedMachineIds.add(machineId);
-                                        } else {
-                                          selectedMachineIds.remove(machineId);
-                                        }
-                                      });
-                                    },
-                                    activeColor: _primary,
-                                    checkColor: _surfaceContainerHighest,
-                                    title: Text(
-                                      machineName,
-                                      style: GoogleFonts.inter(
-                                        color: _onSurface,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    subtitle: Text(
-                                      machineId,
-                                      style: GoogleFonts.inter(
-                                        color: _onSurfaceVariant,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  );
-                                }),
-                              if (clientName.isNotEmpty || cId.isNotEmpty) ...[
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Client: ${clientName.isEmpty ? cId : clientName}',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 11,
-                                    color: _onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        alignment: WrapAlignment.end,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 12,
-                        runSpacing: 8,
-                        children: [
-                          TextButton(
-                            onPressed: isSubmitting
-                                ? null
-                                : () {
-                                    Navigator.pop(ctx);
-                                  },
-                            child: Text(
-                              'Annuler',
-                              style: GoogleFonts.inter(
-                                color: _primary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          ElevatedButton.icon(
-                  onPressed: isSubmitting
-                      ? null
-                      : () async {
-                          final name = nameCtrl.text.trim();
-                          final email = emailCtrl.text.trim();
-                          final phone = phoneCtrl.text.trim();
-                          final specialization = specializationCtrl.text.trim();
-                          final location = locationCtrl.text.trim();
-                          final description = descriptionCtrl.text.trim();
-                          if (name.isEmpty || email.isEmpty || !email.contains('@')) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Veuillez remplir Nom et Email valide.'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                            return;
-                          }
-                          setDialogState(() => isSubmitting = true);
-                          try {
-                            // Le client n'a pas le droit de créer un technicien directement.
-                            // On envoie donc une "demande" que le concepteur validera.
-                            await ApiService.createPurchaseRequest({
-                              'machineId': 'TECH-REQUEST',
-                              'machineName': 'Demande ajout technicien',
-                              if (cId.isNotEmpty) 'linkedClientId': cId,
-                              'requesterName': name,
-                              'requesterEmail': email.toLowerCase(),
-                              'requesterPhone': phone,
-                              'location': location.isEmpty
-                                  ? (clientName.isEmpty ? 'Client dashboard' : clientName)
-                                  : location,
-                              'note': [
-                                'Demande client: ajout technicien (validation requise par concepteur).',
-                                if (specialization.isNotEmpty) 'Specialite: $specialization',
-                                if (description.isNotEmpty) 'Description: $description',
-                                if (selectedMachineIds.isNotEmpty)
-                                  'Machines a controler: ${selectedMachineIds.join(', ')}',
-                              ].join('\n'),
-                              'requestType': 'TECHNICIAN_ADD',
-                              'metadata': {
-                                'specialization': specialization,
-                                'description': description,
-                                'machineIds': selectedMachineIds.toList(),
-                              },
-                            });
-
-                            if (!mounted) return;
-                            Navigator.pop(ctx);
-                            _refreshMachines();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Demande envoyée. Validation en attente du concepteur.'),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          } catch (e) {
-                            if (!mounted) return;
-                            setDialogState(() => isSubmitting = false);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Échec envoi demande: $e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        },
-                            icon: const Icon(Icons.person_add_alt_1_rounded, size: 16),
-                            label: Text(isSubmitting ? 'Envoi...' : 'Envoyer'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.black.withOpacity(0.35),
-                              foregroundColor: _primary,
-                              disabledBackgroundColor: Colors.black.withOpacity(0.2),
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                side: BorderSide(color: _outlineVariant.withOpacity(0.4)),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    nameCtrl.dispose();
-    emailCtrl.dispose();
-    phoneCtrl.dispose();
-    locationCtrl.dispose();
-    specializationCtrl.dispose();
-    descriptionCtrl.dispose();
-  }
-
   Future<void> _openMesMachinesDirectly() async {
     final existing = _machineSelectedMachine;
     if (existing != null) {
@@ -3906,7 +3560,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         ),
         const SizedBox(height: 6),
         Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
               child: Text(
@@ -3920,16 +3574,47 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               ),
             ),
             const SizedBox(width: 12),
-            OutlinedButton.icon(
-              onPressed: _openAddTechnicianRequestPage,
-              icon: const Icon(Icons.person_add_alt_1_rounded, size: 16),
-              label: const Text('Demande de add technicien'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _secondary,
-                side: BorderSide(color: _secondary.withOpacity(0.45)),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                textStyle: GoogleFonts.inter(
-                  fontSize: 11,
+            ElevatedButton.icon(
+              onPressed: _openAddTechnicianRequestDialog,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+              label: Text(
+                'Demander un technicien',
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            ElevatedButton.icon(
+              onPressed: () => _openAddTechnicianRequestDialog(
+                requestType: 'MAINTENANCE_ADD',
+                roleLabel: 'maintenance man',
+                requestedSpecialty: 'Maintenance opérationnelle',
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _secondary,
+                foregroundColor: Colors.black,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(Icons.build_circle_outlined, size: 18),
+              label: Text(
+                'Demander maintenance man',
+                style: GoogleFonts.inter(
+                  fontSize: 13,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -3962,8 +3647,8 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               );
             }
 
-            final techs = snapshot.data ?? [];
-            if (techs.isEmpty) {
+            final teamMembers = snapshot.data ?? [];
+            if (teamMembers.isEmpty) {
               return Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -3979,67 +3664,600 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               );
             }
 
-            return ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: techs.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (_, i) {
-                final t = techs[i];
-                return Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: _surfaceContainerLow,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: _outlineVariant.withOpacity(0.2)),
+            final technicians = teamMembers.where((member) {
+              final role = (member['roleType'] ?? member['role'] ?? '')
+                  .toString()
+                  .toLowerCase();
+              return role != 'maintenance';
+            }).toList();
+            final maintenanceMen = teamMembers.where((member) {
+              final role = (member['roleType'] ?? member['role'] ?? '')
+                  .toString()
+                  .toLowerCase();
+              return role == 'maintenance';
+            }).toList();
+
+            Widget buildSectionTitle(String title, IconData icon) {
+              return Row(
+                children: [
+                  Icon(icon, size: 16, color: _secondary),
+                  const SizedBox(width: 8),
+                  Text(
+                    title,
+                    style: GoogleFonts.inter(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: _onSurface,
+                    ),
                   ),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 20,
-                        backgroundColor: _surfaceContainerHighest,
-                        child: const Icon(Icons.engineering, color: _onSurfaceVariant),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              (t['name'] ?? 'Technicien').toString(),
-                              style: GoogleFonts.inter(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: _onSurface,
-                              ),
+                ],
+              );
+            }
+
+            Widget buildTeamCard(Map<String, dynamic> member, {required bool isMaintenance}) {
+              final imageUrl = (member['avatarUrl'] ??
+                      member['photoUrl'] ??
+                      member['profilePicture'] ??
+                      '')
+                  .toString()
+                  .trim();
+              final hasAvatar = imageUrl.startsWith('http');
+              final name = (member['name'] ?? (isMaintenance ? 'Maintenance man' : 'Technicien'))
+                  .toString();
+              final specialization =
+                  (member['specialization'] ??
+                          member['speciality'] ??
+                          (isMaintenance ? 'Maintenance operationnelle' : 'Maintenance terrain'))
+                      .toString();
+              final status = (member['status'] ?? 'Disponible').toString();
+              final email = (member['email'] ?? '').toString().trim();
+
+              return Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: _surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _outlineVariant.withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: _surfaceContainerHighest,
+                      backgroundImage: hasAvatar ? NetworkImage(imageUrl) : null,
+                      child: hasAvatar
+                          ? null
+                          : Icon(
+                              isMaintenance ? Icons.build_circle_outlined : Icons.engineering,
+                              color: _onSurfaceVariant,
                             ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: _onSurface,
+                            ),
+                          ),
+                          Text(
+                            '$specialization • $status',
+                            style: GoogleFonts.spaceGrotesk(
+                              fontSize: 11,
+                              color: _onSurfaceVariant,
+                            ),
+                          ),
+                          if (email.isNotEmpty)
                             Text(
-                              '${t['specialization'] ?? 'Support Machine'} • ${t['status'] ?? 'Disponible'}',
-                              style: GoogleFonts.spaceGrotesk(
+                              email,
+                              style: GoogleFonts.inter(
                                 fontSize: 11,
                                 color: _onSurfaceVariant,
                               ),
                             ),
-                          ],
+                        ],
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _openMessageEquipeDialog(member),
+                      icon: const Icon(Icons.message_outlined, size: 16),
+                      label: const Text('Message'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: () => _startCall(member),
+                      icon: const Icon(Icons.call_outlined, size: 16),
+                      label: const Text('Appel'),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                buildSectionTitle('Technicien', Icons.engineering),
+                const SizedBox(height: 10),
+                if (technicians.isEmpty)
+                  Text(
+                    'Aucun technicien assigne.',
+                    style: GoogleFonts.inter(fontSize: 12, color: _onSurfaceVariant),
+                  )
+                else
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: technicians.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (_, i) => buildTeamCard(technicians[i], isMaintenance: false),
+                  ),
+                const SizedBox(height: 20),
+                buildSectionTitle('Maintenance man', Icons.build_circle_outlined),
+                const SizedBox(height: 10),
+                if (maintenanceMen.isEmpty)
+                  Text(
+                    'Aucun maintenance man assigne.',
+                    style: GoogleFonts.inter(fontSize: 12, color: _onSurfaceVariant),
+                  )
+                else
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: maintenanceMen.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (_, i) => buildTeamCard(maintenanceMen[i], isMaintenance: true),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openAddTechnicianRequestDialog({
+    String requestType = 'TECHNICIAN_ADD',
+    String roleLabel = 'technicien',
+    String requestedSpecialty = 'Maintenance terrain',
+  }) async {
+    final clientId =
+        (widget.clientId ??
+                widget.clientData?['clientId'] ??
+                widget.clientData?['id'] ??
+                ApiService.savedClientId ??
+                '')
+            .toString()
+            .trim();
+
+    List<Map<String, dynamic>> clientMachines = const [];
+    try {
+      if (clientId.isNotEmpty) {
+        clientMachines = await ApiService.getMachinesForClient(clientId);
+      }
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    final lastNameCtrl = TextEditingController();
+    final firstNameCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    final locationCtrl = TextEditingController(text: _currentClientLocation);
+    final descriptionCtrl = TextEditingController();
+    final selectedMachineIds = <String>{};
+    if (clientMachines.isNotEmpty) {
+      final firstId = (clientMachines.first['_id'] ??
+              clientMachines.first['id'] ??
+              clientMachines.first['machineId'] ??
+              '')
+          .toString();
+      if (firstId.isNotEmpty) selectedMachineIds.add(firstId);
+    }
+
+    final approved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return Dialog(
+              backgroundColor: _surfaceContainerHigh,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 560,
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.9,
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: _primary.withOpacity(0.18),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(
+                              Icons.engineering_rounded,
+                              color: _primary,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Demande d\'ajout $roleLabel',
+                                  style: GoogleFonts.inter(
+                                    color: _onSurface,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 17,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Envoyée au Concepteur pour validation.',
+                                  style: GoogleFonts.spaceGrotesk(
+                                    color: _onSurfaceVariant,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Fermer',
+                            onPressed: () => Navigator.of(ctx).pop(false),
+                            icon: const Icon(Icons.close_rounded, color: _onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildRequestField(
+                              controller: lastNameCtrl,
+                              label: 'Nom *',
+                              hint: 'Ex: Hemli',
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _buildRequestField(
+                              controller: firstNameCtrl,
+                              label: 'Prénom *',
+                              hint: 'Ex: Morad',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _buildRequestField(
+                        controller: emailCtrl,
+                        label: 'Email *',
+                        hint: '$roleLabel@entreprise.com',
+                        keyboardType: TextInputType.emailAddress,
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildRequestField(
+                              controller: phoneCtrl,
+                              label: 'Téléphone (optionnel)',
+                              hint: '+216 ...',
+                              keyboardType: TextInputType.phone,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _buildRequestField(
+                              controller: locationCtrl,
+                              label: 'Localisation',
+                              hint: 'Ex: Sousse',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _buildRequestField(
+                        controller: descriptionCtrl,
+                        label: 'Description technique (optionnel)',
+                        hint: 'Compétences attendues, besoin urgent...',
+                        minLines: 2,
+                        maxLines: 4,
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Text(
+                            'Machines concernées',
+                            style: GoogleFonts.inter(
+                              color: _onSurface,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: _primary.withOpacity(0.18),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '${selectedMachineIds.length} sélectionnée(s)',
+                              style: GoogleFonts.spaceGrotesk(
+                                color: _primary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 180),
+                        decoration: BoxDecoration(
+                          color: _surfaceContainerLow,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: _outlineVariant.withOpacity(0.25)),
                         ),
+                        child: clientMachines.isEmpty
+                            ? Padding(
+                                padding: const EdgeInsets.all(14),
+                                child: Text(
+                                  'Aucune machine n\'est encore associée à votre compte.',
+                                  style: GoogleFonts.inter(
+                                    color: _onSurfaceVariant,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              )
+                            : ListView.separated(
+                                shrinkWrap: true,
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                itemCount: clientMachines.length,
+                                separatorBuilder: (_, __) => Divider(
+                                  height: 1,
+                                  color: _outlineVariant.withOpacity(0.18),
+                                ),
+                                itemBuilder: (_, i) {
+                                  final m = clientMachines[i];
+                                  final id = (m['_id'] ?? m['id'] ?? m['machineId'] ?? '').toString();
+                                  final name = (m['name'] ?? m['title'] ?? id).toString();
+                                  final business = (m['machineId'] ?? m['idBusiness'] ?? '').toString();
+                                  final isSelected = selectedMachineIds.contains(id);
+                                  return CheckboxListTile(
+                                    dense: true,
+                                    value: isSelected,
+                                    onChanged: id.isEmpty
+                                        ? null
+                                        : (v) {
+                                            setDialogState(() {
+                                              if (v == true) {
+                                                selectedMachineIds.add(id);
+                                              } else {
+                                                selectedMachineIds.remove(id);
+                                              }
+                                            });
+                                          },
+                                    activeColor: _primary,
+                                    checkColor: Colors.white,
+                                    controlAffinity: ListTileControlAffinity.leading,
+                                    title: Text(
+                                      name,
+                                      style: GoogleFonts.inter(
+                                        color: _onSurface,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    subtitle: business.isEmpty
+                                        ? null
+                                        : Text(
+                                            business,
+                                            style: GoogleFonts.spaceGrotesk(
+                                              color: _onSurfaceVariant,
+                                              fontSize: 10,
+                                            ),
+                                          ),
+                                  );
+                                },
+                              ),
                       ),
-                      TextButton.icon(
-                        onPressed: () => _openMessageEquipeDialog(t),
-                        icon: const Icon(Icons.message_outlined, size: 16),
-                        label: const Text('Message'),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton.icon(
-                        onPressed: () => _startCall(t),
-                        icon: const Icon(Icons.call_outlined, size: 16),
-                        label: const Text('Appel'),
+                      const SizedBox(height: 18),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(false),
+                            child: Text(
+                              'Annuler',
+                              style: GoogleFonts.inter(
+                                color: _onSurfaceVariant,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton.icon(
+                            onPressed: () => Navigator.of(ctx).pop(true),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 22,
+                                vertical: 14,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            icon: const Icon(Icons.send_rounded, size: 16),
+                            label: Text(
+                              'Envoyer la demande',
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                );
-              },
+                ),
+              ),
             );
           },
+        );
+      },
+    );
+
+    if (!mounted || approved != true) {
+      lastNameCtrl.dispose();
+      firstNameCtrl.dispose();
+      emailCtrl.dispose();
+      phoneCtrl.dispose();
+      locationCtrl.dispose();
+      descriptionCtrl.dispose();
+      return;
+    }
+
+    final lastName = lastNameCtrl.text.trim();
+    final firstName = firstNameCtrl.text.trim();
+    final email = emailCtrl.text.trim();
+    final phone = phoneCtrl.text.trim();
+    final location = locationCtrl.text.trim();
+    final description = descriptionCtrl.text.trim();
+
+    lastNameCtrl.dispose();
+    firstNameCtrl.dispose();
+    emailCtrl.dispose();
+    phoneCtrl.dispose();
+    locationCtrl.dispose();
+    descriptionCtrl.dispose();
+
+    if (lastName.isEmpty || firstName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Le nom et le prénom sont obligatoires.')),
+      );
+      return;
+    }
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('L\'email est obligatoire.')),
+      );
+      return;
+    }
+    if (selectedMachineIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sélectionnez au moins une machine concernée.')),
+      );
+      return;
+    }
+
+    final firstMachineId = selectedMachineIds.first;
+
+    try {
+      await ApiService.createPurchaseRequest({
+        'machineId': firstMachineId,
+        if (clientId.isNotEmpty) 'linkedClientId': clientId,
+        'requesterName': '$firstName $lastName',
+        'requesterEmail': email,
+        'requesterPhone': phone,
+        'location': location,
+        'note': description,
+        'requestType': requestType,
+        'requestedSpecialty': requestedSpecialty,
+        'requestedMachineIds': selectedMachineIds.toList(),
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Demande de $roleLabel envoyée au Concepteur.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Échec de l\'envoi: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Widget _buildRequestField({
+    required TextEditingController controller,
+    required String label,
+    String? hint,
+    int minLines = 1,
+    int maxLines = 1,
+    TextInputType? keyboardType,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: GoogleFonts.inter(
+            color: _onSurfaceVariant,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.4,
+          ),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          controller: controller,
+          keyboardType: keyboardType,
+          minLines: minLines,
+          maxLines: maxLines,
+          style: GoogleFonts.inter(color: _onSurface, fontSize: 13),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: GoogleFonts.inter(
+              color: _onSurfaceVariant.withOpacity(0.6),
+              fontSize: 12,
+            ),
+            isDense: true,
+            filled: true,
+            fillColor: _surfaceContainerLow,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: _outlineVariant.withOpacity(0.3)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: _outlineVariant.withOpacity(0.3)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: _primary, width: 1.4),
+            ),
+          ),
         ),
       ],
     );

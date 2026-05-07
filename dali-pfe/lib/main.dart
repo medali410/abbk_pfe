@@ -63,29 +63,64 @@ class _SessionEntryState extends State<SessionEntry> {
     }
 
     final token = (qp['token'] ?? '').trim();
-    final role = (qp['role'] ?? 'client').trim();
+    var role = (qp['role'] ?? 'client').trim().toLowerCase();
+    if (role == 'super_admin') role = 'superadmin';
+    if (role == 'company_admin') role = 'admin';
     if (token.isEmpty) return;
 
     await ApiService.saveAuth(token, role);
-    await ApiService.saveClientSession(
-      clientId: (qp['clientId'] ?? '').trim(),
-      clientName: (qp['name'] ?? 'Client').trim(),
-      clientEmail: (qp['email'] ?? '').trim(),
-      clientLocation: (qp['location'] ?? '').trim(),
-      clientPhotoUrl:
-          (qp['photoUrl'] ??
-                  qp['avatarUrl'] ??
-                  qp['profilePhotoUrl'] ??
-                  qp['imageUrl'] ??
-                  qp['image'] ??
-                  '')
-              .trim(),
-    );
+
+    if (role == 'technician') {
+      final profile = ApiService.technicianProfileFromOAuthParams(qp);
+      await ApiService.clearStoredClientSession();
+      await ApiService.saveTechnicianSession(profile);
+    } else if (role == 'maintenance' ||
+        role == 'conception' ||
+        role == 'concepteur' ||
+        role == 'superadmin' ||
+        role == 'admin') {
+      await ApiService.clearStoredClientSession();
+    } else {
+      await ApiService.saveClientSession(
+        clientId: (qp['clientId'] ?? '').trim(),
+        clientName: (qp['name'] ?? 'Client').trim(),
+        clientEmail: (qp['email'] ?? '').trim(),
+        clientLocation: (qp['location'] ?? '').trim(),
+        clientPhotoUrl:
+            (qp['photoUrl'] ??
+                    qp['avatarUrl'] ??
+                    qp['profilePhotoUrl'] ??
+                    qp['imageUrl'] ??
+                    qp['image'] ??
+                    '')
+                .trim(),
+      );
+    }
 
     if (!mounted) return;
     _redirectScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      if (role == 'technician') {
+        final profile = ApiService.technicianProfileFromOAuthParams(qp);
+        Navigator.of(context).pushReplacementNamed(
+          '/technician-profile',
+          arguments: profile,
+        );
+        return;
+      }
+      if (role == 'maintenance') {
+        Navigator.of(context).pushReplacementNamed('/maintenance-dashboard');
+        return;
+      }
+      if (role == 'conception' || role == 'concepteur') {
+        Navigator.of(context).pushReplacementNamed('/concepteur-dashboard');
+        return;
+      }
+      if (role == 'superadmin' || role == 'admin') {
+        Navigator.of(context).pushReplacementNamed('/dashboard');
+        return;
+      }
       Navigator.of(context).pushReplacementNamed('/client-dashboard');
     });
   }

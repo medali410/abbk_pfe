@@ -185,6 +185,48 @@ class ApiService {
     }
   }
 
+  /// Efface la session client persistée (sans toucher au jeton ni au rôle).
+  /// Utile après connexion Google en tant que technicien ou maintenance.
+  static Future<void> clearStoredClientSession() async {
+    _savedClientId = null;
+    _savedClientName = null;
+    _savedClientEmail = null;
+    _savedClientLocation = null;
+    _savedClientPhotoUrl = null;
+    _savedClientBackgroundUrl = null;
+    final p = await SharedPreferences.getInstance();
+    await p.remove(_kClientId);
+    await p.remove(_kClientName);
+    await p.remove(_kClientEmail);
+    await p.remove(_kClientLocation);
+    await p.remove(_kClientPhotoUrl);
+    await p.remove(_kClientBackgroundUrl);
+  }
+
+  /// Profil minimal technicien depuis les query params OAuth web (`machineIds` = IDs séparés par des virgules).
+  static Map<String, dynamic> technicianProfileFromOAuthParams(
+    Map<String, String> qp,
+  ) {
+    final raw = (qp['machineIds'] ?? '').trim();
+    final mids =
+        raw.isEmpty
+            ? <String>[]
+            : raw
+                .split(',')
+                .map((s) => s.trim())
+                .where((s) => s.isNotEmpty)
+                .toList();
+    return {
+      'technicianId': (qp['technicianId'] ?? '').trim(),
+      'id': (qp['id'] ?? qp['technicianId'] ?? '').trim(),
+      '_id': (qp['_id'] ?? '').trim(),
+      'name': (qp['name'] ?? '').trim(),
+      'email': (qp['email'] ?? '').trim(),
+      'companyId': (qp['companyId'] ?? '').trim(),
+      'machineIds': mids,
+    };
+  }
+
   static Map<String, String> _jsonHeaders({bool withAuth = false}) {
     final h = <String, String>{'Content-Type': 'application/json'};
     if (withAuth && _authToken != null && _authToken!.isNotEmpty) {
@@ -425,6 +467,19 @@ class ApiService {
       return json.decode(response.body);
     } else {
       _throwApiError(response, 'Erreur lors de la modification du technicien');
+    }
+  }
+
+  static Future<Map<String, dynamic>> updateMyTechnicianProfile(Map<String, dynamic> data) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/technician/me'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode(data),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else {
+      _throwApiError(response, 'Erreur lors de la modification du profil technicien');
     }
   }
 

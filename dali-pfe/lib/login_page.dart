@@ -583,8 +583,13 @@ class _LoginPageState extends State<LoginPage> {
         idToken: idToken,
         location: _signupAddressController.text.trim(),
       );
-      final role = (response['role'] ?? 'client').toString().toLowerCase();
-      final token = response['token']?.toString();
+      var role = (response['role'] ?? 'client').toString().toLowerCase();
+      if (role == 'super_admin') role = 'superadmin';
+      if (role == 'company_admin') role = 'admin';
+      final token =
+          response['token']?.toString() ??
+          response['accessToken']?.toString() ??
+          response['access_token']?.toString();
       await ApiService.saveAuth(
         (token != null && token.isNotEmpty) ? token : null,
         role,
@@ -595,6 +600,40 @@ class _LoginPageState extends State<LoginPage> {
         Navigator.pop(context, true);
         return;
       }
+
+      if (role == 'technician') {
+        final args = Map<String, dynamic>.from(response);
+        await ApiService.clearStoredClientSession();
+        await ApiService.saveTechnicianSession(args);
+        if (!context.mounted) return;
+        Navigator.pushReplacementNamed(
+          context,
+          '/technician-profile',
+          arguments: args,
+        );
+        return;
+      }
+      if (role == 'maintenance') {
+        await ApiService.clearStoredClientSession();
+        if (!context.mounted) return;
+        Navigator.pushReplacementNamed(context, '/maintenance-dashboard');
+        return;
+      }
+      if (role == 'conception' || role == 'concepteur') {
+        await ApiService.clearStoredClientSession();
+        if (!context.mounted) return;
+        Navigator.pushReplacementNamed(context, '/concepteur-dashboard');
+        return;
+      }
+      if (role == 'superadmin' || role == 'admin') {
+        if (!context.mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const DashboardPage()),
+        );
+        return;
+      }
+
       final clientName = response['name'] ?? account.displayName ?? 'Client';
       final clientId = response['clientId'] ?? response['id'] ?? '';
       await ApiService.saveClientSession(
@@ -646,20 +685,66 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
     final token = (qp['token'] ?? '').trim();
-    final role = (qp['role'] ?? 'client').trim();
+    var role = (qp['role'] ?? 'client').trim().toLowerCase();
+    if (role == 'super_admin') role = 'superadmin';
+    if (role == 'company_admin') role = 'admin';
     if (token.isEmpty) return;
     await ApiService.saveAuth(token, role);
-    await ApiService.saveClientSession(
-      clientId: (qp['clientId'] ?? '').trim(),
-      clientName: (qp['name'] ?? 'Client').trim(),
-      clientEmail: (qp['email'] ?? '').trim(),
-      clientLocation: (qp['location'] ?? '').trim(),
-    );
+
     if (!mounted) return;
     if (widget.returnToHomeAfterClientLogin) {
       Navigator.pop(context, true);
       return;
     }
+
+    if (role == 'technician') {
+      final profile = ApiService.technicianProfileFromOAuthParams(qp);
+      await ApiService.clearStoredClientSession();
+      await ApiService.saveTechnicianSession(profile);
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(
+        context,
+        '/technician-profile',
+        arguments: profile,
+      );
+      return;
+    }
+    if (role == 'maintenance') {
+      await ApiService.clearStoredClientSession();
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, '/maintenance-dashboard');
+      return;
+    }
+    if (role == 'conception' || role == 'concepteur') {
+      await ApiService.clearStoredClientSession();
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, '/concepteur-dashboard');
+      return;
+    }
+    if (role == 'superadmin' || role == 'admin') {
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const DashboardPage()),
+      );
+      return;
+    }
+
+    await ApiService.saveClientSession(
+      clientId: (qp['clientId'] ?? '').trim(),
+      clientName: (qp['name'] ?? 'Client').trim(),
+      clientEmail: (qp['email'] ?? '').trim(),
+      clientLocation: (qp['location'] ?? '').trim(),
+      clientPhotoUrl:
+          (qp['photoUrl'] ??
+                  qp['avatarUrl'] ??
+                  qp['profilePhotoUrl'] ??
+                  qp['imageUrl'] ??
+                  qp['image'] ??
+                  '')
+              .trim(),
+    );
+    if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/client-dashboard');
   }
 

@@ -22,6 +22,10 @@ const PurchaseRequestSchema = new mongoose.Schema(
         linkedClientId: { type: String, default: '' },
         linkedTechnicianId: { type: String, default: '' },
         linkedMaintenanceAgentId: { type: String, default: '' },
+        /** Ex. MACHINE_PURCHASE, TECHNICIAN_ADD — utilisé par le catalogue / dashboard concepteur */
+        requestType: { type: String, default: '', trim: true },
+        requestedSpecialty: { type: String, default: '', trim: true },
+        requestedMachineIds: { type: [String], default: [] },
     },
     {
         timestamps: true,
