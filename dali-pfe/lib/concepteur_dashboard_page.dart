@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image/image.dart' as img;
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'services/api_service.dart';
 import 'utils/app_layout.dart';
 import 'machine_detail_ai_page.dart';
@@ -71,6 +72,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   String? _error;
   bool _hasFleetSession = true;
   bool _silentRecoveryTried = false;
+
+  /// Écoute missions / messages diagnostic pour notifier le concepteur (ex. technicien confirme).
+  IO.Socket? _missionAckSocket;
 
   final TextEditingController _searchController = TextEditingController();
   String _selectedCategory = 'Toutes les catégories';
@@ -889,6 +893,62 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     _bootstrapDashboard();
   }
 
+  @override
+  void dispose() {
+    _missionAckSocket?.dispose();
+    super.dispose();
+  }
+
+  void _initConcepteurMissionAckSocket() {
+    try {
+      _missionAckSocket?.dispose();
+      _missionAckSocket = IO.io(ApiService.socketBaseUrl, <String, dynamic>{
+        'transports': ['websocket'],
+        'autoConnect': true,
+      });
+
+      void onConfirmed(Map<String, dynamic> data) {
+        if (!mounted) return;
+        final status = (data['status'] ?? '').toString().toUpperCase();
+        if (status != 'CONFIRMED') return;
+        final machineLabel =
+            (data['machineName'] ?? '').toString().trim().isNotEmpty
+                ? (data['machineName'] ?? '').toString().trim()
+                : (data['machineId'] ?? data['interventionId'] ?? '').toString();
+        final iv = (data['interventionId'] ?? '').toString();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              machineLabel.isNotEmpty
+                  ? 'Le technicien a confirmé la mission · $machineLabel'
+                  : 'Le technicien a confirmé la mission (intervention $iv).',
+              style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+            ),
+            backgroundColor: successColor,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+        setState(() {
+          _appendMachineNotification(
+            title: 'Technicien — mission confirmée',
+            machineName:
+                machineLabel.isNotEmpty ? machineLabel : 'Intervention $iv',
+          );
+          _unreadMachineNotifications++;
+        });
+      }
+
+      _missionAckSocket!.on('diagnostic_coordination_update', (data) {
+        if (data is Map) onConfirmed(Map<String, dynamic>.from(data));
+      });
+      _missionAckSocket!.on('diagnostic_message_update', (data) {
+        if (data is Map) onConfirmed(Map<String, dynamic>.from(data));
+      });
+    } catch (e) {
+      debugPrint('[ConcepteurDashboard] mission ack socket: $e');
+    }
+  }
+
   Future<void> _bootstrapDashboard() async {
     try {
       await ApiService.ensureAuthTokenLoaded();
@@ -918,6 +978,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     await _loadConcepteurProfileFromBackend();
     _fetchMachines();
     _fetchPurchaseRequests();
+    _initConcepteurMissionAckSocket();
   }
 
   Future<String> _trySilentSessionRecovery() async {

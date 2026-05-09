@@ -6,6 +6,17 @@ import 'services/api_service.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'widgets/machine_control_calendar_panel.dart';
 
+/// Unifie les synonymes de fin de mission pour l’UI (libellés API ou locales).
+String _normalizeMissionStatusString(Object? raw) {
+  if (raw == null) return 'SENT';
+  final t = raw.toString().trim();
+  if (t.isEmpty) return 'SENT';
+  final s = t.toUpperCase();
+  const completed = {'COMPLETED', 'DONE', 'FINISHED', 'TERMINE', 'TERMINEE', 'TERMINÉ'};
+  if (completed.contains(s)) return 'COMPLETED';
+  return s;
+}
+
 class MissionControlPage extends StatefulWidget {
   const MissionControlPage({super.key, this.initialArgs});
 
@@ -33,12 +44,22 @@ class _MissionControlPageState extends State<MissionControlPage> {
   String _resolvedMachineId = '';
   String _machineDisplayName = '';
   String _technicianNavId = '';
+  /// `maintenance` lorsque l’écran est ouvert par l’agent maintenance (hub).
+  String _viewerRole = '';
+
+  bool get _isMaintenanceViewer =>
+      _viewerRole.toLowerCase().trim() == 'maintenance';
+  /// Vue focalisée : échanges mission + technicien, sans panneau métriques latéral.
+  bool _maintenanceMissionMode = false;
   bool _marcheBusy = false;
   String _latestCoordNote = "Confirm node isolation to prevent cascade.";
   Map<String, dynamic>? _latestMission;
   String? _latestNoteId;
   String? _interventionId;
   bool _isSendingMission = false; // Verrou anti-double-clic
+  /// Évite plusieurs chargements ; `_findActiveIntervention` doit partir après `techId` / `machineId` (didChangeDependencies).
+  bool _interventionLogsLoaded = false;
+  bool _scheduledInterventionBootstrap = false;
 
   @override
   void didChangeDependencies() {
@@ -59,6 +80,17 @@ class _MissionControlPageState extends State<MissionControlPage> {
       _resolvedMachineId = (args['machineId'] ?? args['techId'] ?? '').toString().trim();
       _machineDisplayName = (args['machineName'] ?? '').toString().trim();
       _technicianNavId = (args['technicianId'] ?? '').toString().trim();
+      final vr = (args['viewerRole'] ?? '').toString().toLowerCase().trim();
+      if (vr.isNotEmpty) _viewerRole = vr;
+    }
+
+    // InitState s’exécute avant didChangeDependencies : sans ce différé, `_techId` restait à la valeur par défaut
+    // et aucune intervention n’était résolue → le technicien ne voyait pas les missions (socket filtré par id).
+    if (!_scheduledInterventionBootstrap) {
+      _scheduledInterventionBootstrap = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _findActiveIntervention();
+      });
     }
   }
 
@@ -119,28 +151,44 @@ class _MissionControlPageState extends State<MissionControlPage> {
   void initState() {
     super.initState();
     _initSocket();
-    _findActiveIntervention();
   }
 
   Future<void> _findActiveIntervention() async {
-    if (_interventionId != null) return;
+    if (_interventionLogsLoaded) return;
     try {
       final list = await ApiService.getDiagnosticInterventions();
-      // On cherche une intervention ouverte pour cette machine ou ce technicien
-      // _techId contient souvent le nom de la machine (ex: DZLI)
-      final active = list.firstWhere(
-        (i) {
-          final isOpen = i['status'] != 'DONE' && i['status'] != 'CANCELLED';
-          if (!isOpen) return false;
-          
-          final mId = (i['machineId'] ?? '').toString();
-          final mName = (i['machineName'] ?? '').toString().toUpperCase();
-          final tId = (i['technicianId'] ?? '').toString().toUpperCase();
-          
-          return mId == _techId || mName == _techId || tId == _techId;
-        },
-        orElse: () => {},
-      );
+      Map<String, dynamic> active = {};
+
+      final presetId = _interventionId?.trim();
+      if (presetId != null && presetId.isNotEmpty) {
+        for (final raw in list) {
+          final i = Map<String, dynamic>.from(raw as Map);
+          if (i['id']?.toString() == presetId) {
+            active = i;
+            break;
+          }
+        }
+      }
+
+      if (active.isEmpty) {
+        final midArg = _resolvedMachineId.toUpperCase().trim();
+        active = list.firstWhere(
+          (i) {
+            final isOpen = i['status'] != 'DONE' && i['status'] != 'CANCELLED';
+            if (!isOpen) return false;
+
+            final mId = (i['machineId'] ?? '').toString().toUpperCase();
+            final mName = (i['machineName'] ?? '').toString().toUpperCase();
+            final tId = (i['technicianId'] ?? '').toString().toUpperCase();
+
+            return mId == _techId ||
+                mName == _techId ||
+                tId == _techId ||
+                (midArg.isNotEmpty && mId == midArg);
+          },
+          orElse: () => <String, dynamic>{},
+        );
+      }
 
       if (active.containsKey('id')) {
         setState(() {
@@ -151,14 +199,80 @@ class _MissionControlPageState extends State<MissionControlPage> {
           for (var msg in messages) {
             final author = (msg['authorName'] ?? msg['authorRole'] ?? 'Unknown').toString().toUpperCase();
             final isMe = author == _agentName.toUpperCase();
-            
+            final mid = (msg['_id'] ?? msg['id'])?.toString();
+
             _logs.add({
               'type': isMe ? 'YOU' : 'MAINT_HUB // $author',
               'text': msg['content'] ?? '',
               'timestamp': msg['createdAt'] != null 
                   ? TimeOfDay.fromDateTime(DateTime.parse(msg['createdAt'])).format(context)
                   : '--:--',
+              if (mid != null && mid.isNotEmpty) 'messageId': mid,
+              'missionStatus': msg['missionStatus'],
             });
+
+            if (_isMaintenanceViewer &&
+                mid != null &&
+                mid.isNotEmpty &&
+                msg['missionStatus'] != null) {
+              final raw = (msg['content'] ?? '').toString();
+              final msgSt = _normalizeMissionStatusString(msg['missionStatus']);
+
+              if (msgSt == 'COMPLETED') {
+                if (msg['missionConfirmedAt'] != null &&
+                    !_logs.any((l) => l['completionEchoKey'] == 'confirm-msg:$mid')) {
+                  final echoTsC = TimeOfDay.fromDateTime(
+                    DateTime.parse(msg['missionConfirmedAt'].toString()).toLocal(),
+                  ).format(context);
+                  final tc = raw.trim();
+                  final confirmBody = tc.isEmpty
+                      ? 'Le technicien a confirmé la mission.'
+                      : 'Mission confirmée par le technicien — « $tc ».';
+                  _logs.add({
+                    'type': 'TECHNICIEN // CONFIRMÉ',
+                    'text': confirmBody,
+                    'timestamp': echoTsC,
+                    'skipAck': true,
+                    'completionEchoKey': 'confirm-msg:$mid',
+                  });
+                }
+                final echoTs = msg['missionCompletedAt'] != null
+                    ? TimeOfDay.fromDateTime(DateTime.parse(msg['missionCompletedAt'].toString()).toLocal())
+                        .format(context)
+                    : TimeOfDay.fromDateTime(DateTime.now()).format(context);
+                final t = raw.trim();
+                final echoBody = t.isEmpty
+                    ? 'Le technicien a terminé le contrôle. Mission clôturée.'
+                    : 'Contrôle terminé : « $t » — mission clôturée par le technicien.';
+                if (!_logs.any((l) => l['completionEchoKey'] == 'msg:$mid')) {
+                  _logs.add({
+                    'type': 'TECHNICIEN // TERMINÉ',
+                    'text': echoBody,
+                    'timestamp': echoTs,
+                    'skipAck': true,
+                    'completionEchoKey': 'msg:$mid',
+                  });
+                }
+              } else if (msgSt == 'CONFIRMED' || msgSt == 'STARTED') {
+                final echoTs = msg['missionConfirmedAt'] != null
+                    ? TimeOfDay.fromDateTime(DateTime.parse(msg['missionConfirmedAt'].toString()).toLocal())
+                        .format(context)
+                    : TimeOfDay.fromDateTime(DateTime.now()).format(context);
+                final tc = raw.trim();
+                final confirmBody = tc.isEmpty
+                    ? 'Le technicien a confirmé la mission.'
+                    : 'Mission confirmée par le technicien — « $tc ».';
+                if (!_logs.any((l) => l['completionEchoKey'] == 'confirm-msg:$mid')) {
+                  _logs.add({
+                    'type': 'TECHNICIEN // CONFIRMÉ',
+                    'text': confirmBody,
+                    'timestamp': echoTs,
+                    'skipAck': true,
+                    'completionEchoKey': 'confirm-msg:$mid',
+                  });
+                }
+              }
+            }
           }
 
           final notes = List.from(active['coordinationNotes'] ?? []);
@@ -166,7 +280,12 @@ class _MissionControlPageState extends State<MissionControlPage> {
             for (var note in notes) {
               final isM = note['isMission'] == true || note['missionStatus'] != null;
               final nId = (note['_id'] ?? note['id'])?.toString();
-              
+              final authorU =
+                  (note['authorName'] ?? note['authorRole'] ?? '').toString().toUpperCase();
+              final skipAck = authorU == _agentName.toUpperCase();
+              final displayMissionAsYou =
+                  skipAck && isM && _isMaintenanceViewer;
+
               if (isM) {
                 _latestMission = Map<String, dynamic>.from(note);
                 _latestMission!['id'] = nId;
@@ -175,18 +294,84 @@ class _MissionControlPageState extends State<MissionControlPage> {
               _latestCoordNote = (note['content'] ?? '').toString().toUpperCase();
 
               _logs.add({
-                "type": isM ? "CRITICAL_EVENT" : "OP_TECH",
-                "text": _latestCoordNote,
+                "type": displayMissionAsYou
+                    ? "YOU"
+                    : (isM ? "CRITICAL_EVENT" : "OP_TECH"),
+                "text": displayMissionAsYou
+                    ? (note['content'] ?? '').toString()
+                    : _latestCoordNote,
                 "timestamp": note['createdAt'] != null 
                     ? TimeOfDay.fromDateTime(DateTime.parse(note['createdAt'])).format(context)
                     : '--:--',
                 "isMission": isM,
                 "noteId": nId,
-                "missionStatus": note['missionStatus'],
+                "missionStatus": note['missionStatus'] ?? (skipAck ? null : 'SENT'),
+                if (skipAck || displayMissionAsYou) "skipAck": true,
               });
+
+              if (_isMaintenanceViewer && isM && nId != null && nId.isNotEmpty) {
+                final rawMission = (note['content'] ?? '').toString();
+                final noteSt = _normalizeMissionStatusString(note['missionStatus']);
+
+                if (noteSt == 'COMPLETED') {
+                  if (note['missionConfirmedAt'] != null &&
+                      !_logs.any((l) => l['completionEchoKey'] == 'confirm-note:$nId')) {
+                    final echoTsC = TimeOfDay.fromDateTime(
+                      DateTime.parse(note['missionConfirmedAt'].toString()).toLocal(),
+                    ).format(context);
+                    final trimmedC = rawMission.trim();
+                    final confirmBody = trimmedC.isEmpty
+                        ? 'Le technicien a confirmé la mission.'
+                        : 'Mission confirmée par le technicien — « $trimmedC ».';
+                    _logs.add({
+                      'type': 'TECHNICIEN // CONFIRMÉ',
+                      'text': confirmBody,
+                      'timestamp': echoTsC,
+                      'skipAck': true,
+                      'completionEchoKey': 'confirm-note:$nId',
+                    });
+                  }
+                  final echoTs = note['missionCompletedAt'] != null
+                      ? TimeOfDay.fromDateTime(DateTime.parse(note['missionCompletedAt'].toString()).toLocal())
+                          .format(context)
+                      : TimeOfDay.fromDateTime(DateTime.now()).format(context);
+                  final trimmed = rawMission.trim();
+                  final echoBody = trimmed.isEmpty
+                      ? 'Le technicien a terminé le contrôle. Mission clôturée.'
+                      : 'Contrôle terminé : « $trimmed » — mission clôturée par le technicien.';
+                  if (!_logs.any((l) => l['completionEchoKey'] == 'note:$nId')) {
+                    _logs.add({
+                      'type': 'TECHNICIEN // TERMINÉ',
+                      'text': echoBody,
+                      'timestamp': echoTs,
+                      'skipAck': true,
+                      'completionEchoKey': 'note:$nId',
+                    });
+                  }
+                } else if (noteSt == 'CONFIRMED' || noteSt == 'STARTED') {
+                  final echoTs = note['missionConfirmedAt'] != null
+                      ? TimeOfDay.fromDateTime(DateTime.parse(note['missionConfirmedAt'].toString()).toLocal())
+                          .format(context)
+                      : TimeOfDay.fromDateTime(DateTime.now()).format(context);
+                  final trimmed = rawMission.trim();
+                  final confirmBody = trimmed.isEmpty
+                      ? 'Le technicien a confirmé la mission.'
+                      : 'Mission confirmée par le technicien — « $trimmed ».';
+                  if (!_logs.any((l) => l['completionEchoKey'] == 'confirm-note:$nId')) {
+                    _logs.add({
+                      'type': 'TECHNICIEN // CONFIRMÉ',
+                      'text': confirmBody,
+                      'timestamp': echoTs,
+                      'skipAck': true,
+                      'completionEchoKey': 'confirm-note:$nId',
+                    });
+                  }
+                }
+              }
             }
           }
         });
+        _interventionLogsLoaded = true;
         _scrollToBottom();
       }
     } catch (e) {
@@ -220,72 +405,170 @@ class _MissionControlPageState extends State<MissionControlPage> {
     });
 
     _socket!.on('diagnostic_coordination', (data) {
-      if (mounted) {
-        final incomingInterventionId = data['interventionId'].toString();
-        debugPrint('COORD_RECV: $incomingInterventionId (Current: $_interventionId)');
-        
-        // Si le technicien n'a pas d'intervention active ou si l'ID a changé
-        // On accepte le nouvel ID pour rester synchronisé avec l'agent
-        if (_interventionId == null || _interventionId == '') {
-           _interventionId = incomingInterventionId;
+      if (!mounted) return;
+      final incomingInterventionId = data['interventionId'].toString();
+      debugPrint('COORD_RECV: $incomingInterventionId (Current: $_interventionId)');
+
+      if (_interventionId == null || _interventionId == '') {
+        _interventionId = incomingInterventionId;
+      }
+
+      if (incomingInterventionId != _interventionId) return;
+
+      final rawNote = data['note'];
+      if (rawNote is! Map) return;
+      _mergeIncomingCoordinationNote(Map<String, dynamic>.from(rawNote));
+    });
+
+    _socket!.on('diagnostic_coordination_update', (data) {
+      if (!mounted) return;
+      if (data['interventionId'].toString() != _interventionId) return;
+      final noteId = data['noteId']?.toString();
+      final status = data['status']?.toString().toUpperCase().trim() ?? '';
+
+      setState(() {
+        if (_latestMission != null && (_latestMission!['id'] == noteId || _latestMission!['_id'] == noteId)) {
+          _latestMission!['missionStatus'] = status;
         }
+        for (var log in _logs) {
+          if (log['noteId']?.toString() == noteId) {
+            log['missionStatus'] = status;
+          }
+        }
+      });
 
-        if (incomingInterventionId == _interventionId) {
-          final note = data['note'];
-          setState(() {
-            _latestCoordNote = (note['content'] ?? '').toString().toUpperCase();
-            _latestNoteId = (note['id'] ?? note['_id'])?.toString();
-            final isM = note['isMission'] == true || note['isMission'] == 'true' || note['missionStatus'] != null;
-            
-            if (isM) {
-              _latestMission = Map<String, dynamic>.from(note);
-              _latestMission!['id'] = _latestNoteId;
-              // POP-UP AUTOMATIQUE si c'est une nouvelle mission
-              if (note['missionStatus'] == 'SENT') {
-                 _showMissionPopup(note);
-              }
-            }
+      if (!mounted) return;
+      if (_isMaintenanceViewer &&
+          (status == 'CONFIRMED' || status == 'STARTED') &&
+          noteId != null &&
+          noteId.isNotEmpty) {
+        final snippet = _missionSnippetFromLogs(noteId: noteId);
+        final fallback = (_latestMission != null &&
+                (_latestMission!['id']?.toString() == noteId ||
+                    _latestMission!['_id']?.toString() == noteId))
+            ? (_latestMission!['content'] ?? '').toString()
+            : '';
+        _appendMaintenanceConfirmationEcho(
+          confirmationKey: 'confirm-note:$noteId',
+          missionSnippet: snippet.isNotEmpty ? snippet : fallback,
+        );
+      }
 
-            // Toujours ajouter au log terminal pour que le technicien voie l'activité
-            final author = (note['authorName'] ?? 'AGENCE').toString().toUpperCase();
-            _logs.add({
-              "type": isM ? "CRITICAL_EVENT" : "MAINT_HUB // $author",
-              "text": _latestCoordNote,
-              "timestamp": DateTime.now().toLocal().toString().substring(11, 16),
-              "isMission": isM,
-              "noteId": _latestNoteId,
-              "missionStatus": note['missionStatus'] ?? 'SENT',
-            });
-            if (_logs.length > 50) _logs.removeAt(0);
-          });
+      if (!mounted) return;
+      if (_isMaintenanceViewer &&
+          status == 'COMPLETED' &&
+          noteId != null &&
+          noteId.isNotEmpty) {
+        final snippet = _missionSnippetFromLogs(noteId: noteId);
+        final fallback = (_latestMission != null &&
+                (_latestMission!['id']?.toString() == noteId ||
+                    _latestMission!['_id']?.toString() == noteId))
+            ? (_latestMission!['content'] ?? '').toString()
+            : '';
+        _appendMaintenanceCompletionEcho(
+          completionKey: 'note:$noteId',
+          missionSnippet: snippet.isNotEmpty ? snippet : fallback,
+        );
+      }
+
+      if (!mounted) return;
+      if (_isMaintenanceViewer) {
+        if (status == 'CONFIRMED') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Le technicien a confirmé la mission.',
+                style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w600),
+              ),
+              backgroundColor: const Color(0xFFFF6E00),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        } else if (status == 'COMPLETED') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Le technicien a terminé la mission.',
+                style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w600),
+              ),
+              backgroundColor: const Color(0xFF2E7D32),
+              duration: const Duration(seconds: 6),
+            ),
+          );
+        }
+      } else {
+        if (status == 'CONFIRMED') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('MISSION CONFIRMÉE / STARTED'), backgroundColor: Colors.cyanAccent),
+          );
+        } else if (status == 'COMPLETED') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('MISSION TERMINÉE / DONE'), backgroundColor: Colors.greenAccent),
+          );
         }
       }
     });
 
-    _socket!.on('diagnostic_coordination_update', (data) {
-      if (mounted && data['interventionId'].toString() == _interventionId) {
-        final noteId = data['noteId']?.toString();
-        final status = data['status'];
-
-        setState(() {
-          // Mettre à jour la mission actuelle si elle correspond
-          if (_latestMission != null && (_latestMission!['id'] == noteId || _latestMission!['_id'] == noteId)) {
-            _latestMission!['missionStatus'] = status;
+    _socket!.on('diagnostic_message_update', (data) {
+      if (!mounted) return;
+      if (data['interventionId'].toString() != _interventionId) return;
+      final messageId = data['messageId']?.toString();
+      final status = data['status']?.toString().toUpperCase().trim() ?? '';
+      setState(() {
+        for (var log in _logs) {
+          if (log['messageId']?.toString() == messageId) {
+            log['missionStatus'] = status;
           }
+        }
+      });
+      if (!mounted) return;
+      if (_isMaintenanceViewer &&
+          (status == 'CONFIRMED' || status == 'STARTED') &&
+          messageId != null &&
+          messageId.isNotEmpty) {
+        final snippet = _missionSnippetFromLogs(messageId: messageId);
+        _appendMaintenanceConfirmationEcho(
+          confirmationKey: 'confirm-msg:$messageId',
+          missionSnippet: snippet,
+        );
+      }
 
-          // Mettre à jour le statut dans les logs du terminal
-          for (var log in _logs) {
-            if (log['isMission'] == true && log['noteId'] == noteId) {
-              log['missionStatus'] = status;
-            }
-          }
-
-          if (status == 'CONFIRMED') {
-             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('MISSION CONFIRMÉE / STARTED'), backgroundColor: Colors.cyanAccent,));
-          } else if (status == 'COMPLETED') {
-             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('MISSION TERMINÉE / DONE'), backgroundColor: Colors.greenAccent,));
-          }
-        });
+      if (!mounted) return;
+      if (_isMaintenanceViewer &&
+          status == 'COMPLETED' &&
+          messageId != null &&
+          messageId.isNotEmpty) {
+        final snippet = _missionSnippetFromLogs(messageId: messageId);
+        _appendMaintenanceCompletionEcho(
+          completionKey: 'msg:$messageId',
+          missionSnippet: snippet,
+        );
+      }
+      if (!mounted) return;
+      if (_isMaintenanceViewer) {
+        if (status == 'CONFIRMED') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Le technicien a confirmé le message.',
+                style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w600),
+              ),
+              backgroundColor: const Color(0xFFFF6E00),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        } else if (status == 'COMPLETED') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Le technicien a terminé : mission / consigne effectuée.',
+                style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w600),
+              ),
+              backgroundColor: const Color(0xFF2E7D32),
+              duration: const Duration(seconds: 6),
+            ),
+          );
+        }
       }
     });
 
@@ -300,6 +583,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
         // Éviter les doublons : si le message vient de nous-mêmes (déjà ajouté via _sendCommand)
         if (author == _agentName.toUpperCase()) return;
 
+        final mid = (msg['_id'] ?? msg['id'])?.toString();
         setState(() {
           _logs.add({
             'type': 'MAINT_HUB // $author',
@@ -307,6 +591,8 @@ class _MissionControlPageState extends State<MissionControlPage> {
             'timestamp': msg['createdAt'] != null 
                 ? TimeOfDay.fromDateTime(DateTime.parse(msg['createdAt'])).format(context)
                 : 'NOW',
+            if (mid != null && mid.isNotEmpty) 'messageId': mid,
+            'missionStatus': msg['missionStatus'] ?? 'SENT',
           });
         });
         _scrollToBottom();
@@ -314,17 +600,167 @@ class _MissionControlPageState extends State<MissionControlPage> {
     });
   }
 
+  String _coordinationTimestampFromNote(Map<String, dynamic> note) {
+    final raw = note['createdAt'];
+    if (raw != null) {
+      final dt = DateTime.tryParse(raw.toString());
+      if (dt != null) {
+        return TimeOfDay.fromDateTime(dt.toLocal()).format(context);
+      }
+    }
+    return DateTime.now().toLocal().toString().substring(11, 16);
+  }
+
+  String _missionSnippetFromLogs({String? noteId, String? messageId}) {
+    if (noteId != null && noteId.isNotEmpty) {
+      for (final l in _logs) {
+        if (l['noteId']?.toString() == noteId && l['isMission'] == true) {
+          return (l['text'] ?? '').toString();
+        }
+      }
+    }
+    if (messageId != null && messageId.isNotEmpty) {
+      for (final l in _logs) {
+        if (l['messageId']?.toString() == messageId) {
+          return (l['text'] ?? '').toString();
+        }
+      }
+    }
+    return '';
+  }
+
+  /// Message visible côté maintenance quand le technicien clôt la mission (fil type chat).
+  void _appendMaintenanceCompletionEcho({
+    required String completionKey,
+    required String missionSnippet,
+  }) {
+    if (!_isMaintenanceViewer) return;
+    if (_logs.any((l) => l['completionEchoKey']?.toString() == completionKey)) return;
+
+    final ts = TimeOfDay.fromDateTime(DateTime.now()).format(context);
+    final trimmed = missionSnippet.trim();
+    final body = trimmed.isEmpty
+        ? 'Le technicien a terminé le contrôle. Mission clôturée.'
+        : 'Contrôle terminé : « $trimmed » — mission clôturée par le technicien.';
+
+    setState(() {
+      _logs.add({
+        'type': 'TECHNICIEN // TERMINÉ',
+        'text': body,
+        'timestamp': ts,
+        'skipAck': true,
+        'completionEchoKey': completionKey,
+      });
+      if (_logs.length > 50) _logs.removeAt(0);
+    });
+    _scrollToBottom();
+  }
+
+  /// Message visible côté maintenance quand le technicien confirme la mission (fil type chat).
+  void _appendMaintenanceConfirmationEcho({
+    required String confirmationKey,
+    required String missionSnippet,
+  }) {
+    if (!_isMaintenanceViewer) return;
+    if (_logs.any((l) => l['completionEchoKey']?.toString() == confirmationKey)) return;
+
+    final ts = TimeOfDay.fromDateTime(DateTime.now()).format(context);
+    final trimmed = missionSnippet.trim();
+    final body = trimmed.isEmpty
+        ? 'Le technicien a confirmé la mission.'
+        : 'Mission confirmée par le technicien — « $trimmed ».';
+
+    setState(() {
+      _logs.add({
+        'type': 'TECHNICIEN // CONFIRMÉ',
+        'text': body,
+        'timestamp': ts,
+        'skipAck': true,
+        'completionEchoKey': confirmationKey,
+      });
+      if (_logs.length > 50) _logs.removeAt(0);
+    });
+    _scrollToBottom();
+  }
+
+  /// Note persistée en base (websocket `diagnostic_coordination` ou réponse HTTP) — dédoublonnage par `noteId`.
+  void _mergeIncomingCoordinationNote(Map<String, dynamic> note) {
+    final nid = (note['id'] ?? note['_id'])?.toString();
+    if (nid != null &&
+        nid.isNotEmpty &&
+        _logs.any((l) => l['noteId']?.toString() == nid)) {
+      return;
+    }
+    if (!mounted) return;
+
+    final isM = note['isMission'] == true ||
+        note['isMission'] == 'true' ||
+        note['missionStatus'] != null;
+
+    setState(() {
+      final upperCoord = (note['content'] ?? '').toString().toUpperCase();
+      _latestCoordNote = upperCoord;
+      final parsedId = (note['id'] ?? note['_id'])?.toString();
+      _latestNoteId = parsedId;
+
+      if (isM) {
+        _latestMission = Map<String, dynamic>.from(note);
+        _latestMission!['id'] = parsedId;
+      }
+
+      final author = (note['authorName'] ?? 'AGENCE').toString().toUpperCase();
+      final hubSkip = author == _agentName.toUpperCase();
+      final displayMissionAsYou = hubSkip && isM && _isMaintenanceViewer;
+
+      final ts = _coordinationTimestampFromNote(note);
+
+      _logs.add({
+        'type': displayMissionAsYou
+            ? 'YOU'
+            : (isM ? 'CRITICAL_EVENT' : 'MAINT_HUB // $author'),
+        'text': displayMissionAsYou
+            ? (note['content'] ?? '').toString()
+            : upperCoord,
+        'timestamp': ts,
+        'isMission': isM,
+        'noteId': parsedId,
+        'missionStatus': note['missionStatus'] ?? (hubSkip ? null : 'SENT'),
+        if (hubSkip || displayMissionAsYou) 'skipAck': true,
+      });
+      if (_logs.length > 50) _logs.removeAt(0);
+    });
+
+    if (isM && !_isMaintenanceViewer && note['missionStatus'] == 'SENT') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showMissionPopup(note);
+      });
+    }
+
+    _scrollToBottom();
+  }
+
   void _sendCommand() {
     final cmd = _commandController.text.trim();
     if (cmd.isEmpty) return;
 
     _socket!.emit('mission_control_command', {'command': cmd});
-    
-    // Si on a une intervention active, on envoie aussi au canal de discussion
-    if (_interventionId != null) {
-      ApiService.addDiagnosticMessage(_interventionId!, cmd, authorName: _agentName);
+
+    if (_interventionId == null) {
+      _appendLocalOutgoingChat(cmd);
+      return;
     }
-    
+
+    // Mission terrain : persistance `coordinationNotes` + table Mission + diffusion websocket au technicien.
+    if (_isMaintenanceViewer && _maintenanceMissionMode) {
+      unawaited(_sendMissionCoordinationNote(cmd));
+      return;
+    }
+
+    ApiService.addDiagnosticMessage(_interventionId!, cmd, authorName: _agentName);
+    _appendLocalOutgoingChat(cmd);
+  }
+
+  void _appendLocalOutgoingChat(String cmd) {
     setState(() {
       _logs.add({
         'type': 'YOU',
@@ -332,9 +768,36 @@ class _MissionControlPageState extends State<MissionControlPage> {
         'timestamp': TimeOfDay.now().format(context),
       });
     });
-    
     _commandController.clear();
     _scrollToBottom();
+  }
+
+  Future<void> _sendMissionCoordinationNote(String cmd) async {
+    final id = _interventionId;
+    if (id == null) return;
+    try {
+      final body = await ApiService.addCoordinationNote(
+        id,
+        cmd,
+        authorName: _agentName,
+        isMission: true,
+      );
+      _commandController.clear();
+      final raw = body['note'];
+      if (raw is Map) {
+        _mergeIncomingCoordinationNote(Map<String, dynamic>.from(raw));
+      }
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur envoi mission: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
   }
 
   void _scrollToBottom() {
@@ -349,6 +812,65 @@ class _MissionControlPageState extends State<MissionControlPage> {
     });
   }
 
+  bool _technicianNeedsAckRow(Map<String, dynamic> log) {
+    if (log['skipAck'] == true) return false;
+    if (log['type'] == 'YOU') return false;
+    final nid = log['noteId']?.toString();
+    final mid = log['messageId']?.toString();
+    return (nid != null && nid.isNotEmpty) || (mid != null && mid.isNotEmpty);
+  }
+
+  bool _maintShowsAckChip(Map<String, dynamic> log) {
+    if (!_isMaintenanceViewer) return false;
+    if (log['skipAck'] == true || log['type'] == 'YOU') return false;
+    final nid = log['noteId']?.toString();
+    final mid = log['messageId']?.toString();
+    final hasId = (nid != null && nid.isNotEmpty) || (mid != null && mid.isNotEmpty);
+    return log['isMission'] == true || hasId;
+  }
+
+  String _ackStatus(Map<String, dynamic> log) {
+    final raw = log['missionStatus'] ?? log['status'];
+    return _normalizeMissionStatusString(raw);
+  }
+
+  Future<void> _applyTechnicianAck(Map<String, dynamic> log, String status) async {
+    final iid = _interventionId;
+    if (iid == null) return;
+    final msgId = log['messageId']?.toString();
+    final noteId = log['noteId']?.toString();
+    final prev = log['missionStatus']?.toString();
+
+    setState(() {
+      log['missionStatus'] = status;
+      final lnid = noteId;
+      if (_latestMission != null &&
+          lnid != null &&
+          lnid.isNotEmpty &&
+          (_latestMission!['id']?.toString() == lnid ||
+              _latestMission!['_id']?.toString() == lnid)) {
+        _latestMission!['missionStatus'] = status;
+      }
+    });
+
+    try {
+      if (msgId != null && msgId.isNotEmpty) {
+        await ApiService.updateDiagnosticMessageStatus(iid, msgId, status);
+      } else if (noteId != null && noteId.isNotEmpty) {
+        await ApiService.updateMissionStatus(iid, noteId, status);
+      } else {
+        setState(() => log['missionStatus'] = prev);
+      }
+    } catch (e) {
+      setState(() => log['missionStatus'] = prev);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
+    }
+  }
+
   @override
   void dispose() {
     _socket?.disconnect();
@@ -359,57 +881,129 @@ class _MissionControlPageState extends State<MissionControlPage> {
 
   @override
   Widget build(BuildContext context) {
+    final maintenanceUi = _viewerRole == 'maintenance';
+    final missionFocus = maintenanceUi && _maintenanceMissionMode;
+
     return Scaffold(
       backgroundColor: const Color(0xFF070B14),
       body: Column(
         children: [
           _buildTopNav(),
           Expanded(
-            child: Row(
-              children: [
-                Expanded(flex: 3, child: _buildTerminalArea()),
-                Expanded(flex: 1, child: _buildMetricsPanel()),
-              ],
-            ),
+            child: missionFocus
+                ? _buildTerminalArea()
+                : Row(
+                    children: [
+                      Expanded(flex: 3, child: _buildTerminalArea()),
+                      Expanded(flex: 1, child: _buildMetricsPanel()),
+                    ],
+                  ),
           ),
-          _buildBottomStatusBar(),
+          if (!missionFocus) _buildBottomStatusBar(),
         ],
       ),
     );
   }
 
   Widget _buildTopNav() {
+    final isMaint = _viewerRole == 'maintenance';
+    final machineLabel = _machineDisplayName.isNotEmpty
+        ? _machineDisplayName
+        : (_resolvedMachineId.isNotEmpty ? _resolvedMachineId : '—');
+
     return Container(
-      height: 60,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      constraints: BoxConstraints(minHeight: isMaint ? 72 : 60),
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: isMaint ? 8 : 12),
       decoration: BoxDecoration(
         color: const Color(0xFF0B0E14),
         border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.cyanAccent),
             onPressed: () => Navigator.pop(context),
           ),
-          const SizedBox(width: 10),
-          Text(
-            'TECH_OS // MISSION_CONTROL // $_agentName',
-            style: GoogleFonts.orbitron(
-              color: Colors.cyanAccent,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 2,
+          Tooltip(
+            message: 'Vider le fil d’affichage (historique local uniquement).',
+            child: IconButton(
+              icon: const Icon(Icons.layers_clear_rounded, color: Colors.blueGrey),
+              onPressed: () {
+                setState(() {
+                  _logs.clear();
+                });
+                _scrollToBottom();
+              },
             ),
           ),
-          const Spacer(),
-          _buildNavTab('SYSTEM_HUB', false),
-          _buildNavTab('FLEET_SYNC', true),
-          _buildNavTab('NETWORK_LOGS', false),
-          const SizedBox(width: 20),
-          const Icon(Icons.notifications_none, color: Colors.cyanAccent, size: 20),
-          const SizedBox(width: 20),
-          const Icon(Icons.dashboard_customize_outlined, color: Colors.cyanAccent, size: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  isMaint
+                      ? 'MISSION_CONTROL · $machineLabel'
+                      : 'TECH_OS // MISSION_CONTROL // $_agentName',
+                  style: GoogleFonts.orbitron(
+                    color: isMaint ? const Color(0xFFFF6E00) : Colors.cyanAccent,
+                    fontSize: isMaint ? 14 : 16,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: isMaint ? 1.2 : 2,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (isMaint) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Technicien terrain ↔ Maintenance · communication mission',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: Colors.blueGrey,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (isMaint) ...[
+            Tooltip(
+              message:
+                  'Affiche uniquement le fil mission et les messages partagés avec le technicien (sans tableau latéral).',
+              child: FilterChip(
+                label: Text(
+                  'Mode mission',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                    color: _maintenanceMissionMode ? Colors.black87 : Colors.white,
+                  ),
+                ),
+                selected: _maintenanceMissionMode,
+                onSelected: (v) => setState(() => _maintenanceMissionMode = v),
+                selectedColor: const Color(0xFFFF6E00),
+                checkmarkColor: Colors.black87,
+                avatar: Icon(
+                  Icons.center_focus_strong_outlined,
+                  size: 18,
+                  color: _maintenanceMissionMode ? Colors.black87 : const Color(0xFFFF6E00),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ] else ...[
+            _buildNavTab('SYSTEM_HUB', false),
+            _buildNavTab('FLEET_SYNC', true),
+            _buildNavTab('NETWORK_LOGS', false),
+            const SizedBox(width: 12),
+            const Icon(Icons.notifications_none, color: Colors.cyanAccent, size: 20),
+            const SizedBox(width: 12),
+            const Icon(Icons.dashboard_customize_outlined, color: Colors.cyanAccent, size: 20),
+          ],
         ],
       ),
     );
@@ -434,13 +1028,89 @@ class _MissionControlPageState extends State<MissionControlPage> {
     );
   }
 
+  Widget _missionReadOnlyBanner({required String title, required String content, required String status}) {
+    final st = _normalizeMissionStatusString(status);
+    final Color accent = st == 'COMPLETED'
+        ? Colors.greenAccent
+        : st == 'CONFIRMED' || st == 'STARTED'
+            ? Colors.cyanAccent
+            : const Color(0xFFFF6E00);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.06),
+        border: Border.all(color: accent.withOpacity(0.85), width: 2),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.visibility_outlined, color: accent, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: GoogleFonts.orbitron(color: accent, fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: accent.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: accent.withOpacity(0.5)),
+                ),
+                child: Text(
+                  st == 'SENT' || st == 'PENDING'
+                      ? 'ENVOYÉE'
+                      : st == 'COMPLETED'
+                          ? 'TERMINÉ'
+                          : 'EN COURS',
+                  style: GoogleFonts.spaceGrotesk(color: accent, fontSize: 9, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            content,
+            style: GoogleFonts.spaceGrotesk(color: Colors.white.withOpacity(0.92), fontSize: 13, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Le technicien confirme et termine depuis son Mission Control.',
+            style: GoogleFonts.spaceGrotesk(color: Colors.blueGrey, fontSize: 10, height: 1.35),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildActiveMissionHeader() {
-    if (_latestMission == null || _latestMission!['missionStatus'] == 'COMPLETED') {
+    if (_latestMission == null) {
       return const SizedBox.shrink();
     }
 
-    final status = _latestMission!['missionStatus'] ?? 'PENDING';
+    final missionStat = _latestMission!['missionStatus'] ?? _latestMission!['status'];
+    final rawStatus = (missionStat ?? 'PENDING').toString();
     final content = (_latestMission!['content'] ?? '').toString().toUpperCase();
+
+    if (_isMaintenanceViewer) {
+      return _missionReadOnlyBanner(
+        title: 'MISSION TERRAIN · SUIVI',
+        content: content,
+        status: rawStatus,
+      );
+    }
+
+    if (_normalizeMissionStatusString(missionStat) == 'COMPLETED') {
+      return const SizedBox.shrink();
+    }
+
+    final status = _normalizeMissionStatusString(missionStat ?? rawStatus);
     final isConfirmed = status == 'CONFIRMED' || status == 'STARTED';
 
     return Container(
@@ -616,16 +1286,31 @@ class _MissionControlPageState extends State<MissionControlPage> {
         children: [
           _buildActiveMissionHeader(),
           Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.only(bottom: 20),
-              itemCount: _logs.length,
-              itemBuilder: (context, index) {
-                return _buildLogEntry(_logs[index]);
-              },
-            ),
+            child: _logs.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        'Fil vide — les nouveaux messages apparaîtront ici.',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.spaceGrotesk(
+                          color: Colors.blueGrey,
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.only(bottom: 20),
+                    itemCount: _logs.length,
+                    itemBuilder: (context, index) {
+                      return _buildLogEntry(_logs[index]);
+                    },
+                  ),
           ),
-          _buildCommandInput(),
+          if (_isMaintenanceViewer) _buildCommandInput(),
         ],
       ),
     );
@@ -636,7 +1321,10 @@ class _MissionControlPageState extends State<MissionControlPage> {
     String type = log['type'];
     bool isMe = type == 'YOU';
     
-    if (type.startsWith('OP_TECH')) {
+    if (type.startsWith('TECHNICIEN')) {
+      accentColor =
+          type.contains('CONFIRM') ? Colors.cyanAccent : Colors.greenAccent;
+    } else if (type.startsWith('OP_TECH')) {
       accentColor = Colors.blueAccent;
     } else if (type == 'SYSTEM_OS') {
       accentColor = Colors.purpleAccent;
@@ -692,111 +1380,117 @@ class _MissionControlPageState extends State<MissionControlPage> {
                     log['text'],
                     style: GoogleFonts.spaceGrotesk(color: Colors.white.withOpacity(0.9), fontSize: 13),
                   ),
-                  if (log['isMission'] == true) ...[
+                  if (_maintShowsAckChip(log)) ...[
+                    const SizedBox(height: 15),
+                    _MaintenanceMissionStatusChip(status: _ackStatus(log)),
+                  ] else if (_technicianNeedsAckRow(log)) ...[
                     const SizedBox(height: 15),
                     Row(
                       children: [
-                        if (log['missionStatus'] != 'COMPLETED') ...[
-                          // Bouton CONFIRMER
+                        if (_ackStatus(log) != 'COMPLETED') ...[
                           ElevatedButton.icon(
-                            onPressed: (log['missionStatus'] == 'SENT' || log['missionStatus'] == 'PENDING')
-                                ? () async {
-                                   if (_interventionId != null && log['noteId'] != null) {
-                                     // Mise à jour optimiste du log
-                                     setState(() {
-                                       log['missionStatus'] = 'CONFIRMED';
-                                       if (_latestMission != null && _latestMission!['id'] == log['noteId']) {
-                                         _latestMission!['missionStatus'] = 'CONFIRMED';
-                                       }
-                                     });
-                                     try {
-                                       await ApiService.updateMissionStatus(_interventionId!, log['noteId'], 'CONFIRMED');
-                                     } catch (e) {
-                                       setState(() { log['missionStatus'] = 'SENT'; });
-                                       if (mounted) {
-                                         ScaffoldMessenger.of(context).showSnackBar(
-                                           SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.redAccent),
-                                         );
-                                       }
-                                     }
-                                   }
-                                }
+                            onPressed: (_ackStatus(log) == 'SENT' || _ackStatus(log) == 'PENDING')
+                                ? () => _applyTechnicianAck(log, 'CONFIRMED')
                                 : null,
                             icon: Icon(
-                              (log['missionStatus'] == 'SENT' || log['missionStatus'] == 'PENDING') ? Icons.circle_outlined : Icons.check_circle,
+                              (_ackStatus(log) == 'SENT' || _ackStatus(log) == 'PENDING')
+                                  ? Icons.circle_outlined
+                                  : Icons.check_circle,
                               size: 12,
-                              color: (log['missionStatus'] == 'SENT' || log['missionStatus'] == 'PENDING') ? Colors.black : Colors.greenAccent,
+                              color: (_ackStatus(log) == 'SENT' || _ackStatus(log) == 'PENDING')
+                                  ? Colors.black
+                                  : Colors.greenAccent,
                             ),
                             label: Text(
-                              (log['missionStatus'] == 'SENT' || log['missionStatus'] == 'PENDING') ? 'CONFIRMER' : 'CONFIRMÉ',
+                              (_ackStatus(log) == 'SENT' || _ackStatus(log) == 'PENDING')
+                                  ? 'CONFIRMER'
+                                  : 'CONFIRMÉ',
                               style: GoogleFonts.orbitron(fontSize: 9, fontWeight: FontWeight.bold),
                             ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: (log['missionStatus'] == 'SENT' || log['missionStatus'] == 'PENDING') ? Colors.cyanAccent : Colors.white.withOpacity(0.05),
-                              foregroundColor: (log['missionStatus'] == 'SENT' || log['missionStatus'] == 'PENDING') ? Colors.black : Colors.white.withOpacity(0.3),
+                              backgroundColor: (_ackStatus(log) == 'SENT' || _ackStatus(log) == 'PENDING')
+                                  ? Colors.cyanAccent
+                                  : Colors.white.withOpacity(0.05),
+                              foregroundColor: (_ackStatus(log) == 'SENT' || _ackStatus(log) == 'PENDING')
+                                  ? Colors.black
+                                  : Colors.white.withOpacity(0.3),
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             ),
                           ),
                           const SizedBox(width: 8),
-                          // Bouton TERMINER
                           ElevatedButton.icon(
-                            onPressed: (log['missionStatus'] == 'CONFIRMED' || log['missionStatus'] == 'STARTED')
-                                ? () async {
-                                   if (_interventionId != null && log['noteId'] != null) {
-                                     setState(() {
-                                       log['missionStatus'] = 'COMPLETED';
-                                       if (_latestMission != null && _latestMission!['id'] == log['noteId']) {
-                                         _latestMission!['missionStatus'] = 'COMPLETED';
-                                       }
-                                     });
-                                     try {
-                                       await ApiService.updateMissionStatus(_interventionId!, log['noteId'], 'COMPLETED');
-                                     } catch (e) {
-                                       setState(() { log['missionStatus'] = 'CONFIRMED'; });
-                                       if (mounted) {
-                                         ScaffoldMessenger.of(context).showSnackBar(
-                                           SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.redAccent),
-                                         );
-                                       }
-                                     }
-                                   }
-                                }
+                            onPressed: (_ackStatus(log) == 'CONFIRMED' || _ackStatus(log) == 'STARTED')
+                                ? () => _applyTechnicianAck(log, 'COMPLETED')
                                 : null,
                             icon: Icon(
                               Icons.stop_circle_outlined,
                               size: 12,
-                              color: (log['missionStatus'] == 'CONFIRMED' || log['missionStatus'] == 'STARTED') ? Colors.black : Colors.white.withOpacity(0.2),
+                              color: (_ackStatus(log) == 'CONFIRMED' || _ackStatus(log) == 'STARTED')
+                                  ? Colors.black
+                                  : Colors.white.withOpacity(0.2),
                             ),
                             label: Text(
                               'TERMINER',
                               style: GoogleFonts.orbitron(fontSize: 9, fontWeight: FontWeight.bold),
                             ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: (log['missionStatus'] == 'CONFIRMED' || log['missionStatus'] == 'STARTED') ? Colors.greenAccent : Colors.white.withOpacity(0.05),
-                              foregroundColor: (log['missionStatus'] == 'CONFIRMED' || log['missionStatus'] == 'STARTED') ? Colors.black : Colors.white.withOpacity(0.2),
+                              backgroundColor: (_ackStatus(log) == 'CONFIRMED' || _ackStatus(log) == 'STARTED')
+                                  ? Colors.greenAccent
+                                  : Colors.white.withOpacity(0.05),
+                              foregroundColor: (_ackStatus(log) == 'CONFIRMED' || _ackStatus(log) == 'STARTED')
+                                  ? Colors.black
+                                  : Colors.white.withOpacity(0.2),
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             ),
                           ),
                         ],
-                        if (log['missionStatus'] == 'COMPLETED') ...[
+                        if (_ackStatus(log) == 'COMPLETED') ...[
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.2), 
-                              borderRadius: BorderRadius.circular(4), 
-                              border: Border.all(color: Colors.greenAccent.withOpacity(0.5))
+                              color: Colors.green.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: Colors.greenAccent.withOpacity(0.5)),
                             ),
                             child: Row(
                               children: [
                                 const Icon(Icons.check_circle_outline, color: Colors.greenAccent, size: 14),
                                 const SizedBox(width: 6),
-                                Text('MISSION TERMINÉE', style: GoogleFonts.orbitron(color: Colors.greenAccent, fontSize: 9, fontWeight: FontWeight.bold)),
+                                Text(
+                                  'TERMINÉ',
+                                  style: GoogleFonts.orbitron(
+                                    color: Colors.greenAccent,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ],
                             ),
                           ),
                         ],
                       ],
                     ),
+                    if (_ackStatus(log) == 'SENT' || _ackStatus(log) == 'PENDING') ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Confirmer : la maintenance voit que vous avez bien reçu la mission. Terminer : enregistre la fin du contrôle en base.',
+                        style: GoogleFonts.spaceGrotesk(
+                          color: Colors.white.withOpacity(0.45),
+                          fontSize: 10,
+                          height: 1.35,
+                        ),
+                      ),
+                    ] else if (_ackStatus(log) == 'CONFIRMED' || _ackStatus(log) == 'STARTED') ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Quand le contrôle est terminé, appuyez sur Terminer — la maintenance le verra et les données seront stockées.',
+                        style: GoogleFonts.spaceGrotesk(
+                          color: Colors.white.withOpacity(0.45),
+                          fontSize: 10,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
                   ],
                 ],
               ),
@@ -808,17 +1502,32 @@ class _MissionControlPageState extends State<MissionControlPage> {
   }
 
   Widget _buildCommandInput() {
+    final maintMission = _maintenanceMissionMode;
+    final hint = maintMission
+        ? 'Message au technicien (mission)…'
+        : 'Message au technicien…';
+
     return Container(
       height: 60,
       padding: const EdgeInsets.symmetric(horizontal: 15),
       decoration: BoxDecoration(
         color: const Color(0xFF0C1322),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(
+          color: maintMission
+              ? const Color(0xFFFF6E00).withOpacity(0.35)
+              : Colors.white.withOpacity(0.05),
+        ),
       ),
       child: Row(
         children: [
-          const Text('>_', style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold)),
+          Text(
+            maintMission ? '>>' : '>_',
+            style: TextStyle(
+              color: maintMission ? const Color(0xFFFF6E00) : Colors.cyanAccent,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           const SizedBox(width: 15),
           Expanded(
             child: TextField(
@@ -826,7 +1535,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
               onSubmitted: (_) => _sendCommand(),
               style: GoogleFonts.jetBrainsMono(color: Colors.white, fontSize: 14),
               decoration: InputDecoration(
-                hintText: 'ENTER_COMMAND...',
+                hintText: hint,
                 hintStyle: GoogleFonts.jetBrainsMono(color: Colors.blueGrey, fontSize: 14),
                 border: InputBorder.none,
               ),
@@ -834,9 +1543,13 @@ class _MissionControlPageState extends State<MissionControlPage> {
           ),
           TextButton(
             onPressed: _sendCommand,
-            style: TextButton.styleFrom(backgroundColor: Colors.cyanAccent.withOpacity(0.8)),
+            style: TextButton.styleFrom(
+              backgroundColor: maintMission
+                  ? const Color(0xFFFF6E00).withOpacity(0.9)
+                  : Colors.cyanAccent.withOpacity(0.8),
+            ),
             child: Text(
-              'SEND >',
+              'ENVOYER',
               style: GoogleFonts.orbitron(color: Colors.black, fontSize: 12, fontWeight: FontWeight.bold),
             ),
           ),
@@ -1024,7 +1737,9 @@ class _MissionControlPageState extends State<MissionControlPage> {
 
   Widget _buildOverrideBox() {
     final hasMission = _latestMission != null;
-    final status = _latestMission?['missionStatus'] ?? 'SENT';
+    final status = _normalizeMissionStatusString(
+      _latestMission?['missionStatus'] ?? _latestMission?['status'] ?? 'SENT',
+    );
     final missionId = _latestMission?['id'] ?? _latestMission?['_id'];
 
     return Container(
@@ -1072,7 +1787,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
                     borderRadius: BorderRadius.circular(2),
                   ),
                   child: Text(
-                    status,
+                    status == 'COMPLETED' ? 'TERMINÉ' : status,
                     style: GoogleFonts.spaceGrotesk(
                       color: status == 'COMPLETED' ? Colors.greenAccent : Colors.orangeAccent,
                       fontSize: 8,
@@ -1083,7 +1798,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
             ],
           ),
           const SizedBox(height: 15),
-          if (hasMission) ...[
+          if (hasMission && !_isMaintenanceViewer) ...[
             Row(
               children: [
                 Expanded(
@@ -1168,7 +1883,12 @@ class _MissionControlPageState extends State<MissionControlPage> {
                 ),
               ],
             ),
-          ] else
+          ] else if (hasMission && _isMaintenanceViewer) ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _MaintenanceMissionStatusChip(status: status.toString()),
+            ),
+          ] else if (!_isMaintenanceViewer)
             Row(
               children: [
                 Expanded(
@@ -1397,6 +2117,53 @@ class _MissionControlPageState extends State<MissionControlPage> {
     return Text(
       text,
       style: GoogleFonts.jetBrainsMono(color: Colors.blueGrey, fontSize: 8, fontWeight: FontWeight.bold),
+    );
+  }
+}
+
+/// Badge de statut pour l’agent maintenance (pas d’actions terrain).
+class _MaintenanceMissionStatusChip extends StatelessWidget {
+  const _MaintenanceMissionStatusChip({required this.status});
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final st = _normalizeMissionStatusString(status);
+    final label = st == 'COMPLETED'
+        ? 'TERMINÉ'
+        : (st == 'CONFIRMED' || st == 'STARTED')
+            ? 'EN COURS (TECH)'
+            : 'ENVOYÉE AU TECHNICIEN';
+    final color = st == 'COMPLETED'
+        ? Colors.greenAccent
+        : (st == 'CONFIRMED' || st == 'STARTED')
+            ? Colors.cyanAccent
+            : const Color(0xFFFF6E00);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withOpacity(0.45)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            st == 'COMPLETED' ? Icons.check_circle_outline : Icons.hourglass_top_rounded,
+            size: 14,
+            color: color,
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              label,
+              style: GoogleFonts.orbitron(color: color, fontSize: 9, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

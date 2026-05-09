@@ -99,6 +99,7 @@ router.get('/controles/technicien/:id', controleController.getControlesByTechnic
 router.get('/controles/machine/:id', controleController.getControlesByMachine);
 router.put('/controles/:id/statut', controleController.updateControleStatus);
 router.get('/controles/calendrier/:month', controleController.getControlesByMonth);
+router.get('/controles/calendrier-journal', controleController.getCalendrierJournal);
 
 module.exports = router;
 

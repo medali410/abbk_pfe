@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'login_page.dart';
@@ -17,6 +17,8 @@ import 'message_equipe_page.dart';
 import 'conception_observatory_page.dart';
 import 'maintenance_login_page.dart';
 import 'maintenance_dashboard_page.dart';
+import 'maintenance_profile_page.dart';
+import 'maintenance_machine_hub_page.dart';
 import 'technician_terminal_page.dart';
 import 'technician_collaboration_page.dart';
 import 'mission_control_page.dart';
@@ -66,6 +68,10 @@ class _SessionEntryState extends State<SessionEntry> {
     var role = (qp['role'] ?? 'client').trim().toLowerCase();
     if (role == 'super_admin') role = 'superadmin';
     if (role == 'company_admin') role = 'admin';
+    final oauthEmail = (qp['email'] ?? '').trim();
+    if (ApiService.shouldOpenMaintenanceDashboard(oauthEmail)) {
+      role = 'maintenance';
+    }
     if (token.isEmpty) return;
 
     await ApiService.saveAuth(token, role);
@@ -80,6 +86,9 @@ class _SessionEntryState extends State<SessionEntry> {
         role == 'superadmin' ||
         role == 'admin') {
       await ApiService.clearStoredClientSession();
+      if (role == 'maintenance') {
+        await ApiService.clearSavedTechnicianProfile();
+      }
     } else {
       await ApiService.saveClientSession(
         clientId: (qp['clientId'] ?? '').trim(),
@@ -160,6 +169,19 @@ class _SessionEntryState extends State<SessionEntry> {
     }
     if (role == 'technician') {
       final tp = ApiService.savedTechnicianProfile;
+      final techEmail = (tp?['email'] ?? '').toString().trim();
+      if (ApiService.shouldOpenMaintenanceDashboard(techEmail)) {
+        _redirectScheduled = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          if (!mounted) return;
+          final t = ApiService.authToken;
+          await ApiService.saveAuth(t, 'maintenance');
+          await ApiService.clearSavedTechnicianProfile();
+          if (!mounted) return;
+          Navigator.of(context).pushReplacementNamed('/maintenance-dashboard');
+        });
+        return;
+      }
       if (tp != null && tp.isNotEmpty) {
         _redirectScheduled = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -271,6 +293,8 @@ class MyApp extends StatelessWidget {
 
         '/maintenance-login': (context) => const MaintenanceLoginPage(),
         '/maintenance-dashboard': (context) => const MaintenanceDashboardPage(),
+        '/maintenance-profile': (context) => const MaintenanceProfilePage(),
+        '/maintenance-machine-hub': (context) => const MaintenanceMachineHubPage(),
         '/add-technician': (context) => const AddTechnicianPage(),
         '/machine-team': (context) => const MachineTeamPage(),
         '/machine-detail':

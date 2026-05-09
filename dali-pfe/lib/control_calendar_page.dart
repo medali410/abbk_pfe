@@ -23,9 +23,13 @@ class ControlCalendarPage extends StatefulWidget {
   const ControlCalendarPage({
     super.key,
     this.initialArguments,
+    this.onClose,
   });
 
   final Map<String, dynamic>? initialArguments;
+
+  /// Si défini (ex. profil technicien à côté de la sidebar), la touche « Fermer » appelle ce callback au lieu de [Navigator.pop].
+  final VoidCallback? onClose;
 
   @override
   State<ControlCalendarPage> createState() => _ControlCalendarPageState();
@@ -56,6 +60,8 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
   bool _isSavingChecklist = false;
   bool _showOnlyCurrentWeek = true;
   bool _managerMode = false;
+  /// Incrémenté après validation « Compte rendu » pour rafraîchir le journal dans la sidebar.
+  int _calendrierJournalGen = 0;
 
   String? _errorMessage;
   String? _urgentAlert;
@@ -1221,28 +1227,41 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
 
   @override
   Widget build(BuildContext context) {
+    final embeddedInTechnicianProfile = widget.onClose != null;
+
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
         backgroundColor: _surfaceHeader,
+        automaticallyImplyLeading: widget.onClose == null,
+        leading:
+            widget.onClose != null
+                ? IconButton(
+                  tooltip: 'Fermer',
+                  icon: const Icon(Icons.close),
+                  onPressed: widget.onClose,
+                )
+                : null,
         title: Text('Calendrier de contrôle', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700)),
         actions: [
-          if (_managerMode)
+          if (!embeddedInTechnicianProfile && _managerMode)
             IconButton(
               tooltip: 'Historique préventif global',
               onPressed: _openPreventiveHistoryGlobal,
               icon: const Icon(Icons.fact_check_outlined),
             ),
-          IconButton(
-            tooltip: 'Historique des contrôles (base)',
-            onPressed: _openControlsHistory,
-            icon: const Icon(Icons.assignment_turned_in_outlined),
-          ),
-          IconButton(
-            tooltip: 'Historique rapports détaillés',
-            onPressed: _openReportsHistory,
-            icon: const Icon(Icons.history),
-          ),
+          if (!embeddedInTechnicianProfile)
+            IconButton(
+              tooltip: 'Historique des contrôles (base)',
+              onPressed: _openControlsHistory,
+              icon: const Icon(Icons.assignment_turned_in_outlined),
+            ),
+          if (!embeddedInTechnicianProfile)
+            IconButton(
+              tooltip: 'Historique rapports détaillés',
+              onPressed: _openReportsHistory,
+              icon: const Icon(Icons.history),
+            ),
         ],
       ),
       body: _buildBody(),
@@ -1270,6 +1289,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
       );
     }
 
+    final embeddedInTechnicianProfile = widget.onClose != null;
     final visible = _visibleControles();
     final stats = _stats();
     final pickerEntries = _machinePickerEntries();
@@ -1333,57 +1353,69 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
           ),
           const SizedBox(height: 14),
           if (_calendarMachineId.isNotEmpty) ...[
-            if (pickerEntries.length > 1)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: DropdownButtonFormField<String>(
-                  value: _calendarMachineId,
-                  isExpanded: true,
-                  dropdownColor: _surface,
-                  style: GoogleFonts.inter(color: Colors.white),
-                  decoration: InputDecoration(
-                    labelText: 'Machine',
-                    labelStyle: GoogleFonts.inter(color: _muted),
-                    filled: true,
-                    fillColor: _surface,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
-                    ),
-                  ),
-                  items: pickerEntries
-                      .map(
-                        (e) => DropdownMenuItem<String>(
-                          value: e.key,
-                          child: Text(
-                            e.value == e.key ? e.key : '${e.value} · ${e.key}',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (v) {
-                    if (v == null) return;
-                    setState(() => _calendarMachineId = v);
-                  },
-                ),
+            if (pickerEntries.isNotEmpty)
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final narrow = constraints.maxWidth < 760;
+                  final rail = _buildMachineSidebarRail(pickerEntries, narrow: narrow);
+                  final panel = MachineControlCalendarPanel(
+                    key: ValueKey<String>(_calendarMachineId),
+                    machineId: _calendarMachineId,
+                    machineName: _calendarMachineDisplayName(),
+                    panelColor: _surface,
+                    accentOrange: _accent,
+                    accentCyan: _cyan,
+                    textColor: Colors.white,
+                    mutedColor: _muted,
+                    showCalendar: true,
+                    technicianId: _apiTechnicianId.isNotEmpty
+                        ? _apiTechnicianId
+                        : (_requestedTechnicianId.isNotEmpty ? _requestedTechnicianId : null),
+                    technicianName: _technicianName.trim().isNotEmpty ? _technicianName.trim() : null,
+                    allowSaisieTerrain: !_managerMode,
+                    onSaisieCalendrierSuccess: () {
+                      if (mounted) setState(() => _calendrierJournalGen++);
+                    },
+                  );
+                  if (narrow) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        rail,
+                        const SizedBox(height: 12),
+                        panel,
+                      ],
+                    );
+                  }
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      rail,
+                      Expanded(child: panel),
+                    ],
+                  );
+                },
+              )
+            else
+              MachineControlCalendarPanel(
+                key: ValueKey<String>(_calendarMachineId),
+                machineId: _calendarMachineId,
+                machineName: _calendarMachineDisplayName(),
+                panelColor: _surface,
+                accentOrange: _accent,
+                accentCyan: _cyan,
+                textColor: Colors.white,
+                mutedColor: _muted,
+                showCalendar: true,
+                technicianId: _apiTechnicianId.isNotEmpty
+                    ? _apiTechnicianId
+                    : (_requestedTechnicianId.isNotEmpty ? _requestedTechnicianId : null),
+                technicianName: _technicianName.trim().isNotEmpty ? _technicianName.trim() : null,
+                allowSaisieTerrain: !_managerMode,
+                onSaisieCalendrierSuccess: () {
+                  if (mounted) setState(() => _calendrierJournalGen++);
+                },
               ),
-            MachineControlCalendarPanel(
-              key: ValueKey<String>(_calendarMachineId),
-              machineId: _calendarMachineId,
-              machineName: _calendarMachineDisplayName(),
-              panelColor: _surface,
-              accentOrange: _accent,
-              accentCyan: _cyan,
-              textColor: Colors.white,
-              mutedColor: _muted,
-              technicianId: _apiTechnicianId.isNotEmpty
-                  ? _apiTechnicianId
-                  : (_requestedTechnicianId.isNotEmpty ? _requestedTechnicianId : null),
-              technicianName: _technicianName.trim().isNotEmpty ? _technicianName.trim() : null,
-              allowSaisieTerrain: !_managerMode,
-            ),
           ] else
             Container(
               width: double.infinity,
@@ -1412,32 +1444,33 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
               ),
             ),
           const SizedBox(height: 16),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              OutlinedButton.icon(
-                onPressed: _openControlsHistory,
-                icon: const Icon(Icons.assignment_turned_in_outlined, size: 18),
-                label: const Text('Historique des contrôles'),
-                style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
-              ),
-              OutlinedButton.icon(
-                onPressed: _openReportsHistory,
-                icon: const Icon(Icons.history, size: 18),
-                label: const Text('Historique rapports'),
-                style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
-              ),
-              if (_managerMode)
+          if (!embeddedInTechnicianProfile)
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
                 OutlinedButton.icon(
-                  onPressed: _openPreventiveHistoryGlobal,
-                  icon: const Icon(Icons.fact_check_outlined, size: 18),
-                  label: const Text('Historique préventif'),
+                  onPressed: _openControlsHistory,
+                  icon: const Icon(Icons.assignment_turned_in_outlined, size: 18),
+                  label: const Text('Historique des contrôles'),
                   style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
                 ),
-            ],
-          ),
-          const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _openReportsHistory,
+                  icon: const Icon(Icons.history, size: 18),
+                  label: const Text('Historique rapports'),
+                  style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+                ),
+                if (_managerMode)
+                  OutlinedButton.icon(
+                    onPressed: _openPreventiveHistoryGlobal,
+                    icon: const Icon(Icons.fact_check_outlined, size: 18),
+                    label: const Text('Historique préventif'),
+                    style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+                  ),
+              ],
+            ),
+          if (!embeddedInTechnicianProfile) const SizedBox(height: 8),
           if (!_managerMode)
             Padding(
               padding: const EdgeInsets.only(top: 4, bottom: 8),
@@ -1509,6 +1542,195 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
                     child: _buildControlsResponsiveGrid(visible),
                   ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMachineSidebarRail(List<MapEntry<String, String>> entries, {required bool narrow}) {
+    return Container(
+      width: narrow ? double.infinity : 268,
+      margin: EdgeInsets.only(right: narrow ? 0 : 12),
+      decoration: BoxDecoration(
+        color: _surfaceHeader,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+            child: Row(
+              children: [
+                Icon(Icons.precision_manufacturing_outlined, size: 18, color: _cyan),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Machines (${entries.length})',
+                    style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Colors.white10),
+          ...entries.map((e) {
+            final selected = e.key == _calendarMachineId;
+            final title = e.value == e.key ? e.key : '${e.value} · ${e.key}';
+            return Material(
+              color: selected ? _accent.withOpacity(0.15) : Colors.transparent,
+              child: InkWell(
+                onTap: () => setState(() => _calendarMachineId = e.key),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.router_outlined, size: 18, color: selected ? _accent : _muted),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(
+                            color: selected ? Colors.white : _muted,
+                            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                            fontSize: 13,
+                            height: 1.25,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+          const Divider(height: 1, color: Colors.white10),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+            child: Row(
+              children: [
+                Icon(Icons.history_edu_outlined, size: 16, color: _accent),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Saisies calendrier (base)',
+                    style: GoogleFonts.spaceGrotesk(color: Colors.white70, fontWeight: FontWeight.w700, fontSize: 11),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(
+            height: 240,
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              key: ValueKey<Object>('jj_${_calendarMachineId}_$_calendrierJournalGen'),
+              future: ApiService.getControlCalendrierJournal(_calendarMachineId),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(12),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: _accent),
+                    ),
+                  );
+                }
+                if (snapshot.hasError) {
+                  return Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Text(
+                      snapshot.error.toString(),
+                      style: GoogleFonts.inter(color: Colors.redAccent, fontSize: 11),
+                    ),
+                  );
+                }
+                final rows = snapshot.data ?? <Map<String, dynamic>>[];
+                if (rows.isEmpty) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    child: Text(
+                      'Aucune saisie enregistrée pour cette machine.',
+                      style: GoogleFonts.inter(color: _muted, fontSize: 11, height: 1.35),
+                    ),
+                  );
+                }
+                return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+                  itemCount: rows.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white10),
+                  itemBuilder: (context, i) {
+                    final r = rows[i];
+                    final jour = (r['jour'] ?? '').toString();
+                    final txt = (r['compteRendu'] ?? '').toString();
+                    final tech = (r['technicienNom'] ?? '').toString();
+                    final mName = (r['machineName'] ?? '').toString().trim();
+                    final mId = (r['machineId'] ?? '').toString().trim();
+                    final machineLine = <String>[
+                      if (mName.isNotEmpty) mName,
+                      if (mId.isNotEmpty) mId,
+                    ].join(' · ');
+                    final rawDate = r['createdAt'];
+                    var lineMeta = jour;
+                    if (rawDate != null) {
+                      final dt = DateTime.tryParse(rawDate.toString())?.toLocal();
+                      if (dt != null) {
+                        final h = dt.hour.toString().padLeft(2, '0');
+                        final min = dt.minute.toString().padLeft(2, '0');
+                        lineMeta = jour.isNotEmpty ? '$jour · ${dt.day}/${dt.month}/${dt.year} $h:$min' : '${dt.day}/${dt.month}/${dt.year} $h:$min';
+                      }
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (machineLine.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.precision_manufacturing_outlined, size: 12, color: _cyan.withOpacity(0.9)),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      machineLine,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.inter(color: _cyan, fontSize: 10, fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          Text(
+                            lineMeta,
+                            style: GoogleFonts.inter(color: _muted, fontSize: 10, fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            txt,
+                            maxLines: 5,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(color: Colors.white, fontSize: 12, height: 1.3),
+                          ),
+                          if (tech.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(tech, style: GoogleFonts.inter(color: _muted, fontSize: 10)),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
             ),
           ),
         ],

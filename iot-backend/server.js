@@ -93,6 +93,9 @@ function buildTechnicianGoogleAuthResponse(technician) {
 
 /** Paramètres URL pour redirection web Flutter après OAuth Google (technicien). */
 function technicianGoogleOAuthRedirectParams(technician, authToken) {
+    const rawImg = String(technician.imageUrl || '').trim();
+    /** Évite les redirections HTTP « URI trop longue » (photo base64 ou URL énorme). */
+    const imageUrlParam = rawImg.length > 1200 ? '' : rawImg;
     return {
         googleAuth: '1',
         token: authToken,
@@ -104,6 +107,9 @@ function technicianGoogleOAuthRedirectParams(technician, authToken) {
         email: String(technician.email || ''),
         companyId: String(technician.companyId || ''),
         machineIds: (technician.machineIds || []).map((x) => String(x)).join(','),
+        imageUrl: imageUrlParam,
+        specialization: String(technician.specialization || ''),
+        status: String(technician.status || ''),
     };
 }
 
@@ -381,6 +387,56 @@ const Conception = require('./src/models/Conception');
 const Concepteur = require('./src/models/Concepteur');
 const MaintenanceOrder = require('./src/models/MaintenanceOrder');
 const MaintenanceAgent = require('./src/models/MaintenanceAgent');
+
+/** Emails pour lesquels, si un profil MaintenanceAgent existe, la connexion « générale » renvoie le rôle maintenance (évite le dashboard technicien). Compléter dans MAINTENANCE_LOGIN_EMAIL_ALIASES. */
+function maintenanceLoginAliasEmailSet() {
+    const raw = String(process.env.MAINTENANCE_LOGIN_EMAIL_ALIASES || '').trim();
+    const defaults = ['lemjiddali341@gmail.com'];
+    const fromEnv = raw.split(/[,;\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+    return new Set([...defaults, ...fromEnv]);
+}
+
+async function findMaintenanceAgentForLoginAlias(emailNorm, emailTrim) {
+    if (!maintenanceLoginAliasEmailSet().has(emailNorm)) return null;
+    return (
+        (await MaintenanceAgent.findOne({ email: emailNorm })) ||
+        (emailTrim
+            ? await MaintenanceAgent.findOne({
+                  email: new RegExp(`^${escapeRegExp(emailTrim)}$`, 'i'),
+              })
+            : null)
+    );
+}
+
+/** Nom machine pour notifications temps réel (missions / messages diagnostic). */
+async function machineDisplayNameFromInterventionDoc(doc) {
+    const mid = String(doc.machineId || '').trim();
+    if (!mid) return '';
+    try {
+        const mac = await Machine.findById(mid).select('name').lean();
+        return mac && mac.name ? String(mac.name) : '';
+    } catch (_) {
+        return '';
+    }
+}
+
+function jsonMaintenanceLoginFromAgent(maintenanceAgent) {
+    const responseData = maintenanceAgent.toJSON();
+    responseData.role = 'maintenance';
+    responseData.maintenanceAgentId = maintenanceAgent.maintenanceAgentId;
+    responseData.id = maintenanceAgent.maintenanceAgentId || maintenanceAgent._id.toString();
+    responseData.name = `${maintenanceAgent.firstName || ''} ${maintenanceAgent.lastName || ''}`.trim();
+    responseData.email = maintenanceAgent.email;
+    responseData.companyId = maintenanceAgent.clientId;
+    responseData.machineIds = maintenanceAgent.machineIds || [];
+    responseData.token = signAuthToken({
+        sub: String(maintenanceAgent._id),
+        role: 'maintenance',
+        companyId: maintenanceAgent.clientId ? String(maintenanceAgent.clientId) : undefined,
+    });
+    return responseData;
+}
+
 const DiagnosticIntervention = require('./src/models/DiagnosticIntervention');
 const Mission = require('./src/models/Mission');
 const PurchaseRequest = require('./src/models/PurchaseRequest');
@@ -720,6 +776,80 @@ function serializeMachineDocs(docs) {
         if (o.__v !== undefined) delete o.__v;
         return o;
     });
+}
+
+/**
+ * Synthèse mission (intervention diagnostic ouverte) pour une machine — utilisée par le profil technicien.
+ * @returns {{ missionStatus: string|null, missionCompletedAt: Date|null, missionConfirmedAt: Date|null, missionNeedsTechnicianAck: boolean }}
+ */
+async function getMissionFieldsForMachine(machineId) {
+    const mid = String(machineId || '').trim();
+    const empty = {
+        missionStatus: null,
+        missionCompletedAt: null,
+        missionConfirmedAt: null,
+        missionNeedsTechnicianAck: false,
+    };
+    if (!mid) return empty;
+
+    const activeInt = await DiagnosticIntervention.findOne({
+        machineId: mid,
+        status: { $nin: ['DONE', 'CANCELLED'] },
+    })
+        .sort({ updatedAt: -1 })
+        .lean();
+
+    if (!activeInt) return empty;
+
+    const items = [];
+    for (const n of activeInt.coordinationNotes || []) {
+        if (n && (n.isMission || n.missionStatus)) items.push(n);
+    }
+    for (const msg of activeInt.messages || []) {
+        if (msg && msg.missionStatus) items.push(msg);
+    }
+
+    let missionNeedsTechnicianAck = false;
+    for (const it of items) {
+        const st = String(it.missionStatus || '').toUpperCase();
+        if (['SENT', 'PENDING', 'STARTED'].includes(st)) {
+            missionNeedsTechnicianAck = true;
+            break;
+        }
+    }
+
+    let missionStatus = null;
+    let missionCompletedAt = null;
+    let missionConfirmedAt = null;
+    if (items.length > 0) {
+        const rank = (s) =>
+            ({
+                COMPLETED: 4,
+                CONFIRMED: 3,
+                STARTED: 3,
+                SENT: 2,
+                PENDING: 2,
+            }[String(s || '').toUpperCase()] || 1);
+        const ts = (it) =>
+            new Date(it.missionCompletedAt || it.missionConfirmedAt || it.createdAt || 0).getTime();
+        let best = items[0];
+        for (const it of items) {
+            const ri = rank(it.missionStatus);
+            const rb = rank(best.missionStatus);
+            if (ri > rb) best = it;
+            else if (ri === rb && ts(it) > ts(best)) best = it;
+        }
+        missionStatus = best.missionStatus || null;
+        missionCompletedAt = best.missionCompletedAt || null;
+        missionConfirmedAt = best.missionConfirmedAt || null;
+    }
+
+    return {
+        missionStatus,
+        missionCompletedAt,
+        missionConfirmedAt,
+        missionNeedsTechnicianAck,
+    };
 }
 
 const machineDbOnlyFilter = {
@@ -2068,7 +2198,44 @@ app.post('/api/login', async (req, res) => {
         const emailTrim = emailRaw.trim();
         const emailNorm = emailTrim.toLowerCase();
 
-        // 1. Chercher dans la collection User — email (insensible à la casse) OU nom d’utilisateur (ex. admin / admin)
+        // 1. Agent maintenance (collection MaintenanceAgent) — AVANT User : même email dans User + agent maintenance
+        // doit ouvrir le dashboard maintenance lorsque le mot de passe correspond à la fiche agent.
+        let maintenanceAgent =
+            (await MaintenanceAgent.findOne({ email: emailNorm })) ||
+            (await MaintenanceAgent.findOne({ email: emailTrim })) ||
+            (emailTrim
+                ? await MaintenanceAgent.findOne({
+                      email: new RegExp(`^${escapeRegExp(emailTrim)}$`, 'i'),
+                  })
+                : null);
+        if (maintenanceAgent) {
+            const okM = await verifyClientPassword(password, maintenanceAgent.password);
+            if (okM) {
+                if (maintenanceAgent.password && !maintenanceAgent.password.startsWith('$2')) {
+                    bcrypt.hash(password, 10).then((hash) => {
+                        MaintenanceAgent.updateOne({ _id: maintenanceAgent._id }, { $set: { password: hash } }).catch(
+                            () => {}
+                        );
+                    });
+                }
+                const responseData = maintenanceAgent.toJSON();
+                responseData.role = 'maintenance';
+                responseData.maintenanceAgentId = maintenanceAgent.maintenanceAgentId;
+                responseData.id = maintenanceAgent.maintenanceAgentId || maintenanceAgent._id.toString();
+                responseData.name = `${maintenanceAgent.firstName || ''} ${maintenanceAgent.lastName || ''}`.trim();
+                responseData.email = maintenanceAgent.email;
+                responseData.companyId = maintenanceAgent.clientId;
+                responseData.machineIds = maintenanceAgent.machineIds || [];
+                responseData.token = signAuthToken({
+                    sub: String(maintenanceAgent._id),
+                    role: 'maintenance',
+                    companyId: maintenanceAgent.clientId ? String(maintenanceAgent.clientId) : undefined,
+                });
+                return res.json(responseData);
+            }
+        }
+
+        // 2. Chercher dans la collection User — email (insensible à la casse) OU nom d’utilisateur (ex. admin / admin)
         let user = await User.findOne({ email: emailNorm })
             || await User.findOne({ email: emailTrim })
             || (emailTrim ? await User.findOne({ username: emailTrim }) : null)
@@ -2096,10 +2263,16 @@ app.post('/api/login', async (req, res) => {
                 role,
                 companyId: user.companyId ? String(user.companyId) : undefined,
             });
+            if (role === 'technician') {
+                const aliasAgent = await findMaintenanceAgentForLoginAlias(emailNorm, emailTrim);
+                if (aliasAgent) {
+                    return res.json(jsonMaintenanceLoginFromAgent(aliasAgent));
+                }
+            }
             return res.json(responseData);
         }
 
-        // 1b. Concepteur (collection `concepteurs`) — distinct des documents [Conception] et des [Technician]
+        // 3. Concepteur (collection `concepteurs`) — distinct des documents [Conception] et des [Technician]
         let concepteur =
             (await Concepteur.findOne({ email: emailNorm })) ||
             (await Concepteur.findOne({ email: emailTrim })) ||
@@ -2156,12 +2329,6 @@ app.post('/api/login', async (req, res) => {
                 name: new RegExp(`^${escapeRegExp(emailTrim)}$`, 'i')
             });
         }
-        let maintenanceAgent = await MaintenanceAgent.findOne({ email: emailNorm });
-        if (!maintenanceAgent && emailTrim) {
-            maintenanceAgent = await MaintenanceAgent.findOne({
-                email: new RegExp(`^${escapeRegExp(emailTrim)}$`, 'i')
-            });
-        }
 
         if (client) {
             if (client.loginDisabled) {
@@ -2216,31 +2383,10 @@ app.post('/api/login', async (req, res) => {
                     role: 'technician',
                     companyId: technician.companyId ? String(technician.companyId) : undefined,
                 });
-                return res.json(responseData);
-            }
-        }
-
-        if (maintenanceAgent) {
-            const okM = await verifyClientPassword(password, maintenanceAgent.password);
-            if (okM) {
-                if (maintenanceAgent.password && !maintenanceAgent.password.startsWith('$2')) {
-                    bcrypt.hash(password, 10).then((hash) => {
-                        MaintenanceAgent.updateOne({ _id: maintenanceAgent._id }, { $set: { password: hash } }).catch(() => {});
-                    });
+                const aliasAgentT = await findMaintenanceAgentForLoginAlias(emailNorm, emailTrim);
+                if (aliasAgentT) {
+                    return res.json(jsonMaintenanceLoginFromAgent(aliasAgentT));
                 }
-                const responseData = maintenanceAgent.toJSON();
-                responseData.role = 'maintenance';
-                responseData.maintenanceAgentId = maintenanceAgent.maintenanceAgentId;
-                responseData.id = maintenanceAgent.maintenanceAgentId || maintenanceAgent._id.toString();
-                responseData.name = `${maintenanceAgent.firstName || ''} ${maintenanceAgent.lastName || ''}`.trim();
-                responseData.email = maintenanceAgent.email;
-                responseData.companyId = maintenanceAgent.clientId;
-                responseData.machineIds = maintenanceAgent.machineIds || [];
-                responseData.token = signAuthToken({
-                    sub: String(maintenanceAgent._id),
-                    role: 'maintenance',
-                    companyId: maintenanceAgent.clientId ? String(maintenanceAgent.clientId) : undefined,
-                });
                 return res.json(responseData);
             }
         }
@@ -2485,19 +2631,6 @@ app.post('/api/client-google-auth', async (req, res) => {
             return res.status(200).json(responseData);
         }
 
-        let technician =
-            (await Technician.findOne({ email: emailNorm })) ||
-            (await Technician.findOne({
-                email: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
-            })) ||
-            (await Technician.findOne({ contactEmail: emailNorm })) ||
-            (await Technician.findOne({
-                contactEmail: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
-            }));
-        if (technician) {
-            return res.status(200).json(buildTechnicianGoogleAuthResponse(technician));
-        }
-
         let maintenanceAgent =
             (await MaintenanceAgent.findOne({ email: emailNorm })) ||
             (await MaintenanceAgent.findOne({
@@ -2520,6 +2653,19 @@ app.post('/api/client-google-auth', async (req, res) => {
                 companyId: maintenanceAgent.clientId ? String(maintenanceAgent.clientId) : undefined,
             });
             return res.status(200).json(responseData);
+        }
+
+        let technician =
+            (await Technician.findOne({ email: emailNorm })) ||
+            (await Technician.findOne({
+                email: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            })) ||
+            (await Technician.findOne({ contactEmail: emailNorm })) ||
+            (await Technician.findOne({
+                contactEmail: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            }));
+        if (technician) {
+            return res.status(200).json(buildTechnicianGoogleAuthResponse(technician));
         }
 
         let client =
@@ -2768,22 +2914,6 @@ app.get('/api/auth/google/callback', async (req, res) => {
             );
         }
 
-        let technician =
-            (await Technician.findOne({ email: emailNorm })) ||
-            (await Technician.findOne({
-                email: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
-            })) ||
-            (await Technician.findOne({ contactEmail: emailNorm })) ||
-            (await Technician.findOne({
-                contactEmail: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
-            }));
-        if (technician) {
-            const techPayload = buildTechnicianGoogleAuthResponse(technician);
-            return res.redirect(
-                buildAppRedirectUrl(returnUrl, technicianGoogleOAuthRedirectParams(technician, techPayload.token))
-            );
-        }
-
         let maintenanceAgent =
             (await MaintenanceAgent.findOne({ email: emailNorm })) ||
             (await MaintenanceAgent.findOne({
@@ -2801,6 +2931,22 @@ app.get('/api/auth/google/callback', async (req, res) => {
                     token: authToken,
                     role: 'maintenance',
                 })
+            );
+        }
+
+        let technician =
+            (await Technician.findOne({ email: emailNorm })) ||
+            (await Technician.findOne({
+                email: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            })) ||
+            (await Technician.findOne({ contactEmail: emailNorm })) ||
+            (await Technician.findOne({
+                contactEmail: new RegExp(`^${escapeRegExp(emailNorm)}$`, 'i'),
+            }));
+        if (technician) {
+            const techPayload = buildTechnicianGoogleAuthResponse(technician);
+            return res.redirect(
+                buildAppRedirectUrl(returnUrl, technicianGoogleOAuthRedirectParams(technician, techPayload.token))
             );
         }
 
@@ -2896,25 +3042,32 @@ app.get('/api/maintenance/workspace', requireAuth, async (req, res) => {
             return res.status(404).json({ error: 'Compte maintenance introuvable' });
         }
 
-        const machineIds = (agent.machineIds || []).map(String).filter(Boolean);
-        let machineDocs = [];
-        if (machineIds.length > 0) {
-            machineDocs = await Machine.find({ _id: { $in: machineIds } })
-                .select('_id name companyId status maintenanceControlActive maintenanceControlBy maintenanceControlStartedAt maintenanceControlEndsAt')
-                .lean();
-        }
+        // Parc machines : limité au client de l’agent (`clientId`, ex. CLI-2026-205) via les alias société.
         const clientKey = agent.clientId != null ? String(agent.clientId).trim() : '';
-        if (machineDocs.length === 0 && clientKey) {
+        const assignedIds = (agent.machineIds || []).map(String).filter(Boolean);
+
+        let machineDocs = [];
+
+        if (clientKey) {
             const aliases = await buildCompanyAliasSet(clientKey);
             machineDocs = await Machine.find({
                 companyId: { $in: Array.from(aliases) },
                 _id: { $exists: true, $nin: [null, ''] },
             })
-                .select('_id name companyId status maintenanceControlActive maintenanceControlBy maintenanceControlStartedAt maintenanceControlEndsAt')
+                .select('_id name companyId status imageUrl maintenanceControlActive maintenanceControlBy maintenanceControlStartedAt maintenanceControlEndsAt')
                 .sort({ updatedAt: -1, createdAt: -1 })
                 .lean();
         }
-        // Dernier recours dev : un seul client en base — aligner le périmètre machines (agents mal reliés au clientId).
+
+        // Anciens comptes sans clientId : machines explicitement listées sur l’agent.
+        if (machineDocs.length === 0 && assignedIds.length > 0) {
+            machineDocs = await Machine.find({ _id: { $in: assignedIds } })
+                .select('_id name companyId status imageUrl maintenanceControlActive maintenanceControlBy maintenanceControlStartedAt maintenanceControlEndsAt')
+                .sort({ updatedAt: -1, createdAt: -1 })
+                .lean();
+        }
+
+        // Dev : un seul client en base — éviter liste vide si agent sans clientId.
         if (machineDocs.length === 0 && !clientKey) {
             const soloClients = await Client.find({}, { _id: 1, clientId: 1 }).lean().limit(2);
             if (soloClients.length === 1) {
@@ -2924,7 +3077,7 @@ app.get('/api/maintenance/workspace', requireAuth, async (req, res) => {
                     companyId: { $in: Array.from(aliases) },
                     _id: { $exists: true, $nin: [null, ''] },
                 })
-                    .select('_id name companyId status maintenanceControlActive maintenanceControlBy maintenanceControlStartedAt maintenanceControlEndsAt')
+                    .select('_id name companyId status imageUrl maintenanceControlActive maintenanceControlBy maintenanceControlStartedAt maintenanceControlEndsAt')
                     .sort({ updatedAt: -1, createdAt: -1 })
                     .lean();
             }
@@ -2944,16 +3097,49 @@ app.get('/api/maintenance/workspace', requireAuth, async (req, res) => {
             }).sort({ updatedAt: -1 }).lean();
             
             let missionStatus = null;
-            if (activeInt && activeInt.coordinationNotes && activeInt.coordinationNotes.length > 0) {
-                const missions = activeInt.coordinationNotes.filter(n => n.isMission || n.missionStatus);
-                if (missions.length > 0) {
-                    missionStatus = missions[missions.length - 1].missionStatus;
+            let missionCompletedAt = null;
+            let missionConfirmedAt = null;
+            if (activeInt) {
+                const items = [];
+                for (const n of activeInt.coordinationNotes || []) {
+                    if (n && (n.isMission || n.missionStatus)) items.push(n);
+                }
+                for (const msg of activeInt.messages || []) {
+                    if (msg && msg.missionStatus) items.push(msg);
+                }
+                if (items.length > 0) {
+                    const rank = (s) =>
+                        ({
+                            COMPLETED: 4,
+                            CONFIRMED: 3,
+                            STARTED: 3,
+                            SENT: 2,
+                            PENDING: 2,
+                        }[String(s || '').toUpperCase()] || 1);
+                    const ts = (it) =>
+                        new Date(
+                            it.missionCompletedAt ||
+                                it.missionConfirmedAt ||
+                                it.createdAt ||
+                                0,
+                        ).getTime();
+                    let best = items[0];
+                    for (const it of items) {
+                        const ri = rank(it.missionStatus);
+                        const rb = rank(best.missionStatus);
+                        if (ri > rb) best = it;
+                        else if (ri === rb && ts(it) > ts(best)) best = it;
+                    }
+                    missionStatus = best.missionStatus || null;
+                    missionCompletedAt = best.missionCompletedAt || null;
+                    missionConfirmedAt = best.missionConfirmedAt || null;
                 }
             }
 
             rows.push({
                 machineId: mid,
                 machineName: m.name || mid,
+                imageUrl: String(m.imageUrl || '').trim(),
                 companyId: String(m.companyId || ''),
                 status: String(m.status || ''),
                 probPanne,
@@ -2961,12 +3147,33 @@ app.get('/api/maintenance/workspace', requireAuth, async (req, res) => {
                 color: lvl.color,
                 recommendation: lvl.recommendation,
                 missionStatus,
+                missionCompletedAt,
+                missionConfirmedAt,
                 maintenanceControlActive: Boolean(m.maintenanceControlActive),
                 maintenanceControlBy: String(m.maintenanceControlBy || ''),
                 maintenanceControlStartedAt: m.maintenanceControlStartedAt || null,
                 maintenanceControlEndsAt: m.maintenanceControlEndsAt || null,
                 updatedAt: last?.createdAt || null,
-                metrics: last?.metrics || {},
+                metrics: (() => {
+                    const rawM = last?.metrics;
+                    let out = {};
+                    if (rawM != null) {
+                        if (rawM instanceof Map) out = Object.fromEntries(rawM);
+                        else if (typeof rawM === 'object') out = { ...rawM };
+                    }
+                    /** Complète la carte metrics avec les champs racine Telemetry (temperature, vibration…). */
+                    const mergeLegacy = (metricKey, legacyVal) => {
+                        const cur = out[metricKey];
+                        if (cur != null && Number.isFinite(Number(cur))) return;
+                        if (legacyVal == null || !Number.isFinite(Number(legacyVal))) return;
+                        out[metricKey] = Number(legacyVal);
+                    };
+                    mergeLegacy('thermal', last?.temperature);
+                    mergeLegacy('vibration', last?.vibration);
+                    mergeLegacy('power', last?.powerConsumption);
+                    mergeLegacy('presence', last?.proximity);
+                    return out;
+                })(),
                 failureScenario: last?.failureScenario || null,
             });
         }
@@ -2981,8 +3188,104 @@ app.get('/api/maintenance/workspace', requireAuth, async (req, res) => {
                 fullName: `${agent.firstName || ''} ${agent.lastName || ''}`.trim(),
                 email: agent.email || '',
                 clientId: String(agent.clientId || ''),
+                imageUrl: String(agent.imageUrl || '').trim(),
+                address: String(agent.address || '').trim(),
+                location: String(agent.location || '').trim(),
             },
             machines: rows,
+        });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+/** Mise à jour du profil par l’agent maintenance connecté (nom, email, photo, adresse…). */
+app.patch('/api/maintenance/me', requireAuth, async (req, res) => {
+    try {
+        if (req.auth?.role !== 'maintenance') {
+            return res.status(403).json({ error: 'Accès réservé au compte maintenance' });
+        }
+        const sub = String(req.auth.sub || '').trim();
+        if (!sub) {
+            return res.status(401).json({ error: 'Token invalide' });
+        }
+        let agent =
+            (await MaintenanceAgent.findById(sub)) ||
+            (await MaintenanceAgent.findOne({ maintenanceAgentId: sub }));
+        if (!agent) {
+            return res.status(404).json({ error: 'Compte maintenance introuvable' });
+        }
+
+        const body = req.body || {};
+        let changed = false;
+
+        if (body.firstName !== undefined) {
+            agent.firstName = String(body.firstName || '').trim();
+            changed = true;
+        }
+        if (body.lastName !== undefined) {
+            agent.lastName = String(body.lastName || '').trim();
+            changed = true;
+        }
+        if (body.email !== undefined) {
+            const emailNorm = String(body.email || '').trim().toLowerCase();
+            if (!emailNorm.includes('@')) {
+                return res.status(400).json({ error: 'Email invalide' });
+            }
+            const dup = await MaintenanceAgent.findOne({ email: emailNorm, _id: { $ne: agent._id } });
+            if (dup) {
+                return res.status(409).json({ error: 'Cet email est déjà utilisé' });
+            }
+            agent.email = emailNorm;
+            changed = true;
+        }
+        if (body.address !== undefined) {
+            agent.address = String(body.address || '').trim();
+            changed = true;
+        }
+        if (body.location !== undefined) {
+            agent.location = String(body.location || '').trim();
+            changed = true;
+        }
+        if (body.imageUrl !== undefined) {
+            const raw = String(body.imageUrl || '').trim();
+            if (raw.length > 2500000) {
+                return res.status(400).json({ error: 'Photo trop volumineuse' });
+            }
+            agent.imageUrl = raw;
+            changed = true;
+        }
+        if (body.password != null && String(body.password).length > 0) {
+            const password = String(body.password);
+            if (password.length < 6) {
+                return res.status(400).json({ error: 'Mot de passe minimum 6 caractères' });
+            }
+            agent.password = await bcrypt.hash(password, 10);
+            changed = true;
+        }
+
+        if (!changed) {
+            return res.status(400).json({ error: 'Aucune donnée à mettre à jour' });
+        }
+        if (!String(agent.firstName || '').trim()) {
+            return res.status(400).json({ error: 'Prénom obligatoire' });
+        }
+        if (!String(agent.lastName || '').trim()) {
+            return res.status(400).json({ error: 'Nom obligatoire' });
+        }
+
+        await agent.save();
+        return res.json({
+            id: String(agent._id),
+            maintenanceAgentId: agent.maintenanceAgentId || '',
+            firstName: agent.firstName || '',
+            lastName: agent.lastName || '',
+            fullName: `${agent.firstName || ''} ${agent.lastName || ''}`.trim(),
+            email: agent.email || '',
+            clientId: String(agent.clientId || ''),
+            imageUrl: String(agent.imageUrl || '').trim(),
+            address: String(agent.address || '').trim(),
+            location: String(agent.location || '').trim(),
         });
     } catch (err) {
         return res.status(500).json({ error: err.message });
@@ -3436,21 +3739,78 @@ app.post('/api/diagnostic-interventions/:id/messages', requireAuth, requireField
         const doc = await DiagnosticIntervention.findById(id);
         if (!doc) return res.status(404).json({ error: 'Intervention introuvable' });
         if (!(await assertMaintenanceOrderCompanyAccess(req, res, String(doc.companyId || '')))) return;
+        const role = String(req.auth?.role || '');
+        /** Les messages envoyés par la maintenance / hub déclenchent un accusé (Confirmer / Terminer) côté technicien. */
+        const needsTechnicianAck = role !== 'technician';
         const newMessage = {
             authorId: String(req.auth?.sub || ''),
-            authorRole: String(req.auth?.role || ''),
+            authorRole: role,
             authorName: String(req.body?.authorName || req.auth?.role || ''),
             content,
             messageType: 'TEXT',
             createdAt: new Date(),
+            ...(needsTechnicianAck ? { missionStatus: 'SENT' } : {}),
         };
         doc.messages.push(newMessage);
         await doc.save();
 
-        // Notify via socket
-        io.emit('diagnostic_message', { interventionId: id, message: newMessage });
+        const saved = doc.messages[doc.messages.length - 1];
+        const msgPayload = typeof saved.toObject === 'function' ? saved.toObject() : { ...saved };
+        msgPayload.id = String(saved._id);
+        msgPayload._id = saved._id;
 
-        return res.json({ ok: true });
+        io.emit('diagnostic_message', { interventionId: id, message: msgPayload });
+
+        return res.json({ ok: true, messageId: String(saved._id) });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+app.patch('/api/diagnostic-interventions/:id/messages/:messageId/status', requireAuth, requireFieldOperator, async (req, res) => {
+    try {
+        const id = String(req.params.id || '').trim();
+        const messageId = String(req.params.messageId || '').trim();
+        const status = String(req.body?.status || '').trim().toUpperCase();
+        if (!id || !messageId) return res.status(400).json({ error: 'id et messageId requis' });
+        if (!['CONFIRMED', 'COMPLETED'].includes(status)) {
+            return res.status(400).json({ error: 'status invalide (CONFIRMED ou COMPLETED)' });
+        }
+        const doc = await DiagnosticIntervention.findById(id);
+        if (!doc) return res.status(404).json({ error: 'Intervention introuvable' });
+        if (!(await assertMaintenanceOrderCompanyAccess(req, res, String(doc.companyId || '')))) return;
+
+        const sub = doc.messages.id(messageId);
+        if (!sub) return res.status(404).json({ error: 'Message introuvable' });
+
+        const techId = String(req.auth?.sub || '');
+        sub.missionStatus = status;
+        sub.technicianAckById = techId;
+        if (status === 'CONFIRMED') {
+            sub.missionConfirmedAt = new Date();
+        }
+        if (status === 'COMPLETED') {
+            sub.missionCompletedAt = new Date();
+        }
+        await doc.save();
+
+        const machineName = await machineDisplayNameFromInterventionDoc(doc);
+        io.emit('diagnostic_message_update', {
+            interventionId: id,
+            messageId,
+            status,
+            machineId: String(doc.machineId || ''),
+            machineName,
+            missionCompletedAt: sub.missionCompletedAt || null,
+            missionConfirmedAt: sub.missionConfirmedAt || null,
+        });
+
+        return res.json({
+            ok: true,
+            missionStatus: status,
+            missionCompletedAt: sub.missionCompletedAt || null,
+            missionConfirmedAt: sub.missionConfirmedAt || null,
+        });
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
@@ -3465,15 +3825,19 @@ app.post('/api/diagnostic-interventions/:id/coordination', requireAuth, requireF
         const doc = await DiagnosticIntervention.findById(id);
         if (!doc) return res.status(404).json({ error: 'Intervention introuvable' });
         if (!(await assertMaintenanceOrderCompanyAccess(req, res, String(doc.companyId || '')))) return;
-        
+
+        const authorRole = String(req.auth?.role || '');
+        /** Message maintenance / hub → accusé technicien ; pas pour les notes envoyées par le technicien lui-même. */
+        const hubToTechAck = authorRole !== 'technician';
+
         const note = {
             authorId: String(req.auth?.sub || ''),
-            authorRole: String(req.auth?.role || ''),
+            authorRole: authorRole,
             authorName: String(req.body?.authorName || req.auth?.role || ''),
             content,
             messageType: 'TEXT',
             isMission,
-            missionStatus: isMission ? 'SENT' : undefined,
+            missionStatus: isMission ? 'SENT' : hubToTechAck ? 'SENT' : undefined,
             createdAt: new Date(),
         };
         doc.coordinationNotes.push(note);
@@ -3504,19 +3868,17 @@ app.post('/api/diagnostic-interventions/:id/coordination', requireAuth, requireF
             }
         }
 
-        // Notify via socket
-        io.emit('diagnostic_coordination', { 
-            interventionId: id, 
-            note: {
-                ...note,
-                isMission: Boolean(isMission),
-                missionStatus: isMission ? 'SENT' : undefined,
-                id: savedNote._id,
-                _id: savedNote._id
-            } 
+        // Notify via socket (statut accusé aligné sur la note persistée)
+        const noteOut = typeof savedNote.toObject === 'function' ? savedNote.toObject() : { ...savedNote };
+        noteOut.id = savedNote._id;
+        noteOut._id = savedNote._id;
+        noteOut.isMission = Boolean(isMission);
+        io.emit('diagnostic_coordination', {
+            interventionId: id,
+            note: noteOut,
         });
 
-        return res.json({ ok: true, noteId: savedNote._id });
+        return res.json({ ok: true, noteId: savedNote._id, note: noteOut });
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
@@ -3538,19 +3900,37 @@ app.patch('/api/diagnostic-interventions/:id/coordination/:noteId/status', requi
 
         const note = doc.coordinationNotes.id(noteId);
         if (!note) return res.status(404).json({ error: 'Note introuvable' });
-        
+
+        const techId = String(req.auth?.sub || '');
         note.missionStatus = status;
+        if (techId) note.technicianAckById = techId;
+        if (status === 'CONFIRMED') {
+            note.missionConfirmedAt = new Date();
+        }
+        if (status === 'COMPLETED') {
+            note.missionCompletedAt = new Date();
+        }
         await doc.save();
 
+        const machineName = await machineDisplayNameFromInterventionDoc(doc);
         // Notify via socket IMMÉDIATEMENT après la sauvegarde (avant les side-effects)
-        io.emit('diagnostic_coordination_update', { 
-            interventionId: id, 
-            noteId, 
-            status 
+        io.emit('diagnostic_coordination_update', {
+            interventionId: id,
+            noteId,
+            status,
+            machineId: String(doc.machineId || ''),
+            machineName,
+            missionCompletedAt: note.missionCompletedAt || null,
+            missionConfirmedAt: note.missionConfirmedAt || null,
         });
 
         // Réponse HTTP immédiate : le client reçoit OK dès la sauvegarde
-        res.json({ ok: true });
+        res.json({
+            ok: true,
+            missionStatus: status,
+            missionCompletedAt: note.missionCompletedAt || null,
+            missionConfirmedAt: note.missionConfirmedAt || null,
+        });
 
         // --- Side-effects en arrière-plan (ne bloquent plus la réponse HTTP) ---
 
@@ -4689,6 +5069,95 @@ app.put('/api/technicians/:id', requireAuth, requireFleetManager, async (req, re
     }
 });
 
+app.get('/api/technician/me', requireAuth, async (req, res) => {
+    try {
+        if (req.auth?.role !== 'technician') {
+            return res.status(403).json({ error: 'Accès refusé' });
+        }
+        const technicianId = String(req.auth?.sub || '').trim();
+        if (!technicianId) {
+            return res.status(401).json({ error: 'Token technicien invalide' });
+        }
+        let technician = await Technician.findOne({ technicianId });
+        if (!technician && mongoose.Types.ObjectId.isValid(technicianId)) {
+            technician = await Technician.findById(technicianId);
+        }
+        if (!technician) {
+            return res.status(404).json({ error: 'Technicien introuvable' });
+        }
+        return res.json(technician.toJSON());
+    } catch (err) {
+        console.error('❌ Erreur GET /api/technician/me:', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+/** Machines Mongo assignées au technicien connecté (`Technician.machineIds`), ordre par nom. */
+app.get('/api/technician/me/machines', requireAuth, async (req, res) => {
+    try {
+        if (req.auth?.role !== 'technician') {
+            return res.status(403).json({ error: 'Accès refusé' });
+        }
+        const technicianId = String(req.auth?.sub || '').trim();
+        if (!technicianId) {
+            return res.status(401).json({ error: 'Token technicien invalide' });
+        }
+        let technician = await Technician.findOne({ technicianId });
+        if (!technician && mongoose.Types.ObjectId.isValid(technicianId)) {
+            technician = await Technician.findById(technicianId);
+        }
+        if (!technician) {
+            return res.status(404).json({ error: 'Technicien introuvable' });
+        }
+        const mids = (technician.machineIds || []).map(String).filter(Boolean);
+        if (mids.length === 0) {
+            return res.json([]);
+        }
+        const docs = await Machine.find({ _id: { $in: mids } }).sort({ name: 1 }).lean();
+        const serialized = serializeMachineDocs(docs);
+        for (const row of serialized) {
+            const mf = await getMissionFieldsForMachine(row.id);
+            Object.assign(row, mf);
+        }
+        return res.json(serialized);
+    } catch (err) {
+        console.error('❌ Erreur GET /api/technician/me/machines:', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+/** Machines assignées à un technicien (admin / conception / super-admin). */
+app.get('/api/technicians/:technicianId/machines', requireAuth, async (req, res) => {
+    try {
+        const paramId = String(req.params.technicianId || '').trim();
+        if (!paramId) {
+            return res.status(400).json({ error: 'technicianId requis' });
+        }
+        let technician = await Technician.findOne({ technicianId: paramId });
+        if (!technician && mongoose.Types.ObjectId.isValid(paramId)) {
+            technician = await Technician.findById(paramId);
+        }
+        if (!technician) {
+            return res.status(404).json({ error: 'Technicien introuvable' });
+        }
+        if (!(await assertFleetCompanyAccess(req, res, technician.companyId))) return;
+        const mids = (technician.machineIds || []).map(String).filter(Boolean);
+        if (mids.length === 0) {
+            return res.json([]);
+        }
+        const docs = await Machine.find({ _id: { $in: mids } }).sort({ name: 1 }).lean();
+        const serialized = serializeMachineDocs(docs);
+        for (const row of serialized) {
+            const mf = await getMissionFieldsForMachine(row.id);
+            Object.assign(row, mf);
+        }
+        return res.json(serialized);
+    } catch (err) {
+        console.error('❌ Erreur GET /api/technicians/:technicianId/machines:', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 app.patch('/api/technician/me', requireAuth, async (req, res) => {
     try {
         if (req.auth?.role !== 'technician') {
@@ -4699,7 +5168,10 @@ app.patch('/api/technician/me', requireAuth, async (req, res) => {
             return res.status(401).json({ error: 'Token technicien invalide' });
         }
 
-        const technician = await Technician.findOne({ technicianId });
+        let technician = await Technician.findOne({ technicianId });
+        if (!technician && mongoose.Types.ObjectId.isValid(technicianId)) {
+            technician = await Technician.findById(technicianId);
+        }
         if (!technician) {
             return res.status(404).json({ error: 'Technicien non trouvé' });
         }
@@ -4719,7 +5191,7 @@ app.patch('/api/technician/me', requireAuth, async (req, res) => {
         }
 
         const updated = await Technician.findOneAndUpdate(
-            { technicianId },
+            { _id: technician._id },
             patch,
             { new: true }
         );
@@ -5679,6 +6151,61 @@ app.get('/api/model-metrics', function (req, res) {
     }
 });
 
+/**
+ * Sonde le service d’inférence ML (FastAPI) configuré par ML_SERVER : GET {ML_SERVER}/api/health
+ * — utilisé par le dashboard maintenance pour vérifier que le modèle répond.
+ */
+app.get('/api/ml-model-status', async function (req, res) {
+    const base = String(ML_SERVER || '').replace(/\/$/, '');
+    const url = `${base}/api/health`;
+    try {
+        const ac = new AbortController();
+        const tid = setTimeout(function () {
+            ac.abort();
+        }, 10000);
+        const r = await fetch(url, { signal: ac.signal });
+        clearTimeout(tid);
+        const text = await r.text();
+        let parsed = null;
+        try {
+            parsed = text ? JSON.parse(text) : null;
+        } catch (_e) {
+            parsed = null;
+        }
+        if (!r.ok) {
+            return res.json({
+                ok: false,
+                reachable: true,
+                httpStatus: r.status,
+                ml_server: ML_SERVER,
+                healthUrl: url,
+                message: `Service ML: HTTP ${r.status}`,
+                raw: String(text || '').slice(0, 500),
+            });
+        }
+        return res.json({
+            ok: true,
+            reachable: true,
+            ml_server: ML_SERVER,
+            healthUrl: url,
+            ml: parsed && typeof parsed === 'object' ? parsed : { raw: text },
+        });
+    } catch (err) {
+        const name = err && err.name ? String(err.name) : '';
+        const msg =
+            name === 'AbortError'
+                ? 'Délai dépassé (service ML injoignable)'
+                : String((err && err.message) || err);
+        return res.json({
+            ok: false,
+            reachable: false,
+            ml_server: ML_SERVER,
+            healthUrl: url,
+            message: msg,
+        });
+    }
+});
+
 // ============================================================
 // WEBSOCKET: CONNEXION TEMPS REEL
 // ============================================================
@@ -5956,6 +6483,7 @@ app.get('/api/controles/machine/:id', requireAuth, requireFieldOperator, control
 app.put('/api/controles/:id/statut', requireAuth, requireFieldOperator, controleController.updateControleStatus);
 app.patch('/api/controles/:id/assign', requireAuth, requireFieldOperator, controleController.assignControleToTechnician);
 app.get('/api/controles/calendrier/:month', requireAuth, requireFieldOperator, controleController.getControlesByMonth);
+app.get('/api/controles/calendrier-journal', requireAuth, requireFieldOperator, controleController.getCalendrierJournal);
 app.get('/api/controles/preventive-history', requireAuth, requireFieldOperator, controleController.getPreventiveHistory);
 
 app.post('/api/controles/simulate', async (req, res) => {

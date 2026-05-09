@@ -17,6 +17,8 @@ const MaintenanceAgentSchema = new mongoose.Schema({
     clientId: { type: String, required: true },
     /** IDs machines Mongo (_id) rattachées au client choisi */
     machineIds: { type: [String], default: [] },
+    /** URL absolue ou chemin relatif (même origine que l’API) pour la photo de profil */
+    imageUrl: { type: String, trim: true, default: '' },
 }, {
     timestamps: true,
     toJSON: {

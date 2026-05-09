@@ -2015,3 +2015,45 @@ class _ChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
+
+/// Plein écran : vue **État de machine** + panneau chatbot ([AiAnalysisView]), alignée sur le dashboard client.
+class MaintenanceAiAnalysisMachineScreen extends StatelessWidget {
+  const MaintenanceAiAnalysisMachineScreen({
+    super.key,
+    required this.machineId,
+    required this.machineName,
+    this.motorType = 'EL_M',
+  });
+
+  final String machineId;
+  final String machineName;
+  final String motorType;
+
+  static const _bg = Color(0xFF10102B);
+  static const _text = Color(0xFFE2DFFF);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _bg,
+      appBar: AppBar(
+        backgroundColor: _bg,
+        foregroundColor: _text,
+        title: Text(
+          'Analyse IA',
+          style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+        ),
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: AiAnalysisView(
+            machineId: machineId,
+            machineName: machineName,
+            motorType: motorType,
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -41,6 +41,7 @@ class MachineControlCalendarPanel extends StatefulWidget {
     /// Saisie libre + envoi API (désactiver ex. vue gestionnaire lecture seule).
     this.allowSaisieTerrain = true,
     this.showCalendar = false,
+    this.onSaisieCalendrierSuccess,
   });
 
   final String machineId;
@@ -55,6 +56,9 @@ class MachineControlCalendarPanel extends StatefulWidget {
   final String? technicianName;
   final bool allowSaisieTerrain;
   final bool showCalendar;
+
+  /// Après enregistrement réussi du compte rendu (collection control_calendrier + contrôle).
+  final VoidCallback? onSaisieCalendrierSuccess;
 
   @override
   State<MachineControlCalendarPanel> createState() => _MachineControlCalendarPanelState();
@@ -136,6 +140,7 @@ class _MachineControlCalendarPanelState extends State<MachineControlCalendarPane
         ),
       );
       await _load();
+      widget.onSaisieCalendrierSuccess?.call();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

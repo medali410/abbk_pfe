@@ -7,6 +7,9 @@ import 'services/api_service.dart';
 import 'machine_detail_ai_page.dart';
 import 'mission_control_page.dart';
 import 'control_calendar_page.dart';
+import 'control_reports_history_page.dart';
+
+enum _TechnicianEmbedPanel { none, calendar, history }
 
 class TechnicianProfilePage extends StatefulWidget {
   const TechnicianProfilePage({super.key});
@@ -36,12 +39,19 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   /// Recharge la bande « contrôles ouverts » (API) après marche / notification.
   int _controlesPreviewVersion = 0;
   final Set<String> _startingMarcheIds = <String>{};
+  final Set<String> _stoppingMarcheIds = <String>{};
   /// Début de session aligné sur la réponse API (chrono immédiat après clic).
   final Map<String, DateTime> _sessionDebutByMachineId = <String, DateTime>{};
   /// Pour navigation (calendrier / mission control) : préfère `_id` Mongo si présent dans les args de login.
   String _navTechnicianForCalendar = '';
   /// Incrémenté au retour du calendrier pour recharger « Comptes rendus — contrôles terminés ».
   int _completedControlesRefreshGen = 0;
+  /// Panneau embarqué à droite de la sidebar (sans [Navigator.pushNamed]).
+  _TechnicianEmbedPanel _embedPanel = _TechnicianEmbedPanel.none;
+  Map<String, dynamic> _inlineCalendarArgs = <String, dynamic>{};
+  Key _inlineCalendarKey = const ValueKey<String>('cal_embed');
+  Map<String, dynamic> _inlineHistoryArgs = <String, dynamic>{};
+  Key _inlineHistoryKey = const ValueKey<String>('hist_embed');
   final Map<String, dynamic> _profileOverrides = <String, dynamic>{};
 
   static const _bg = Color(0xFF10102B);
@@ -58,7 +68,8 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   static const _outlineVariant = Color(0xFF594136);
   static const _error = Color(0xFFFFB4AB);
   static const _green = Color(0xFF66BB6A);
-  static const _defaultTechnicianImageUrl = 'https://lh3.googleusercontent.com/aida-public/AB6AXuBVqkqnUWBiLb0Zk31JerrE-Ke1jkLq2w23qu64tGR1PBHdL55WDZPq1xaW5VI5-N3Njpr4kjz41To1Hr7NbQ71oaHCu7d78Fayofl6_WNhcI0YsjjoM9eG-9dObtcoOQcMsx735B0ufEAemLbMhzj6rgh_05Hx8ny0G-QIQIvsg73okjpTwTjT_i4OP2f8Q1Y-Ao_Jm-hKOfdVTtUHlwPJ2X5WUpZFpoPic7RKsnUMvN_ZnlmmpWDtBieX_MwC0rwPn7juK2gD9Dw';
+  /// Photo locale lorsqu’aucune URL distante n’est fournie (OAuth / API).
+  static const _defaultTechnicianImageAsset = 'asset:assets/images/technician_profile_photo.png';
 
   @override
   void dispose() {
@@ -66,6 +77,67 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     _chatSocket?.dispose();
     _notifSocket?.dispose();
     super.dispose();
+  }
+
+  bool _technicianMeSynced = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncTechnicianProfileFromApiIfNeeded();
+      // Seconde tentative : après OAuth web / restauration SharedPreferences, le jeton peut arriver un peu plus tard.
+      Future<void>.delayed(const Duration(milliseconds: 650), () {
+        if (!mounted || _technicianMeSynced) return;
+        _syncTechnicianProfileFromApiIfNeeded();
+      });
+    });
+  }
+
+  /// Recharge `imageUrl` / nom depuis Mongo pour le technicien connecté (évite avatar vide après F5).
+  Future<void> _syncTechnicianProfileFromApiIfNeeded() async {
+    if (_technicianMeSynced) return;
+    if ((ApiService.savedUserRole ?? '').toLowerCase() != 'technician') return;
+    await ApiService.ensureAuthTokenLoaded();
+    if ((ApiService.authToken ?? '').isEmpty) return;
+    try {
+      final me = await ApiService.getMyTechnicianProfile();
+      if (!mounted) return;
+      _technicianMeSynced = true;
+      setState(() {
+        _profileOverrides.addAll(Map<String, dynamic>.from(me));
+      });
+      final raw = ModalRoute.of(context)?.settings.arguments;
+      Map<String, dynamic>? routeArgs;
+      if (raw is Map) routeArgs = Map<String, dynamic>.from(raw);
+      await ApiService.saveTechnicianSession(_mergeTechnicianProfileArgs(routeArgs));
+    } catch (_) {
+      // Pas connecté en technicien ou API indisponible.
+    }
+  }
+
+  void _applyTechnicianProfileOverlay(Map<String, dynamic> merged, Map<String, dynamic> overlay) {
+    const photoKeys = <String>{
+      'imageUrl',
+      'photoUrl',
+      'avatarUrl',
+      'profilePhotoUrl',
+      'image',
+      'photo',
+      'avatar',
+      'picture',
+      'photoURL',
+    };
+    for (final e in overlay.entries) {
+      final k = e.key.toString();
+      final v = e.value;
+      if (photoKeys.contains(k)) {
+        final next = v?.toString().trim() ?? '';
+        final prev = merged[k]?.toString().trim() ?? '';
+        if (next.isEmpty && prev.isNotEmpty) continue;
+      }
+      merged[k] = v;
+    }
   }
 
   @override
@@ -86,31 +158,143 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     });
   }
 
-  /// Route > persistance locale (rechargement `/#/technician-profile` sans arguments).
-  Future<void> _openControlCalendarFromProfile(Map<String, dynamic> arguments) async {
-    await showDialog<void>(
+  /// Calendrier dans la colonne principale : la sidebar profil reste visible ([Navigator.pushNamed] évité).
+  void _openControlCalendarFromProfile(Map<String, dynamic> arguments) {
+    setState(() {
+      _embedPanel = _TechnicianEmbedPanel.calendar;
+      _inlineCalendarArgs = Map<String, dynamic>.from(arguments);
+      _inlineCalendarKey = UniqueKey();
+    });
+  }
+
+  void _openControlHistoryFromProfile(Map<String, dynamic> arguments) {
+    setState(() {
+      _embedPanel = _TechnicianEmbedPanel.history;
+      _inlineHistoryArgs = Map<String, dynamic>.from(arguments);
+      _inlineHistoryKey = UniqueKey();
+    });
+  }
+
+  void _closeEmbedPanel() {
+    if (!mounted) return;
+    setState(() {
+      _embedPanel = _TechnicianEmbedPanel.none;
+      _inlineCalendarArgs = <String, dynamic>{};
+      _inlineHistoryArgs = <String, dynamic>{};
+      _completedControlesRefreshGen++;
+    });
+  }
+
+  /// Confirme et déconnecte le technicien : efface jeton + cache profil, retour route racine ([SessionEntry]).
+  Future<void> _logoutTechnician() async {
+    final confirm = await showDialog<bool>(
       context: context,
-      barrierDismissible: false,
-      useSafeArea: false,
-      builder:
-          (_) => Dialog(
-            insetPadding: EdgeInsets.zero,
-            backgroundColor: Colors.transparent,
-            child: SizedBox.expand(
-              child: ControlCalendarPage(initialArguments: arguments),
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surfaceContainerLow,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: Row(
+          children: [
+            const Icon(Icons.logout, color: _error),
+            const SizedBox(width: 8),
+            Text(
+              'Déconnexion',
+              style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700),
             ),
+          ],
+        ),
+        content: Text(
+          'Voulez-vous vraiment vous déconnecter ?',
+          style: GoogleFonts.inter(color: _onSurfaceVariant, height: 1.35),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Annuler', style: GoogleFonts.inter(color: _onSurfaceVariant)),
           ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(backgroundColor: _error, foregroundColor: Colors.white),
+            icon: const Icon(Icons.logout, size: 18),
+            label: Text('Se déconnecter', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+            onPressed: () => Navigator.of(ctx).pop(true),
+          ),
+        ],
+      ),
     );
-    if (mounted) setState(() => _completedControlesRefreshGen++);
+    if (confirm != true || !mounted) return;
+    _chatSocket?.dispose();
+    _notifSocket?.dispose();
+    _chatSocket = null;
+    _notifSocket = null;
+    await ApiService.clearAuth();
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }
 
   Map<String, dynamic> _mergeTechnicianProfileArgs(Map<String, dynamic>? routeArgs) {
     final merged = <String, dynamic>{};
     final saved = ApiService.savedTechnicianProfile;
     if (saved != null) merged.addAll(saved);
-    if (routeArgs != null && routeArgs.isNotEmpty) merged.addAll(routeArgs);
-    if (_profileOverrides.isNotEmpty) merged.addAll(_profileOverrides);
+    if (routeArgs != null && routeArgs.isNotEmpty) {
+      _applyTechnicianProfileOverlay(merged, Map<String, dynamic>.from(routeArgs));
+    }
+    if (_profileOverrides.isNotEmpty) {
+      _applyTechnicianProfileOverlay(merged, _profileOverrides);
+    }
     return merged;
+  }
+
+  /// Liste normalisée depuis List, chaîne unique ou liste séparée par virgules (OAuth / routes legacy).
+  List<String> _coerceMachineIds(dynamic raw) {
+    final out = <String>{};
+    void addOne(String s) {
+      final t = s.trim();
+      if (t.isNotEmpty) out.add(t);
+    }
+
+    if (raw == null) return [];
+    if (raw is List) {
+      for (final e in raw) {
+        addOne(e.toString());
+      }
+      return out.toList();
+    }
+    final str = raw.toString().trim();
+    if (str.isEmpty) return [];
+    if (str.contains(',')) {
+      for (final part in str.split(',')) {
+        addOne(part);
+      }
+      return out.toList();
+    }
+    addOne(str);
+    return out.toList();
+  }
+
+  bool _isViewingOwnTechnicianProfile(Map<String, dynamic> args) {
+    if ((ApiService.savedUserRole ?? '').toLowerCase() != 'technician') return false;
+    final saved = ApiService.savedTechnicianProfile;
+    if (saved == null) return false;
+    final sid = (saved['technicianId'] ?? saved['id'] ?? '').toString().trim();
+    final vid = (args['technicianId'] ?? args['id'] ?? '').toString().trim();
+    return sid.isNotEmpty && vid.isNotEmpty && sid == vid;
+  }
+
+  Set<String> _machineIdCandidatesFromDoc(Map<String, dynamic> m) {
+    final c = <String>{
+      _machineIdFromDoc(m),
+      (m['_id'] ?? '').toString(),
+      (m['id'] ?? '').toString(),
+      (m['machineId'] ?? '').toString(),
+    }.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+    return c;
+  }
+
+  bool _assignedMachineMatches(Map<String, dynamic> m, Set<String> assigned) {
+    final candidates = _machineIdCandidatesFromDoc(m);
+    for (final a in assigned) {
+      if (candidates.contains(a)) return true;
+    }
+    return false;
   }
 
   Future<void> _showQuickProfileEditDialog({
@@ -274,21 +458,62 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   }
 
   String _resolveTechnicianImageUrl(Map<String, dynamic> args) {
+    final saved = ApiService.savedTechnicianProfile;
     final candidates = <String?>[
       args['imageUrl']?.toString(),
       args['photoUrl']?.toString(),
       args['avatarUrl']?.toString(),
       args['profilePhotoUrl']?.toString(),
+      args['picture']?.toString(),
+      args['photoURL']?.toString(),
       args['image']?.toString(),
       args['photo']?.toString(),
       args['avatar']?.toString(),
+      saved?['imageUrl']?.toString(),
+      saved?['photoUrl']?.toString(),
+      saved?['avatarUrl']?.toString(),
+      saved?['picture']?.toString(),
     ];
 
     for (final value in candidates) {
       final v = _normalizeTechnicianImageUrl((value ?? '').toString());
       if (v.isNotEmpty) return v;
     }
-    return _normalizeTechnicianImageUrl(_defaultTechnicianImageUrl);
+    return _defaultTechnicianImageAsset;
+  }
+
+  String _resolveTechnicianEmail(Map<String, dynamic> args) {
+    final saved = ApiService.savedTechnicianProfile;
+    const keys = <String>['email', 'mail', 'userEmail'];
+    for (final k in keys) {
+      final v = args[k]?.toString().trim();
+      if (v != null && v.isNotEmpty) return v;
+      final sv = saved?[k]?.toString().trim();
+      if (sv != null && sv.isNotEmpty) return sv;
+    }
+    return '';
+  }
+
+  String _resolveClientDisplayCode(Map<String, dynamic> args) {
+    final saved = ApiService.savedTechnicianProfile;
+    const keys = <String>['companyCode', 'clientCode', 'companyId', 'clientId'];
+    for (final k in keys) {
+      final v = args[k]?.toString().trim();
+      if (v != null && v.isNotEmpty) return v;
+      final sv = saved?[k]?.toString().trim();
+      if (sv != null && sv.isNotEmpty) return sv;
+    }
+    return '';
+  }
+
+  bool _avatarHostMatchesApi(String absoluteUrl) {
+    try {
+      final u = Uri.parse(absoluteUrl);
+      final b = Uri.parse(ApiService.baseUrl);
+      return u.hasScheme && b.hasScheme && u.host.toLowerCase() == b.host.toLowerCase();
+    } catch (_) {
+      return false;
+    }
   }
 
   String _normalizeTechnicianImageUrl(String rawValue) {
@@ -306,12 +531,14 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     return '$origin/${value.replaceFirst(RegExp(r'^/+'), '')}';
   }
 
+  /// [photoEnhance] : léger gain luminosité/contraste pour la carte profil (photo plus lisible).
   Widget _buildTechnicianAvatar({
     required String imageUrl,
     required double width,
     required double height,
     required BorderRadius borderRadius,
     double iconSize = 42,
+    bool photoEnhance = false,
   }) {
     Widget fallback() => Container(
       color: _surfaceContainerHigh,
@@ -319,18 +546,54 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
       child: Icon(Icons.person, color: _onSurfaceVariant, size: iconSize),
     );
 
+    Widget polishPhoto(Widget img) {
+      if (!photoEnhance) return img;
+      return ColorFiltered(
+        colorFilter: const ColorFilter.matrix(<double>[
+          1.07, 0, 0, 0, 10,
+          0, 1.07, 0, 0, 10,
+          0, 0, 1.07, 0, 6,
+          0, 0, 0, 1, 0,
+        ]),
+        child: img,
+      );
+    }
+
     final src = imageUrl.trim();
+    if (src.startsWith('asset:')) {
+      final assetPath = src.substring('asset:'.length);
+      return ClipRRect(
+        borderRadius: borderRadius,
+        child: polishPhoto(
+          Image.asset(
+            assetPath,
+            key: ValueKey<String>(assetPath),
+            width: width,
+            height: height,
+            fit: BoxFit.cover,
+            alignment: Alignment.topCenter,
+            filterQuality: FilterQuality.high,
+            isAntiAlias: true,
+            errorBuilder: (_, __, ___) => fallback(),
+          ),
+        ),
+      );
+    }
     if (src.startsWith('data:image/')) {
       try {
         final bytes = base64Decode(src.split(',').last);
         return ClipRRect(
           borderRadius: borderRadius,
-          child: Image.memory(
-            bytes,
-            width: width,
-            height: height,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => fallback(),
+          child: polishPhoto(
+            Image.memory(
+              bytes,
+              width: width,
+              height: height,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.high,
+              isAntiAlias: true,
+              errorBuilder: (_, __, ___) => fallback(),
+            ),
           ),
         );
       } catch (_) {
@@ -342,15 +605,25 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
       return ClipRRect(borderRadius: borderRadius, child: fallback());
     }
 
+    final normalizedSrc = _normalizeTechnicianImageUrl(src);
+    final authHeaders =
+        _avatarHostMatchesApi(normalizedSrc) ? ApiService.bearerHeadersForNetworkImage() : null;
+
     return ClipRRect(
       borderRadius: borderRadius,
-      child: Image.network(
-        src,
-        key: ValueKey(src),
-        width: width,
-        height: height,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => fallback(),
+      child: polishPhoto(
+        Image.network(
+          normalizedSrc,
+          key: ValueKey(normalizedSrc),
+          width: width,
+          height: height,
+          fit: BoxFit.cover,
+          alignment: Alignment.topCenter,
+          filterQuality: FilterQuality.high,
+          isAntiAlias: true,
+          headers: authHeaders,
+          errorBuilder: (_, __, ___) => fallback(),
+        ),
       ),
     );
   }
@@ -475,6 +748,17 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
         // À brancher sur un widget dédié si besoin.
       } catch (_) {}
     });
+
+    /// Mission maintenance / coordination diagnostic → recharge les cartes machine (bordure rouge).
+    void bumpMachinesForMission() {
+      if (!mounted) return;
+      setState(() => _machinesSectionVersion++);
+    }
+
+    notifSocket.on('diagnostic_coordination', (_) => bumpMachinesForMission());
+    notifSocket.on('diagnostic_coordination_update', (_) => bumpMachinesForMission());
+    notifSocket.on('diagnostic_message', (_) => bumpMachinesForMission());
+    notifSocket.on('diagnostic_message_update', (_) => bumpMachinesForMission());
     // ────────────────────────────────────────────────────────────────────────
 
 
@@ -983,10 +1267,10 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     final String specialization = args['specialization'] ?? 'Senior Technician — Industrial Systems & Robotics';
     final String statusLabel = args['status'] ?? 'EN SERVICE';
     final String imageUrl = _resolveTechnicianImageUrl(args);
-    final List<String> assignedMachineIds = ((args['machineIds'] as List?) ?? const [])
-        .map((e) => e.toString())
-        .where((e) => e.isNotEmpty)
-        .toList();
+    final String email = _resolveTechnicianEmail(args);
+    final String clientDisplayCode = _resolveClientDisplayCode(args);
+    final List<String> assignedMachineIds = _coerceMachineIds(args['machineIds']);
+    final int monitoredMachineCount = assignedMachineIds.length;
     final String companyIdForMachines = (args['companyId'] ?? '').toString().trim();
     final String calendarTechId =
         (args['_id'] ?? args['technicianId'] ?? args['id'] ?? '').toString().trim();
@@ -996,58 +1280,92 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
       backgroundColor: _bg,
       body: Row(
         children: [
-          if (isDesktop) _buildSidebar(name, imageUrl, assignedMachineIds, companyIdForMachines),
+          if (isDesktop) _buildSidebar(name, email, imageUrl, assignedMachineIds, companyIdForMachines),
           Expanded(
             child: Stack(
               children: [
-                Column(
-                  children: [
-                    _buildTopHeader(args),
-                    Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
-                  child: Center(
-                    child: Container(
-                      constraints: const BoxConstraints(maxWidth: 1200),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildProfileHeader(context, isDesktop, name, id, specialization, statusLabel, imageUrl, args, canManageTechnician: isSuperAdminViewer),
-                          const SizedBox(height: 40),
-                          _buildMainGrid(
-                            isDesktop,
-                            context,
-                            id,
-                            name,
-                            assignedMachineIds,
-                            companyIdForMachines,
-                            isConceptionViewer,
-                            calendarTechId,
+                Positioned.fill(
+                  child:
+                      _embedPanel == _TechnicianEmbedPanel.calendar
+                          ? ClipRect(
+                            child: ControlCalendarPage(
+                              key: _inlineCalendarKey,
+                              initialArguments: _inlineCalendarArgs.isNotEmpty ? _inlineCalendarArgs : null,
+                              onClose: _closeEmbedPanel,
+                            ),
+                          )
+                          : _embedPanel == _TechnicianEmbedPanel.history
+                          ? ClipRect(
+                            child: ControlReportsHistoryPage(
+                              key: _inlineHistoryKey,
+                              initialArguments: _inlineHistoryArgs.isNotEmpty ? _inlineHistoryArgs : null,
+                              onClose: _closeEmbedPanel,
+                            ),
+                          )
+                          : Column(
+                            children: [
+                              _buildTopHeader(args),
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Center(
+                                    child: Container(
+                                      constraints: const BoxConstraints(maxWidth: 1200),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          _buildProfileHeader(
+                                            context,
+                                            isDesktop,
+                                            name,
+                                            id,
+                                            specialization,
+                                            statusLabel,
+                                            imageUrl,
+                                            args,
+                                            email,
+                                            clientDisplayCode,
+                                            monitoredMachineCount,
+                                            canManageTechnician: isSuperAdminViewer,
+                                          ),
+                                          const SizedBox(height: 40),
+                                          _buildMainGrid(
+                                            isDesktop,
+                                            context,
+                                            id,
+                                            name,
+                                            assignedMachineIds,
+                                            companyIdForMachines,
+                                            isConceptionViewer,
+                                            calendarTechId,
+                                            args,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
+                ),
+                if (_embedPanel == _TechnicianEmbedPanel.none)
+                  SafeArea(
+                    child: Align(
+                      alignment: Alignment.topLeft,
+                      child: Container(
+                        margin: const EdgeInsets.only(left: 10, top: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0D9B5),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: IconButton(
+                          icon: const Icon(Icons.arrow_back, color: Color(0xFF1A1A1A)),
+                          onPressed: () => Navigator.maybePop(context),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
-            ],
-          ),
-                SafeArea(
-                  child: Align(
-                    alignment: Alignment.topLeft,
-                    child: Container(
-                      margin: const EdgeInsets.only(left: 10, top: 6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF0D9B5),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: IconButton(
-                        icon: const Icon(Icons.arrow_back, color: Color(0xFF1A1A1A)),
-                        onPressed: () => Navigator.maybePop(context),
-                      ),
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
@@ -1089,7 +1407,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             width: 440,
             height: 400,
             child: FutureBuilder<({List<String> ids, List<Map<String, dynamic>> machines})>(
-              future: _loadMachinesForProfileSection(assignedMachineIds, companyIdForMachines),
+              future: _loadMachinesForProfileSection(assignedMachineIds, companyIdForMachines, null),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator(strokeWidth: 2));
@@ -1329,6 +1647,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
 
   Widget _buildSidebar(
     String name,
+    String email,
     String imageUrl,
     List<String> assignedMachineIds,
     String companyIdForMachines,
@@ -1365,14 +1684,25 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      Text(
-                        'Technicien',
-                        style: GoogleFonts.spaceGrotesk(
-                          color: _onSurfaceVariant.withOpacity(0.7),
-                          fontSize: 10,
+                      if (email.isNotEmpty)
+                        Text(
+                          email,
+                          style: GoogleFonts.spaceGrotesk(
+                            color: _onSurfaceVariant.withOpacity(0.85),
+                            fontSize: 11,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        )
+                      else
+                        Text(
+                          'Technicien',
+                          style: GoogleFonts.spaceGrotesk(
+                            color: _onSurfaceVariant.withOpacity(0.7),
+                            fontSize: 10,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
                     ],
                   ),
                 ),
@@ -1380,46 +1710,44 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             ),
           ),
           const Divider(color: Colors.white10),
-          _buildSidebarTile(Icons.person_outline, 'Profil', isActive: true),
-          _buildSidebarTile(Icons.description_outlined, 'Documents'),
-          _buildSidebarTile(Icons.calendar_month_outlined, 'Calendrier de Contrôle', onTap: () {
-            _openControlCalendarFromProfile({
-              'technicianName': name,
-              'technicianId': _technicianId,
-              'machineIds': assignedMachineIds,
-              if (companyIdForMachines.isNotEmpty) 'companyId': companyIdForMachines,
-            });
-          }),
-          _buildSidebarTile(Icons.assignment_turned_in_outlined, 'Historique des contrôles', onTap: () {
-            final techId =
-                _navTechnicianForCalendar.isNotEmpty ? _navTechnicianForCalendar : _technicianId;
-            Navigator.pushNamed(context, '/control-reports-history', arguments: {
-              'technicianName': name,
-              'technicianId': techId,
-              'historyMode': 'all_controls',
-            });
-          }),
-          const Spacer(),
-          Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              children: [
-                ElevatedButton(
-                  onPressed: () {},
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _primaryContainer,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 44),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                  child: const Text('Update Status', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-                const SizedBox(height: 16),
-                _buildSidebarTile(Icons.help_outline, 'Support', isSmall: true),
-                _buildSidebarTile(Icons.logout, 'Logout', isSmall: true),
-              ],
-            ),
+          _buildSidebarTile(
+            Icons.person_outline,
+            'Profil',
+            isActive: _embedPanel == _TechnicianEmbedPanel.none,
+            onTap: () {
+              if (_embedPanel != _TechnicianEmbedPanel.none) _closeEmbedPanel();
+            },
           ),
+          _buildSidebarTile(
+            Icons.calendar_month_outlined,
+            'Calendrier de Contrôle',
+            isActive: _embedPanel == _TechnicianEmbedPanel.calendar,
+            onTap: () {
+              final techId =
+                  _navTechnicianForCalendar.isNotEmpty ? _navTechnicianForCalendar : _technicianId;
+              _openControlCalendarFromProfile({
+                'technicianName': name,
+                'technicianId': techId,
+                'machineIds': assignedMachineIds,
+                if (companyIdForMachines.isNotEmpty) 'companyId': companyIdForMachines,
+              });
+            },
+          ),
+          _buildSidebarTile(
+            Icons.assignment_turned_in_outlined,
+            'Historique des contrôles',
+            isActive: _embedPanel == _TechnicianEmbedPanel.history,
+            onTap: () {
+              final techId =
+                  _navTechnicianForCalendar.isNotEmpty ? _navTechnicianForCalendar : _technicianId;
+              _openControlHistoryFromProfile({
+                'technicianName': name,
+                'technicianId': techId,
+                'historyMode': 'all_controls',
+              });
+            },
+          ),
+          const Spacer(),
         ],
       ),
     );
@@ -1474,79 +1802,249 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     );
   }
 
-  Widget _buildProfileHeader(BuildContext context, bool isDesktop, String name, String id, String specialization, String statusLabel, String imageUrl, Map<String, dynamic> rawArgs, {required bool canManageTechnician}) {
+  Widget _buildProfileHeader(
+    BuildContext context,
+    bool isDesktop,
+    String name,
+    String id,
+    String specialization,
+    String statusLabel,
+    String imageUrl,
+    Map<String, dynamic> rawArgs,
+    String email,
+    String clientDisplayCode,
+    int monitoredMachineCount, {
+    required bool canManageTechnician,
+  }) {
+    final double avatarSize = isDesktop ? 64 : 56;
+    final BoxDecoration cardDecoration = BoxDecoration(
+      color: _surfaceContainer,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: Colors.white.withOpacity(0.08)),
+    );
+
+    Widget profileStatCard({
+      required IconData icon,
+      required String label,
+      required String value,
+    }) {
+      return Container(
+        width: double.infinity,
+        padding: EdgeInsets.symmetric(
+          horizontal: isDesktop ? 18 : 14,
+          vertical: isDesktop ? 16 : 14,
+        ),
+        decoration: cardDecoration,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: _primaryContainer, size: isDesktop ? 26 : 22),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: GoogleFonts.inter(
+                      color: _onSurfaceVariant.withOpacity(0.75),
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  SelectableText(
+                    value,
+                    style: GoogleFonts.spaceGrotesk(
+                      color: Colors.white,
+                      fontSize: isDesktop ? 16 : 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final String emailDisplay = email.isNotEmpty ? email : '—';
+    final String clientDisplay = clientDisplayCode.isNotEmpty ? clientDisplayCode : '—';
+
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 860),
-        child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: isDesktop ? 28 : 18,
-            vertical: isDesktop ? 24 : 18,
-          ),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF1A1A36), Color(0xFF12122E)],
-            ),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: _outlineVariant.withOpacity(0.35)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-          Center(
-            child: Stack(
-              children: [
-                Container(
-                  width: isDesktop ? 128 : 88,
-                  height: isDesktop ? 128 : 88,
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: const Color(0xFF9EDC9B), width: 1.5),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF9EDC9B).withOpacity(0.12),
-                        blurRadius: 16,
-                        spreadRadius: 1,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: EdgeInsets.all(isDesktop ? 18 : 14),
+              decoration: cardDecoration,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  _buildTechnicianAvatar(
+                    imageUrl: imageUrl,
+                    width: avatarSize,
+                    height: avatarSize,
+                    borderRadius: BorderRadius.circular(avatarSize / 2),
+                    iconSize: 28,
+                    photoEnhance: true,
+                  ),
+                  SizedBox(height: isDesktop ? 16 : 14),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      Text(
+                        name,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.spaceGrotesk(
+                          color: Colors.white,
+                          fontSize: isDesktop ? 20 : 17,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.white.withOpacity(0.08)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF69F0AE),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              statusLabel.toUpperCase(),
+                              style: GoogleFonts.spaceGrotesk(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
-                  child: _buildTechnicianAvatar(
-                    imageUrl: imageUrl,
-                    width: isDesktop ? 128 : 88,
-                    height: isDesktop ? 128 : 88,
-                    borderRadius: BorderRadius.circular(10),
+                  const SizedBox(height: 6),
+                  Text(
+                    emailDisplay,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      color: Colors.white.withOpacity(0.92),
+                      fontSize: isDesktop ? 14 : 13,
+                    ),
                   ),
-                ),
-                Positioned(
-                  bottom: -10,
-                  left: 10,
+                  if (specialization.trim().isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      specialization,
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(
+                        color: _onSurfaceVariant.withOpacity(0.88),
+                        fontSize: 12,
+                        height: 1.3,
+                      ),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            SizedBox(height: isDesktop ? 12 : 10),
+            profileStatCard(
+              icon: Icons.badge_outlined,
+              label: 'Identifiant agent',
+              value: id,
+            ),
+            SizedBox(height: isDesktop ? 12 : 10),
+            profileStatCard(
+              icon: Icons.business_outlined,
+              label: 'Client / société',
+              value: clientDisplay,
+            ),
+            SizedBox(height: isDesktop ? 12 : 10),
+            profileStatCard(
+              icon: Icons.precision_manufacturing_outlined,
+              label: 'Machines suivies',
+              value: '$monitoredMachineCount',
+            ),
+            SizedBox(height: isDesktop ? 22 : 16),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                InkWell(
+                  onTap: () async {
+                    await _showQuickProfileEditDialog(
+                      rawArgs: rawArgs,
+                      currentName: name,
+                      currentImageUrl: imageUrl.startsWith('asset:') ? '' : imageUrl,
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(10),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
                     decoration: BoxDecoration(
-                      color: _surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: _outlineVariant.withOpacity(0.35)),
+                      gradient: LinearGradient(
+                        colors: [_secondary.withOpacity(0.22), _secondary.withOpacity(0.08)],
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _secondary.withOpacity(0.45)),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(
-                          width: 10,
-                          height: 10,
-                          decoration: const BoxDecoration(color: _green, shape: BoxShape.circle),
-                        ),
-                        const SizedBox(width: 8),
+                        Icon(Icons.edit_outlined, color: _secondary, size: 20),
+                        const SizedBox(width: 10),
                         Text(
-                          statusLabel,
-                          style: GoogleFonts.spaceGrotesk(
-                            color: _green,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.8,
-                          ),
+                          'Modifier le profil',
+                          style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (canManageTechnician)
+                  InkWell(
+                    onTap: () => _confirmDelete(context, id, name),
+                    borderRadius: BorderRadius.circular(10),
+                    child: _buildActionButton(Icons.delete_outline, 'Supprimer', _error.withOpacity(0.1), _error, isBordered: true),
+                  ),
+                InkWell(
+                  onTap: _logoutTechnician,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
+                    decoration: BoxDecoration(
+                      color: _error.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _error.withOpacity(0.45)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.logout, color: _error, size: 20),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Déconnexion',
+                          style: GoogleFonts.inter(color: _error, fontWeight: FontWeight.w700, fontSize: 14),
                         ),
                       ],
                     ),
@@ -1554,55 +2052,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            name,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
-              color: Colors.white,
-              fontSize: isDesktop ? 42 : 28,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -1,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '$specialization • Tech ID: $id',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
-              color: _onSurfaceVariant,
-              fontSize: isDesktop ? 18 : 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 18),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              InkWell(
-                onTap: () async {
-                  await _showQuickProfileEditDialog(
-                    rawArgs: rawArgs,
-                    currentName: name,
-                    currentImageUrl: imageUrl,
-                  );
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: _buildActionButton(Icons.edit, 'Modifier le profil', _surfaceContainerHighest, Colors.white),
-              ),
-              if (canManageTechnician)
-                InkWell(
-                  onTap: () => _confirmDelete(context, id, name),
-                  borderRadius: BorderRadius.circular(8),
-                  child: _buildActionButton(Icons.delete_outline, 'Supprimer', _error.withOpacity(0.1), _error, isBordered: true),
-                ),
-            ],
-          ),
-            ],
-          ),
+          ],
         ),
       ),
     );
@@ -1682,6 +2132,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     String companyIdForMachines,
     bool isConceptionProfile,
     String calendarTechId,
+    Map<String, dynamic> mergedProfileArgs,
   ) {
     return _buildMachinesSection(
       context,
@@ -1690,6 +2141,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
       isConceptionProfile,
       technicianId,
       technicianName,
+      mergedProfileArgs,
     );
   }
 
@@ -1700,11 +2152,31 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   /// Identifiants machines (Mongo `id` / `_id`) : explicites sur le technicien, sinon tout le parc du client.
   Future<List<String>> _resolveAssignedMachineIds(
     List<String> fromArgs,
-    String companyId,
-  ) async {
-    final ids = fromArgs.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-    if (ids.isNotEmpty) return ids;
-    if (companyId.isEmpty) return ids;
+    String companyId, [
+    Map<String, dynamic>? routeArgsForSelfCheck,
+  ]) async {
+    final ids = <String>{};
+    for (final x in fromArgs) {
+      final t = x.trim();
+      if (t.isNotEmpty) ids.add(t);
+    }
+    final argsMap = routeArgsForSelfCheck;
+    if (argsMap != null && _isViewingOwnTechnicianProfile(argsMap)) {
+      for (final id in _coerceMachineIds(ApiService.savedTechnicianProfile?['machineIds'])) {
+        ids.add(id);
+      }
+      try {
+        await ApiService.ensureAuthTokenLoaded();
+        if ((ApiService.authToken ?? '').isNotEmpty) {
+          final me = await ApiService.getMyTechnicianProfile();
+          for (final id in _coerceMachineIds(me['machineIds'])) {
+            ids.add(id);
+          }
+        }
+      } catch (_) {}
+    }
+    if (ids.isNotEmpty) return ids.toList();
+    if (companyId.isEmpty) return [];
     try {
       final cm = await ApiService.getMachinesForClient(companyId);
       final fromClient = cm.map(_machineIdFromDoc).where((e) => e.isNotEmpty).toList();
@@ -1721,17 +2193,44 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
       final std = await ApiService.getMachines();
       return std.where(sameCompany).map(_machineIdFromDoc).where((e) => e.isNotEmpty).toList();
     } catch (_) {
-      return ids;
+      return ids.toList();
     }
   }
 
   Future<({List<String> ids, List<Map<String, dynamic>> machines})> _loadMachinesForProfileSection(
     List<String> assignedMachineIds,
     String companyId,
+    Map<String, dynamic>? mergedProfileArgs,
   ) async {
-    final ids = await _resolveAssignedMachineIds(assignedMachineIds, companyId);
-    final machines = await _loadAssignedMachinesWithRisk(ids);
+    final machines = await _loadAssignedMachinesWithRisk(assignedMachineIds, companyId, mergedProfileArgs);
+    final ids = machines.map((m) => _machineIdFromDoc(m)).where((e) => e.isNotEmpty).toList();
     return (ids: ids, machines: machines);
+  }
+
+  /// Ordre et liste alignés sur Mongo (`Technician.machineIds`) plutôt que sur le cache catalogue.
+  Future<List<Map<String, dynamic>>?> _fetchTechnicianMachinesFromApi(
+    Map<String, dynamic>? mergedProfileArgs,
+  ) async {
+    try {
+      await ApiService.ensureAuthTokenLoaded();
+      if ((ApiService.authToken ?? '').isEmpty) return null;
+      final role = (ApiService.savedUserRole ?? '').toLowerCase();
+      if (role == 'technician') {
+        if (mergedProfileArgs == null || _isViewingOwnTechnicianProfile(mergedProfileArgs)) {
+          return await ApiService.getMyTechnicianMachines();
+        }
+        return null;
+      }
+      final tid =
+          (mergedProfileArgs?['technicianId'] ?? mergedProfileArgs?['id'] ?? '').toString().trim();
+      if (tid.isEmpty) return null;
+      final canFleet =
+          ApiService.isSuperAdmin || ApiService.canManageFleet || role == 'conception';
+      if (!canFleet) return null;
+      return await ApiService.getTechnicianMachinesByTechnicianId(tid);
+    } catch (_) {
+      return null;
+    }
   }
 
   DateTime? _parseControlDate(Map<String, dynamic> c) {
@@ -1944,13 +2443,14 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     bool isConceptionProfile,
     String technicianId,
     String technicianName,
+    Map<String, dynamic> mergedProfileArgs,
   ) {
     return FutureBuilder<({List<String> ids, List<Map<String, dynamic>> machines})>(
       key: ValueKey<String>('machines_section_v$_machinesSectionVersion'),
-      future: _loadMachinesForProfileSection(assignedMachineIds, companyIdForMachines),
+      future: _loadMachinesForProfileSection(assignedMachineIds, companyIdForMachines, mergedProfileArgs),
       builder: (context, snapshot) {
         final controlledMachines = snapshot.data?.machines ?? const <Map<String, dynamic>>[];
-        final resolvedCount = snapshot.data?.ids.length ?? assignedMachineIds.length;
+        final resolvedIds = snapshot.data?.ids ?? assignedMachineIds;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1975,14 +2475,39 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                 style: GoogleFonts.inter(color: _onSurfaceVariant),
               )
             else
-              _buildMachinesGridContent(
-                context,
-                controlledMachines,
-                technicianId,
-                technicianName,
-                isConceptionProfile,
-                assignedMachineIds,
-                companyIdForMachines,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.hub_outlined, color: _secondary, size: 22),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            '${controlledMachines.length} machine${controlledMachines.length != 1 ? 's' : ''} affichée${controlledMachines.length != 1 ? 's' : ''}'
+                            '${resolvedIds.length != controlledMachines.length ? ' (${resolvedIds.length} référence${resolvedIds.length != 1 ? 's' : ''})' : ''}',
+                            style: GoogleFonts.spaceGrotesk(
+                              color: _onSurface,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _buildMachinesGridContent(
+                    context,
+                    controlledMachines,
+                    technicianId,
+                    technicianName,
+                    isConceptionProfile,
+                    assignedMachineIds,
+                    companyIdForMachines,
+                  ),
+                ],
               ),
           ],
         );
@@ -2056,6 +2581,95 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     }
   }
 
+  /// Arrête la machine côté backend ([POST /api/machines/:id/stop]) et nettoie le chrono local.
+  Future<void> _handleStopMachineMarche({
+    required BuildContext context,
+    required String machineId,
+    required String machineName,
+    required String technicianName,
+  }) async {
+    if (machineId.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: _surfaceContainerLow,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: Row(
+            children: [
+              const Icon(Icons.stop_circle_outlined, color: _error),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Arrêter « $machineName » ?',
+                  style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'La session de marche sera clôturée et le compteur de temps de fonctionnement figé.',
+            style: GoogleFonts.inter(color: _onSurfaceVariant, height: 1.35),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Annuler', style: GoogleFonts.inter(color: _onSurfaceVariant)),
+            ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: _error, foregroundColor: Colors.white),
+              icon: const Icon(Icons.stop_circle_outlined, size: 18),
+              label: Text('Arrêter', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+              onPressed: () => Navigator.pop(ctx, true),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _stoppingMarcheIds.add(machineId));
+    try {
+      await ApiService.stopMachine(
+        machineId,
+        reason: 'Arrêt manuel depuis le profil technicien',
+        stoppedBy: technicianName.isNotEmpty ? technicianName : 'Technicien',
+      );
+      if (!mounted) return;
+      setState(() {
+        _stoppingMarcheIds.remove(machineId);
+        _sessionDebutByMachineId.remove(machineId);
+        _machinesSectionVersion++;
+        _controlesPreviewVersion++;
+      });
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: _surfaceContainerHigh,
+          content: Text(
+            '« $machineName » est arrêtée. La session de marche est clôturée.',
+            style: GoogleFonts.inter(color: Colors.white),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _stoppingMarcheIds.remove(machineId));
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: _error.withOpacity(0.9),
+          content: Text(
+            e.toString().replaceFirst('Exception: ', ''),
+            style: GoogleFonts.inter(color: Colors.white),
+          ),
+        ),
+      );
+    }
+  }
+
   Widget _buildMachinesGridContent(
     BuildContext context,
     List<Map<String, dynamic>> controlledMachines,
@@ -2106,7 +2720,15 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               crossAxisCount: constraints.maxWidth > 600 ? 2 : 1,
               mainAxisSpacing: 16,
               crossAxisSpacing: 16,
-              childAspectRatio: isConceptionProfile ? 1.5 : 1.6,
+              childAspectRatio: isConceptionProfile
+                  ? 1.5
+                  : (controlledMachines.any((m) {
+                        final st = (m['status'] ?? '').toString().toUpperCase();
+                        if (st == 'RUNNING') return true;
+                        return _machineMissionNeedsAck(m);
+                      })
+                      ? 1.35
+                      : 1.6),
               children: controlledMachines.map((m) {
                 final machineId = _machineIdFromDoc(m);
                 final machineName = (m['name'] ?? 'Machine').toString();
@@ -2118,18 +2740,22 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                 final running = status.toUpperCase() == 'RUNNING';
                 final sessionDebut = _effectiveDebutSession(machineId, m);
                 final sessionLive = running && sessionDebut != null;
+                final missionAwaiting = _machineMissionNeedsAck(m);
 
                 return _buildMachineCard(
                   Icons.precision_manufacturing,
                   machineName,
                   (m['companyId'] ?? 'Client').toString(),
                   risk,
-                  sessionLive
-                      ? _green
-                      : (isAlert ? _error : (running ? _secondary : _error)),
+                  missionAwaiting
+                      ? _error
+                      : (sessionLive
+                          ? _green
+                          : (isAlert ? _error : (running ? _secondary : _error))),
                   isAlert: isAlert,
                   alertText: riskNote,
                   sessionActiveVisual: sessionLive,
+                  missionAwaitingAck: missionAwaiting,
                   onTap: () {
                     if (machineId.isEmpty) return;
 
@@ -2228,13 +2854,42 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     );
   }
 
-  Future<List<Map<String, dynamic>>> _loadAssignedMachinesWithRisk(List<String> assignedMachineIds) async {
+  Future<List<Map<String, dynamic>>> _loadAssignedMachinesWithRisk(
+    List<String> assignedMachineIds,
+    String companyId,
+    Map<String, dynamic>? mergedProfileArgs,
+  ) async {
     final mergedById = <String, Map<String, dynamic>>{};
     void mergeIn(List<Map<String, dynamic>> list) {
+      const missionKeys = <String>[
+        'missionStatus',
+        'missionCompletedAt',
+        'missionConfirmedAt',
+        'missionNeedsTechnicianAck',
+      ];
       for (final m in list) {
         final id = _machineIdFromDoc(m);
-        if (id.isNotEmpty) mergedById[id] = m;
+        if (id.isEmpty) continue;
+        final prev = mergedById[id];
+        final next = Map<String, dynamic>.from(m);
+        if (prev != null) {
+          for (final k in missionKeys) {
+            final pv = prev[k];
+            final nv = next[k];
+            final prevOk = pv != null && pv.toString().trim().isNotEmpty;
+            final nextOk = nv != null && nv.toString().trim().isNotEmpty;
+            if (!nextOk && prevOk) {
+              next[k] = pv;
+            }
+          }
+        }
+        mergedById[id] = next;
       }
+    }
+
+    final orderedFromDb = await _fetchTechnicianMachinesFromApi(mergedProfileArgs);
+    if (orderedFromDb != null && orderedFromDb.isNotEmpty) {
+      mergeIn(orderedFromDb);
     }
 
     try {
@@ -2244,12 +2899,20 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
       mergeIn(await ApiService.getMachines());
     } catch (_) {}
 
-    final allMachines = mergedById.values.toList();
-    final assignedSet = assignedMachineIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
-    final controlledMachines = allMachines.where((m) {
-      final machineId = _machineIdFromDoc(m);
-      return assignedSet.contains(machineId);
-    }).toList();
+    final assignedResolved =
+        await _resolveAssignedMachineIds(assignedMachineIds, companyId, mergedProfileArgs);
+    final assignedSet = assignedResolved.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+
+    late final List<Map<String, dynamic>> controlledMachines;
+    if (orderedFromDb != null && orderedFromDb.isNotEmpty) {
+      controlledMachines = orderedFromDb.map((d) {
+        final id = _machineIdFromDoc(d);
+        return mergedById[id] ?? d;
+      }).toList();
+    } else {
+      final allMachines = mergedById.values.toList();
+      controlledMachines = allMachines.where((m) => _assignedMachineMatches(m, assignedSet)).toList();
+    }
 
     for (final m in controlledMachines) {
       final machineId = _machineIdFromDoc(m);
@@ -2294,6 +2957,13 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     if (s == 'RUNNING') return 92;
     if (s == 'STOPPED') return 58;
     return 75;
+  }
+
+  /// Mission envoyée par la maintenance et encore en attente côté terrain (API ou statut dérivé).
+  bool _machineMissionNeedsAck(Map<String, dynamic> m) {
+    if (m['missionNeedsTechnicianAck'] == true) return true;
+    final s = (m['missionStatus'] ?? '').toString().toUpperCase().trim();
+    return s == 'SENT' || s == 'PENDING' || s == 'STARTED';
   }
 
   Widget _buildTechnicianHistorySection(
@@ -2902,6 +3572,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   }) {
     final running = status.toUpperCase() == 'RUNNING';
     final busy = _startingMarcheIds.contains(machineId);
+    final stopping = _stoppingMarcheIds.contains(machineId);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2939,7 +3610,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             foregroundColor: Colors.black87,
             padding: const EdgeInsets.symmetric(vertical: 10),
           ),
-          onPressed: busy
+          onPressed: (busy || stopping)
               ? null
               : () => _handleStartMachineMarche(
                     context: context,
@@ -2962,6 +3633,35 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700, fontSize: 12),
           ),
         ),
+        if (running) ...[
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: _error,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 10),
+            ),
+            onPressed: (stopping || busy)
+                ? null
+                : () => _handleStopMachineMarche(
+                      context: context,
+                      machineId: machineId,
+                      machineName: machineName,
+                      technicianName: technicianName,
+                    ),
+            icon: stopping
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+                  )
+                : const Icon(Icons.stop_circle_outlined, size: 20),
+            label: Text(
+              stopping ? 'Arrêt en cours…' : 'Machine en stop',
+              style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700, fontSize: 12),
+            ),
+          ),
+        ],
         const SizedBox(height: 8),
         OutlinedButton.icon(
           style: OutlinedButton.styleFrom(
@@ -3005,14 +3705,23 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     String alertText = '',
     Widget? actionFooter,
     bool sessionActiveVisual = false,
+    bool missionAwaitingAck = false,
   }) {
-    final barColor = sessionActiveVisual ? _green : color;
-    final iconBg = sessionActiveVisual ? _green.withOpacity(0.18) : _surfaceContainerLow;
+    final useMissionChrome = missionAwaitingAck;
+    final useSessionChrome = sessionActiveVisual && !useMissionChrome;
+    final barColor = useMissionChrome
+        ? _error
+        : (useSessionChrome ? _green : color);
+    final iconBg = useMissionChrome
+        ? _error.withOpacity(0.2)
+        : (useSessionChrome ? _green.withOpacity(0.18) : _surfaceContainerLow);
 
     Widget card(double pulse) => Material(
-          color: sessionActiveVisual
-              ? const Color(0xFF152A22).withOpacity(0.95)
-              : (isAlert ? _error.withOpacity(0.07 + (0.08 * pulse)) : _surfaceContainerHigh),
+          color: useMissionChrome
+              ? const Color(0xFF2A1518).withOpacity(0.96)
+              : (useSessionChrome
+                  ? const Color(0xFF152A22).withOpacity(0.95)
+                  : (isAlert ? _error.withOpacity(0.07 + (0.08 * pulse)) : _surfaceContainerHigh)),
           borderRadius: BorderRadius.circular(16),
           child: InkWell(
             onTap: onTap,
@@ -3022,21 +3731,32 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: sessionActiveVisual
-                      ? _green.withOpacity(0.75)
-                      : (isAlert ? _error.withOpacity(0.45 + (0.45 * pulse)) : Colors.transparent),
-                  width: sessionActiveVisual ? 1.8 : (isAlert ? 1.8 : 0),
+                  color: useMissionChrome
+                      ? _error.withOpacity(0.65 + (0.25 * pulse))
+                      : (useSessionChrome
+                          ? _green.withOpacity(0.75)
+                          : (isAlert ? _error.withOpacity(0.45 + (0.45 * pulse)) : Colors.transparent)),
+                  width: (useMissionChrome || useSessionChrome || isAlert) ? 1.8 : 0,
                 ),
-                boxShadow: sessionActiveVisual
+                boxShadow: useMissionChrome
                     ? [
                         BoxShadow(
-                          color: _green.withOpacity(0.22),
-                          blurRadius: 18,
+                          color: _error.withOpacity(0.28),
+                          blurRadius: 20,
                           spreadRadius: 0,
                           offset: const Offset(0, 4),
                         ),
                       ]
-                    : null,
+                    : useSessionChrome
+                        ? [
+                            BoxShadow(
+                              color: _green.withOpacity(0.22),
+                              blurRadius: 18,
+                              spreadRadius: 0,
+                              offset: const Offset(0, 4),
+                            ),
+                          ]
+                        : null,
               ),
               child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3047,7 +3767,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(8)),
-                child: Icon(icon, color: sessionActiveVisual ? _green : color, size: 20),
+                child: Icon(icon, color: useMissionChrome ? _error : (useSessionChrome ? _green : color), size: 20),
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -3075,6 +3795,21 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           if (actionFooter != null) const SizedBox(height: 10),
           Text(name, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
           Text('Client: $client', style: TextStyle(color: _onSurfaceVariant, fontSize: 12)),
+          if (missionAwaitingAck) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.mark_email_unread_outlined, color: _error, size: 14),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Mission maintenance — action requise',
+                    style: GoogleFonts.inter(color: _error, fontSize: 11, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (isAlert) ...[
             const SizedBox(height: 6),
             Row(
@@ -3111,7 +3846,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           ),
         );
 
-    if (!isAlert) {
+    if (!isAlert && !missionAwaitingAck) {
       return card(0);
     }
 

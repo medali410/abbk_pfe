@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Controle = require('../models/Controle');
+const ControlCalendrier = require('../models/ControlCalendrier');
 const Machine = require('../models/Machine');
 const Technician = require('../models/Technician');
 const { PREVENTIVE_TEMPS_MARCHE_ONLY_TYPES } = require('../utils/motorSensorRoutineSeuil');
@@ -24,10 +25,9 @@ async function findTechnicianByRequestId(rawId) {
 async function resolveMachineByRequestId(raw) {
     const id = String(raw || '').trim();
     if (!id) return null;
-    if (mongoose.Types.ObjectId.isValid(id)) {
-        const byOid = await Machine.findById(id);
-        if (byOid) return byOid;
-    }
+    /** Schéma Machine : `_id` chaîne (ex. MAC-XXXXXXXX). Ne pas se limiter aux ObjectId 24 hex. */
+    const byId = await Machine.findById(id);
+    if (byId) return byId;
     return Machine.findOne({ machineId: id });
 }
 
@@ -299,6 +299,31 @@ exports.assignControleToTechnician = async (req, res) => {
     }
 };
 
+/**
+ * Journal des saisies enregistrées dans la collection control_calendrier (bouton Valider du calendrier).
+ */
+exports.getCalendrierJournal = async (req, res) => {
+    try {
+        const rawId = String(req.query.machineId || '').trim();
+        if (!rawId) {
+            return res.status(400).json({ message: 'machineId obligatoire' });
+        }
+        const limit = Math.min(Math.max(parseInt(req.query.limit || '50', 10) || 50, 1), 200);
+        const machine = await resolveMachineByRequestId(rawId);
+        const candidates = new Set([rawId]);
+        if (machine) {
+            candidates.add(String(machine._id));
+        }
+        const items = await ControlCalendrier.find({ machineId: { $in: [...candidates] } })
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .lean();
+        res.json(items);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 exports.getPreventiveHistory = async (req, res) => {
     try {
         const machineId = String(req.query.machineId || '').trim();
@@ -406,6 +431,8 @@ exports.createSaisieTerrain = async (req, res) => {
                         rapportControle: rapportPayload,
                         completedAt: now,
                         dateRealisation: now,
+                        machineId: machineKey,
+                        machineName: String(machine.name || ''),
                         ...(tid ? { technicienId: tid } : {}),
                         ...(technicienNom ? { technicienNom } : {}),
                     },
@@ -415,6 +442,20 @@ exports.createSaisieTerrain = async (req, res) => {
             if (!updated) return res.status(404).json({ message: 'Contrôle introuvable' });
             if (isDoneStatus(updated.statut)) {
                 await planNextPreventiveControlFromCompleted(updated);
+            }
+            try {
+                await ControlCalendrier.create({
+                    machineId: machineKey,
+                    machineName: String(machine.name || '').trim(),
+                    jour,
+                    compteRendu,
+                    technicienId: tid || undefined,
+                    technicienNom: technicienNom || '',
+                    controleId: updated._id,
+                    source: 'calendrier_technicien',
+                });
+            } catch (logErr) {
+                console.error('[control_calendrier] insert échoué (mise à jour contrôle)', logErr.message);
             }
             const enriched = await enrichControlesWithMachines([updated]);
             return res.json(enriched[0]);
@@ -442,6 +483,21 @@ exports.createSaisieTerrain = async (req, res) => {
             technicienNom: technicienNom || '',
             motorType: machine.motorType || '',
         });
+
+        try {
+            await ControlCalendrier.create({
+                machineId: machineKey,
+                machineName: String(machine.name || '').trim(),
+                jour,
+                compteRendu,
+                technicienId: tid || undefined,
+                technicienNom: technicienNom || '',
+                controleId: doc._id,
+                source: 'calendrier_technicien',
+            });
+        } catch (logErr) {
+            console.error('[control_calendrier] insert échoué (nouveau contrôle)', logErr.message);
+        }
 
         const enriched = await enrichControlesWithMachines([doc]);
         return res.status(201).json(enriched[0]);

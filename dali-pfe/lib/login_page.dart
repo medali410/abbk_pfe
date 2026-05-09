@@ -324,6 +324,10 @@ class _LoginPageState extends State<LoginPage> {
       var role = (response['role'] ?? 'client').toString().toLowerCase();
       if (role == 'super_admin') role = 'superadmin';
       if (role == 'company_admin') role = 'admin';
+      final resolvedEmail = (response['email'] ?? email).toString().trim();
+      if (ApiService.shouldOpenMaintenanceDashboard(resolvedEmail)) {
+        role = 'maintenance';
+      }
       final token =
           response['token']?.toString() ??
           response['accessToken']?.toString() ??
@@ -355,6 +359,8 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
       if (role == 'maintenance') {
+        await ApiService.clearSavedTechnicianProfile();
+        if (!context.mounted) return;
         Navigator.pushReplacementNamed(context, '/maintenance-dashboard');
         return;
       }
@@ -586,6 +592,11 @@ class _LoginPageState extends State<LoginPage> {
       var role = (response['role'] ?? 'client').toString().toLowerCase();
       if (role == 'super_admin') role = 'superadmin';
       if (role == 'company_admin') role = 'admin';
+      final resolvedEmail =
+          (response['email'] ?? account.email ?? '').toString().trim();
+      if (ApiService.shouldOpenMaintenanceDashboard(resolvedEmail)) {
+        role = 'maintenance';
+      }
       final token =
           response['token']?.toString() ??
           response['accessToken']?.toString() ??
@@ -615,6 +626,7 @@ class _LoginPageState extends State<LoginPage> {
       }
       if (role == 'maintenance') {
         await ApiService.clearStoredClientSession();
+        await ApiService.clearSavedTechnicianProfile();
         if (!context.mounted) return;
         Navigator.pushReplacementNamed(context, '/maintenance-dashboard');
         return;
@@ -688,6 +700,10 @@ class _LoginPageState extends State<LoginPage> {
     var role = (qp['role'] ?? 'client').trim().toLowerCase();
     if (role == 'super_admin') role = 'superadmin';
     if (role == 'company_admin') role = 'admin';
+    final oauthEmail = (qp['email'] ?? '').trim();
+    if (ApiService.shouldOpenMaintenanceDashboard(oauthEmail)) {
+      role = 'maintenance';
+    }
     if (token.isEmpty) return;
     await ApiService.saveAuth(token, role);
 
@@ -711,6 +727,7 @@ class _LoginPageState extends State<LoginPage> {
     }
     if (role == 'maintenance') {
       await ApiService.clearStoredClientSession();
+      await ApiService.clearSavedTechnicianProfile();
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/maintenance-dashboard');
       return;

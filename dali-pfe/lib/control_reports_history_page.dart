@@ -6,7 +6,17 @@ import 'services/api_service.dart';
 enum _ReportStatusFilter { all, valide, anomalie }
 
 class ControlReportsHistoryPage extends StatefulWidget {
-  const ControlReportsHistoryPage({super.key});
+  const ControlReportsHistoryPage({
+    super.key,
+    this.initialArguments,
+    this.onClose,
+  });
+
+  /// Depuis le profil technicien (sans route nommée).
+  final Map<String, dynamic>? initialArguments;
+
+  /// Fermer le panneau embarqué (profil + sidebar visibles).
+  final VoidCallback? onClose;
 
   @override
   State<ControlReportsHistoryPage> createState() => _ControlReportsHistoryPageState();
@@ -41,7 +51,8 @@ class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage> {
     super.didChangeDependencies();
     if (_argsLoaded) return;
     _argsLoaded = true;
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    final routeArgs = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    final args = widget.initialArguments ?? routeArgs;
     _technicianName = (args?['technicianName'] ?? 'TECHNICIEN').toString();
     _technicianId = (args?['technicianId'] ?? '').toString().trim();
     _historyMode = (args?['historyMode'] ?? 'all_controls').toString().trim();
@@ -189,6 +200,15 @@ class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage> {
       backgroundColor: _bg,
       appBar: AppBar(
         backgroundColor: _surfaceHeader,
+        automaticallyImplyLeading: widget.onClose == null,
+        leading:
+            widget.onClose != null
+                ? IconButton(
+                  tooltip: 'Fermer',
+                  icon: const Icon(Icons.close),
+                  onPressed: widget.onClose,
+                )
+                : null,
         title: Text(
           _historyMode == 'reports' ? 'Historique des rapports' : 'Historique des contrôles',
           style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),

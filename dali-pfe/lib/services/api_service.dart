@@ -47,6 +47,24 @@ class ApiService {
     return r == 'superadmin' || r == 'admin';
   }
 
+  /// E-mails pour lesquels on force le tableau de bord « maintenance » même si le backend renvoie `technician`.
+  static const Set<String> _maintenanceDashboardEmails = {
+    'lemjiddali341@gmail.com',
+    'lemjiddall341@gmail.com',
+  };
+
+  /// Normalise l’e-mail et indique si la navigation doit aller vers [MaintenanceDashboardPage].
+  static bool shouldOpenMaintenanceDashboard(String? email) {
+    final e = (email ?? '').trim().toLowerCase();
+    return e.isNotEmpty && _maintenanceDashboardEmails.contains(e);
+  }
+
+  static Future<void> clearSavedTechnicianProfile() async {
+    _savedTechnicianProfile = null;
+    final p = await SharedPreferences.getInstance();
+    await p.remove(_kTechnicianProfileJson);
+  }
+
   /// Autorisé à ajouter des machines : rôle Concepteur uniquement.
   static bool get canAddMachineAsConcepteur {
     final r = (_userRole ?? '').toLowerCase();
@@ -224,6 +242,9 @@ class ApiService {
       'email': (qp['email'] ?? '').trim(),
       'companyId': (qp['companyId'] ?? '').trim(),
       'machineIds': mids,
+      'imageUrl': (qp['imageUrl'] ?? '').trim(),
+      'specialization': (qp['specialization'] ?? '').trim(),
+      'status': (qp['status'] ?? '').trim(),
     };
   }
 
@@ -246,7 +267,7 @@ class ApiService {
     await ensureAuthTokenLoaded();
     if (_authToken == null || _authToken!.isEmpty) {
       throw Exception(
-        'Session non connectée : reconnectez-vous (compte super-admin ou admin).',
+        'Session non connectée : reconnectez-vous depuis l’écran de connexion.',
       );
     }
     return _jsonHeaders(withAuth: true);
@@ -481,6 +502,54 @@ class ApiService {
     } else {
       _throwApiError(response, 'Erreur lors de la modification du profil technicien');
     }
+  }
+
+  /// Profil Mongo du technicien connecté (`imageUrl`, `name`, …) — GET /api/technician/me.
+  static Future<Map<String, dynamic>> getMyTechnicianProfile() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/technician/me'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final decoded = json.decode(response.body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    }
+    _throwApiError(response, 'Profil technicien indisponible');
+  }
+
+  /// Machines Mongo liées au technicien connecté (`machineIds`) — GET /api/technician/me/machines.
+  static Future<List<Map<String, dynamic>>> getMyTechnicianMachines() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/technician/me/machines'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    _throwApiError(response, 'Chargement des machines technicien impossible');
+  }
+
+  /// Machines assignées à un technicien (super-admin / admin client / conception).
+  static Future<List<Map<String, dynamic>>> getTechnicianMachinesByTechnicianId(String technicianId) async {
+    final enc = Uri.encodeComponent(technicianId.trim());
+    final response = await http.get(
+      Uri.parse('$baseUrl/technicians/$enc/machines'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    _throwApiError(response, 'Chargement machines du technicien impossible');
+  }
+
+  /// Pour [Image.network] vers fichiers sur la même origine que [baseUrl] (Authorization requise).
+  static Map<String, String>? bearerHeadersForNetworkImage() {
+    final t = authToken;
+    if (t == null || t.isEmpty) return null;
+    return {'Authorization': 'Bearer $t'};
   }
 
   static Future<void> deleteTechnician(String id) async {
@@ -808,6 +877,23 @@ class ApiService {
     _throwApiError(response, 'Chargement espace maintenance impossible');
   }
 
+  /// Profil Mongo de l’agent maintenance connecté — PATCH `/maintenance/me`.
+  static Future<Map<String, dynamic>> updateMyMaintenanceProfile(
+    Map<String, dynamic> data,
+  ) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/maintenance/me'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode(data),
+    );
+    if (response.statusCode == 200) {
+      final decoded = json.decode(response.body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    }
+    _throwApiError(response, 'Mise à jour du profil maintenance refusée');
+  }
+
   // -------------------------
   // IA PREDICTION
   // -------------------------
@@ -1072,7 +1158,8 @@ class ApiService {
     _throwApiError(response, 'Envoi message diagnostic refusé');
   }
 
-  static Future<void> addCoordinationNote(
+  /// Réponse serveur : `{ ok, noteId, note? }` — `note` permet d’afficher la mission sans attendre le websocket.
+  static Future<Map<String, dynamic>> addCoordinationNote(
     String interventionId,
     String content, {
     String? authorName,
@@ -1087,7 +1174,15 @@ class ApiService {
         if (authorName != null && authorName.isNotEmpty) 'authorName': authorName,
       }),
     );
-    if (response.statusCode == 200) return;
+    if (response.statusCode == 200) {
+      try {
+        final decoded = json.decode(response.body);
+        if (decoded is Map) {
+          return Map<String, dynamic>.from(decoded as Map);
+        }
+      } catch (_) {}
+      return {'ok': true};
+    }
     _throwApiError(response, 'Envoi note de coordination refusé');
   }
 
@@ -1103,6 +1198,21 @@ class ApiService {
     );
     if (response.statusCode == 200) return;
     _throwApiError(response, 'Mise à jour du statut mission refusée');
+  }
+
+  /// Accusé sur un message du canal discussion (`messages[]`), pas une note de coordination.
+  static Future<void> updateDiagnosticMessageStatus(
+    String interventionId,
+    String messageId,
+    String status,
+  ) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/diagnostic-interventions/$interventionId/messages/$messageId/status'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode({'status': status}),
+    );
+    if (response.statusCode == 200) return;
+    _throwApiError(response, 'Mise à jour du statut du message refusée');
   }
 
   static Future<void> addDiagnosticStep(
@@ -1497,6 +1607,28 @@ class ApiService {
       return Map<String, dynamic>.from(decoded);
     }
     _throwApiError(response, 'Erreur enregistrement du compte-rendu');
+  }
+
+  /// Entrées `control_calendrier` pour une machine (journal du bouton Valider).
+  static Future<List<Map<String, dynamic>>> getControlCalendrierJournal(
+    String machineId, {
+    int limit = 50,
+  }) async {
+    final uri = Uri.parse('$baseUrl/controles/calendrier-journal').replace(
+      queryParameters: <String, String>{
+        'machineId': machineId,
+        'limit': '$limit',
+      },
+    );
+    final response = await http.get(uri, headers: await jsonHeadersAuthorized());
+    if (response.statusCode == 200) {
+      final decoded = json.decode(response.body);
+      if (decoded is List) {
+        return decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+      return <Map<String, dynamic>>[];
+    }
+    _throwApiError(response, 'Erreur chargement journal calendrier');
   }
 
   static Future<void> updateControleStatus(

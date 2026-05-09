@@ -23,6 +23,10 @@ const MessageSchema = new mongoose.Schema({
     messageType: { type: String, enum: ['TEXT', 'SYSTEM'], default: 'TEXT' },
     isMission: { type: Boolean, default: false },
     missionStatus: { type: String, enum: ['SENT', 'PENDING', 'CONFIRMED', 'COMPLETED'] },
+    /** Horodatages côté technicien (persistés quand Confirmer / Terminer). */
+    missionConfirmedAt: { type: Date, default: null },
+    missionCompletedAt: { type: Date, default: null },
+    technicianAckById: { type: String, default: '' },
     createdAt: { type: Date, default: Date.now },
 }, { _id: true });
 
