@@ -1,0 +1,31 @@
+{
+  "name": "dali-pfe-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "API Node.js + SQL (Prisma) pour Flutter DALI PFE",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node src/index.js",
+    "db:push": "prisma db push",
+    "db:seed": "node prisma/seed.js",
+    "db:studio": "prisma studio",
+    "setup": "prisma generate && prisma db push && node prisma/seed.js",
+    "db:local:up": "docker compose up -d",
+    "db:local:down": "docker compose down",
+    "db:local:logs": "docker compose logs -f postgres"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.8.2",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "google-auth-library": "^9.15.1",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^6.10.0",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "prisma": "^6.8.2"
+  }
+}

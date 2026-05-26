@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:http/http.dart' as http;
@@ -41,7 +42,10 @@ class ApiService {
   static bool get isSuperAdmin =>
       (_userRole ?? '').toLowerCase() == 'superadmin';
 
-  /// Super-admin ou admin d'entreprise (COMPANY_ADMIN).
+  /// Super-admin et admin entreprise : même acteur (gestion flotte).
+  static bool get isFleetAdmin => canManageFleet;
+
+  /// Super-admin ou admin d'entreprise (COMPANY_ADMIN) — même périmètre UI / API flotte.
   static bool get canManageFleet {
     final r = (_userRole ?? '').toLowerCase();
     return r == 'superadmin' || r == 'admin';
@@ -96,22 +100,28 @@ class ApiService {
     }
   }
 
-  static Future<void> saveAuth(String? token, String role) async {
+  static Future<void> saveAuth(String? token, String role, {bool persist = true}) async {
     _authToken = (token != null && token.isNotEmpty) ? token : null;
     _userRole = role;
     final p = await SharedPreferences.getInstance();
     try {
-      if (_authToken != null) {
+      if (_authToken != null && persist) {
         await p.setString(_kToken, _authToken!);
       } else {
         await p.remove(_kToken);
       }
-      await p.setString(_kRole, role);
+
+      if (persist) {
+        await p.setString(_kRole, role);
+      } else {
+        await p.remove(_kRole);
+      }
     } catch (e) {
       // Web : navigation privée / quota — le jeton reste en mémoire pour la session courante.
       debugPrint('ApiService.saveAuth: stockage local indisponible ($e)');
     }
   }
+
 
   static Future<void> clearAuth() async {
     _authToken = null;
@@ -292,15 +302,8 @@ class ApiService {
     }
     const apiPort = String.fromEnvironment('API_PORT', defaultValue: '3001');
     if (kIsWeb) {
-      final scheme = Uri.base.scheme.isEmpty ? 'http' : Uri.base.scheme;
-      var host = Uri.base.host;
-      if (host.isEmpty) {
-        host = '127.0.0.1';
-      } else if (host == 'localhost') {
-        // Évite souvent les refus de connexion (IPv6 ::1 vs API en IPv4) sous Windows.
-        host = '127.0.0.1';
-      }
-      return '$scheme://$host:$apiPort/api';
+      // Toujours localhost côté web : même résolution IPv4 que node server.js.
+      return 'http://localhost:$apiPort/api';
     }
     return 'http://127.0.0.1:$apiPort/api';
   }
@@ -354,7 +357,10 @@ class ApiService {
   // --- Technicians ---
   
   static Future<List<Map<String, dynamic>>> getTechnicians() async {
-    final response = await http.get(Uri.parse('$baseUrl/technicians'));
+    final response = await http.get(
+      Uri.parse('$baseUrl/technicians'),
+      headers: await jsonHeadersAuthorized(),
+    );
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.cast<Map<String, dynamic>>();
@@ -377,7 +383,10 @@ class ApiService {
   }
 
   static Future<List<Map<String, dynamic>>> getTechniciansForClient(String clientId) async {
-    final response = await http.get(Uri.parse('$baseUrl/clients/$clientId/technicians'));
+    final response = await http.get(
+      Uri.parse('$baseUrl/clients/$clientId/technicians'),
+      headers: await jsonHeadersAuthorized(),
+    );
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.cast<Map<String, dynamic>>();
@@ -386,47 +395,124 @@ class ApiService {
     }
   }
 
-  static Future<List<Map<String, dynamic>>> getMachines() async {
-    final response = await http.get(Uri.parse('$baseUrl/machines'));
-    if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      return data.cast<Map<String, dynamic>>();
-    } else {
-      throw Exception('Erreur de chargement des machines');
-    }
-  }
+  static Map<String, String> get _noCacheHeaders => const {
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+  };
 
-  /// Toutes les machines présentes en MongoDB (inclut non assignées / companyId vide).
-  static Future<List<Map<String, dynamic>>> getAllMachinesFromMongo() async {
-    final response = await http.get(Uri.parse('$baseUrl/machines?includeAllMongo=1'));
-    if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      return data.cast<Map<String, dynamic>>();
-    } else {
-      throw Exception('Erreur de chargement complet des machines Mongo');
-    }
-  }
+  /// Sur le web, éviter Cache-Control/Pragma en requête (preflight CORS bloqué sinon).
+  static Map<String, String> get _getHeaders =>
+      kIsWeb ? const {} : _noCacheHeaders;
 
-  /// Catalogue public home: on essaie d'abord la source Mongo complète.
-  /// Fallback sur l'endpoint standard pour rester compatible avec d'anciens backends.
-  static Future<List<Map<String, dynamic>>> getMachinesForHomeCatalog() async {
-    try {
-      return await getAllMachinesFromMongo();
-    } catch (_) {
+  /// Réessaie les GET catalogue si le backend n’est pas encore prêt (Failed to fetch / 503).
+  static Future<http.Response> _getWithStartupRetry(
+    Uri uri, {
+    int maxAttempts = 4,
+  }) async {
+    Object? lastError;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        return await getMachines();
-      } catch (e) {
-        throw Exception(
-          'Chargement machines impossible via API_BASE ($baseUrl). '
-          'Lancez Flutter avec --dart-define=API_BASE=http://127.0.0.1:3001 ou vérifiez le backend. Détail: $e',
+        final response = await http
+            .get(uri, headers: _getHeaders)
+            .timeout(const Duration(seconds: 15));
+        if (response.statusCode == 503 && attempt < maxAttempts - 1) {
+          await Future<void>.delayed(
+            Duration(milliseconds: 450 * (attempt + 1)),
+          );
+          continue;
+        }
+        return response;
+      } on http.ClientException catch (e) {
+        lastError = e;
+        debugPrint(
+          'API GET ${uri.path} tentative ${attempt + 1}/$maxAttempts: $e',
+        );
+      } on TimeoutException catch (e) {
+        lastError = e;
+        debugPrint(
+          'API GET ${uri.path} timeout tentative ${attempt + 1}/$maxAttempts',
+        );
+      }
+      if (attempt < maxAttempts - 1) {
+        await Future<void>.delayed(
+          Duration(milliseconds: 450 * (attempt + 1)),
         );
       }
     }
+    throw lastError ??
+        Exception(
+          'Impossible de joindre le serveur API (${uri.origin}). '
+          'Vérifiez que node server.js tourne sur le port attendu.',
+        );
   }
+
+  /// Machines assignées (companyId renseigné) — base Atlas via API.
+  static Future<List<Map<String, dynamic>>> getMachines() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/machines'),
+      headers: _getHeaders,
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    _throwApiError(response, 'Erreur de chargement des machines');
+  }
+
+
+  /// URIs catalogue : repli localhost ↔ 127.0.0.1 si [API_BASE] force un seul hôte.
+  static List<Uri> _catalogMachinesUris() {
+    final primary = Uri.parse('$baseUrl/machines?catalog=1');
+    if (!kIsWeb) return [primary];
+    const fromEnv = String.fromEnvironment('API_BASE', defaultValue: '');
+    if (fromEnv.isNotEmpty) return [primary];
+    final altHost =
+        primary.host == '127.0.0.1' ? 'localhost' : '127.0.0.1';
+    if (altHost == primary.host) return [primary];
+    return [primary, primary.replace(host: altHost)];
+  }
+
+  /// Catalogue / liste complète : uniquement la base principale (Atlas), pas de repli local.
+  static Future<List<Map<String, dynamic>>> getCatalogMachines() async {
+    Object? lastError;
+    for (final uri in _catalogMachinesUris()) {
+      try {
+        debugPrint('[API] GET catalogue → $uri');
+        final response = await _getWithStartupRetry(uri);
+        if (response.statusCode == 200) {
+          final List<dynamic> data = json.decode(response.body);
+          return data.cast<Map<String, dynamic>>();
+        }
+        if (response.statusCode == 503) {
+          _throwApiError(
+            response,
+            'Base de données indisponible — vérifiez MONGO_URI et redémarrez node server.js',
+          );
+        }
+        _throwApiError(response, 'Erreur de chargement du catalogue machines');
+      } catch (e) {
+        lastError = e;
+        debugPrint('[API] échec catalogue $uri → $e');
+      }
+    }
+    throw lastError ??
+        Exception(
+          'Impossible de joindre l’API (${baseUrl}). '
+          'Démarrez iot-backend : node server.js (port 3001).',
+        );
+  }
+
+  /// Alias historique → [getCatalogMachines] (source unique Atlas).
+  static Future<List<Map<String, dynamic>>> getAllMachinesFromMongo() =>
+      getCatalogMachines();
+
+  /// Catalogue accueil / client : une seule requête API, pas de données locales ni fallback.
+  static Future<List<Map<String, dynamic>>> getMachinesForHomeCatalog() =>
+      getCatalogMachines();
 
   static Future<List<Map<String, dynamic>>> getUnassignedMachines() async {
     final response = await http.get(
-      Uri.parse('$baseUrl/machines/unassigned'),
+      Uri.parse('$baseUrl/machines?unassigned=1'),
       headers: await jsonHeadersAuthorized(),
     );
     if (response.statusCode == 200) {
@@ -565,6 +651,39 @@ class ApiService {
   // CLIENTS
   // -------------------------
 
+  /// Comptages KPI dashboard admin (MongoDB).
+  static Future<Map<String, int>> getDashboardKpis() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/dashboard/kpis'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      int n(dynamic v) => (v is num) ? v.toInt() : int.tryParse('$v') ?? 0;
+      return {
+        'clients': n(data['clients']),
+        'machines': n(data['machines']),
+        'machinesEnLigne': n(data['machinesEnLigne']),
+        'concepteurs': n(data['concepteurs']),
+        'technicians': n(data['technicians']),
+        'documents': n(data['documents']),
+      };
+    }
+    _throwApiError(response, 'Erreur chargement KPI dashboard');
+  }
+
+  /// Risques (télémétrie) + marqueurs carte pour machines en marche.
+  static Future<Map<String, dynamic>> getDashboardFleetOverview() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/dashboard/fleet-overview'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    _throwApiError(response, 'Erreur chargement synthèse flotte');
+  }
+
   static Future<List<Map<String, dynamic>>> getClients() async {
     final response = await http.get(
       Uri.parse('$baseUrl/clients'),
@@ -631,6 +750,26 @@ class ApiService {
       return json.decode(response.body) as Map<String, dynamic>;
     }
     _throwApiError(response, 'Creation de compte client impossible');
+  }
+
+  /// Vérifie si le backend a de vrais identifiants Google OAuth (évite invalid_client).
+  static Future<bool> isGoogleOAuthConfigured() async {
+    try {
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/auth/google/status'),
+            headers: _getHeaders,
+          )
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return false;
+      final decoded = json.decode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        return decoded['configured'] == true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
   }
 
   static Future<Map<String, dynamic>> clientGoogleAuth({
@@ -766,7 +905,10 @@ class ApiService {
   }
 
   static Future<List<Map<String, dynamic>>> getMachinesForClient(String clientId) async {
-    final response = await http.get(Uri.parse('$baseUrl/clients/$clientId/machines'));
+    final response = await http.get(
+      Uri.parse('$baseUrl/clients/$clientId/machines'),
+      headers: await jsonHeadersAuthorized(),
+    );
     if (response.statusCode == 200) {
       List<dynamic> body = json.decode(response.body);
       return body.map((dynamic item) => item as Map<String, dynamic>).toList();
@@ -800,7 +942,10 @@ class ApiService {
 
   static Future<List<Map<String, dynamic>>> getCompanies() async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/companies'));
+      final response = await http.get(
+        Uri.parse('$baseUrl/companies'),
+        headers: await jsonHeadersAuthorized(),
+      );
       if (response.statusCode == 200) {
         List<dynamic> body = json.decode(response.body);
         return body.map((e) => e as Map<String, dynamic>).toList();
@@ -914,7 +1059,10 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> getModelMetrics() async {
-    final response = await http.get(Uri.parse('$baseUrl/model-metrics'));
+    final response = await http.get(
+      Uri.parse('$baseUrl/model-metrics'),
+      headers: await jsonHeadersAuthorized(),
+    );
     if (response.statusCode == 200) {
       return json.decode(response.body) as Map<String, dynamic>;
     }
@@ -1019,9 +1167,16 @@ class ApiService {
   // MAINTENANCE & CONCEPTEURS
   // -------------------------
 
-  static Future<List<Map<String, dynamic>>> getMaintenanceOrders() async {
+  static Future<List<Map<String, dynamic>>> getMaintenanceOrders({String? machineId}) async {
+    final qp = <String, String>{
+      if (machineId != null && machineId.trim().isNotEmpty)
+        'machineId': machineId.trim(),
+    };
+    final uri = Uri.parse('$baseUrl/maintenance-orders').replace(
+      queryParameters: qp.isEmpty ? null : qp,
+    );
     final response = await http.get(
-      Uri.parse('$baseUrl/maintenance-orders'),
+      uri,
       headers: await jsonHeadersAuthorized(),
     );
     if (response.statusCode == 200) {
@@ -1462,53 +1617,93 @@ class ApiService {
 
   static Future<List<Map<String, dynamic>>> getChatMessages(
     String roomId, {
-    int limit = 200,
+    int limit = 300,
   }) async {
     final response = await http.get(
-      Uri.parse('$baseUrl/chat/messages?roomId=$roomId&limit=$limit'),
+      Uri.parse('$baseUrl/chat/messages/${Uri.encodeComponent(roomId)}?limit=$limit'),
+      headers: await jsonHeadersAuthorized(),
     );
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.cast<Map<String, dynamic>>();
     }
-    throw Exception('Erreur de chargement des messages');
+    return <Map<String, dynamic>>[];
   }
 
   static Future<List<Map<String, dynamic>>> getTechnicianConversations(
     String technicianId,
   ) async {
     final response = await http.get(
-      Uri.parse('$baseUrl/chat/technician-conversations?technicianId=$technicianId'),
+      Uri.parse('$baseUrl/chat/conversations/conception'),
+      headers: await jsonHeadersAuthorized(),
     );
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.cast<Map<String, dynamic>>();
     }
-    throw Exception('Erreur de chargement des conversations technicien');
+    return <Map<String, dynamic>>[];
   }
 
   static Future<List<Map<String, dynamic>>> getClientConversations(
     String clientId,
   ) async {
     final response = await http.get(
-      Uri.parse('$baseUrl/chat/client-conversations?clientId=$clientId'),
+      Uri.parse('$baseUrl/chat/conversations/conception'),
+      headers: await jsonHeadersAuthorized(),
     );
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.cast<Map<String, dynamic>>();
     }
-    throw Exception('Erreur de chargement des conversations client');
+    return <Map<String, dynamic>>[];
   }
 
   static Future<List<Map<String, dynamic>>> getConceptionConversations() async {
     final response = await http.get(
-      Uri.parse('$baseUrl/chat/conception-conversations'),
+      Uri.parse('$baseUrl/chat/conversations/conception'),
+      headers: await jsonHeadersAuthorized(),
     );
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       return data.cast<Map<String, dynamic>>();
     }
-    throw Exception('Erreur de chargement des conversations conception');
+    return <Map<String, dynamic>>[];
+  }
+
+  static Future<List<Map<String, dynamic>>> searchConcepteurs(String query) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/chat/concepteurs/search?query=${Uri.encodeComponent(query)}'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    return <Map<String, dynamic>>[];
+  }
+
+  static Future<String?> uploadChatAttachment({
+    required String base64Data,
+    required String filename,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/chat/upload'),
+        headers: await jsonHeadersAuthorized(),
+        body: json.encode({
+          'base64Data': base64Data,
+          'filename': filename,
+        }),
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['url'] as String?;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Erreur uploadChatAttachment: $e');
+      return null;
+    }
   }
 
   // -------------------------
@@ -1691,4 +1886,5 @@ class ApiService {
     }
     _throwApiError(response, 'Chargement historique maintenance préventive impossible');
   }
+
 }

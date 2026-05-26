@@ -11,21 +11,28 @@ import 'add_maintenance_agent_page.dart';
 import 'maintenance_agent_detail_page.dart';
 import 'maintenance_module_page.dart';
 import 'widgets/machine_control_calendar_panel.dart';
+import 'widgets/machine_history_view.dart';
 import 'dart:async';
 
 class MachineDetailAiPage extends StatefulWidget {
   final String machineId;
   final String? machineName;
   final String? clientId;
+  final String? location;
   final String? viewerRole;
   final String? viewerName;
+  final bool embedded;
+  final VoidCallback? onBack;
   const MachineDetailAiPage({
     super.key,
     required this.machineId,
     this.machineName,
     this.clientId,
+    this.location,
     this.viewerRole,
     this.viewerName,
+    this.embedded = false,
+    this.onBack,
   });
 
   @override
@@ -108,6 +115,7 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 700))..repeat(reverse: true);
     _machineId = widget.machineId.trim();
     _machineName = widget.machineName;
+    _zone = widget.location ?? 'Zone inconnue';
     _acceptedMachineIds = _buildAcceptedMachineIds(_machineId, _machineName);
     _historyFuture = ApiService.getTelemetryHistory(_machineId, limit: 20);
     _loadInitialTelemetry();
@@ -615,7 +623,8 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
       _senderRole == 'admin' ||
       _senderRole == 'company_admin' ||
       _senderRole == 'technician' ||
-      _senderRole == 'conception';
+      _senderRole == 'conception' ||
+      _senderRole == 'client';
 
   Future<void> _emergencyStopMachine() async {
     if (_isStoppingMachine) return;
@@ -753,11 +762,9 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bg,
-      body: SafeArea(
+    final inner = SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.all(widget.embedded ? 12 : 20),
           child: Column(
             children: [
               _topNav(),
@@ -789,9 +796,7 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                                                 return Row(
                                                   crossAxisAlignment: CrossAxisAlignment.start,
                                                   children: [
-                                                    Expanded(flex: 58, child: _sensorsPanel()),
-                                                    const SizedBox(width: 16),
-                                                    Expanded(flex: 42, child: _aiPanel()),
+                                                    Expanded(flex: 100, child: _sensorsPanel()),
                                                   ],
                                                 );
                                               }
@@ -799,8 +804,6 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                                 children: [
                                                   _sensorsPanel(),
-                                                  const SizedBox(height: 16),
-                                                  _aiPanel(),
                                                 ],
                                               );
                                             },
@@ -825,13 +828,15 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                                 },
                               ),
               ),
-              const SizedBox(height: 12),
-              _bottomTicker(),
             ],
           ),
         ),
-      ),
-    );
+      );
+
+    if (widget.embedded) {
+      return ColoredBox(color: _bg, child: inner);
+    }
+    return Scaffold(backgroundColor: _bg, body: inner);
   }
 
   Widget _topNav() {
@@ -844,6 +849,14 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (widget.onBack != null) ...[
+              IconButton(
+                onPressed: widget.onBack,
+                icon: const Icon(Icons.arrow_back_ios_new, color: _orange, size: 20),
+                tooltip: 'Retour au parc machines',
+              ),
+              const SizedBox(width: 4),
+            ],
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -877,95 +890,54 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
             ),
           ],
         ),
+        const SizedBox(height: 20),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _topNavItem('VUE D\'ENSEMBLE', 'dashboard'),
+              const SizedBox(width: 16),
+              _topNavItem('HISTORIQUE', 'history'),
+              const SizedBox(width: 16),
+              _topNavItem('ÉQUIPE MACHINE', 'technicians'),
+            ],
+          ),
+        ),
         const SizedBox(height: 12),
-        _clientMachinesStrip(),
-        const SizedBox(height: 14),
         Divider(height: 1, color: Colors.white.withOpacity(0.07)),
       ],
     );
   }
 
-  Widget _clientMachinesStrip() {
-    final machines = _machinesForCurrentClient;
-    return Container(
-      height: 64,
-      decoration: BoxDecoration(
-        color: _panel.withOpacity(0.65),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+  Widget _topNavItem(String label, String tabKey) {
+    final active = _sideTab == tabKey;
+    return InkWell(
+      onTap: () => setState(() => _sideTab = tabKey),
+      borderRadius: BorderRadius.circular(4),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: active ? _orange : Colors.transparent,
+              width: 2,
+            ),
+          ),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 11,
+            fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+            color: active ? _text : _text.withOpacity(0.4),
+            letterSpacing: 1.1,
+          ),
+        ),
       ),
-      child: _loadingSidebarMachines
-          ? Center(
-              child: SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2, color: _orange),
-              ),
-            )
-          : _sidebarMachinesError != null
-              ? Center(
-                  child: Text(
-                    'Erreur chargement machines',
-                    style: GoogleFonts.inter(fontSize: 11, color: _red),
-                  ),
-                )
-              : machines.isEmpty
-                  ? Center(
-                      child: Text(
-                        'Aucune machine client',
-                        style: GoogleFonts.inter(fontSize: 11, color: _text.withOpacity(0.6)),
-                      ),
-                    )
-                  : ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                      itemCount: machines.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
-                      itemBuilder: (context, index) {
-                        final machine = machines[index];
-                        final id = _sidebarMachineId(machine);
-                        final name = _sidebarMachineName(machine);
-                        final active = id == _machineId;
-                        return InkWell(
-                          onTap: () => _openMachineFromSidebar(machine),
-                          borderRadius: BorderRadius.circular(10),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: active ? _orange.withOpacity(0.14) : _panel2.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: active ? _orange.withOpacity(0.85) : Colors.white.withOpacity(0.08),
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  name.toUpperCase(),
-                                  style: GoogleFonts.spaceGrotesk(
-                                    fontSize: 10,
-                                    color: active ? _orange : _text,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 0.7,
-                                  ),
-                                ),
-                                Text(
-                                  id,
-                                  style: GoogleFonts.inter(
-                                    fontSize: 9,
-                                    color: active ? _text.withOpacity(0.9) : _text.withOpacity(0.55),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
     );
   }
+
 
   Widget _leftNav() {
     final machines = _sidebarMachines;
@@ -1389,16 +1361,7 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                               _emergencyStopButton(),
                               const SizedBox(width: 8),
                             ],
-                            ElevatedButton.icon(
-                              onPressed: _changeMotorImage,
-                              icon: const Icon(Icons.image_outlined, size: 16),
-                              label: Text('Image', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700)),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: _orange,
-                                foregroundColor: const Color(0xFF1A0A00),
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                              ),
-                            ),
+                            // Image button removed
                           ],
                         ),
                       ),
@@ -1530,62 +1493,6 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     );
   }
 
-  void _changeMotorImage() {
-    final images = [
-      'assets/images/motor_3d_default.png',
-    ];
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: _panel2,
-        title: Text('Changer l\'image 3D du moteur',
-            style: GoogleFonts.inter(color: _text, fontWeight: FontWeight.bold)),
-        content: SizedBox(
-          width: 500,
-          height: 280,
-          child: GridView.builder(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-            ),
-            itemCount: images.length,
-            itemBuilder: (_, i) {
-              final selected = _motor3dAsset == images[i];
-              return GestureDetector(
-                onTap: () {
-                  setState(() => _motor3dAsset = images[i]);
-                  Navigator.pop(ctx);
-                },
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: _panel,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: selected ? _orange : Colors.white10,
-                      width: selected ? 2 : 1,
-                    ),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(9),
-                    child: Image.asset(images[i], fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                            const Center(child: Icon(Icons.broken_image, color: _muted))),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Fermer'),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _sensorsPanel() {
     final irLabel = _infrared <= 0 ? 'N/A' : (_infrared < 1.5 ? 'FAIBLE' : 'ACTIF');
@@ -1610,23 +1517,6 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                 style: GoogleFonts.spaceGrotesk(fontSize: 11, fontWeight: FontWeight.w800, color: _text, letterSpacing: 1.4),
               ),
               const SizedBox(width: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: (_lastMqttPacketAt != null ? _green : _red).withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: (_lastMqttPacketAt != null ? _green : _red).withOpacity(0.35)),
-                ),
-                child: Text(
-                  _lastMqttPacketAt != null ? 'POLLING' : 'OFFLINE',
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: 8,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.2,
-                    color: _lastMqttPacketAt != null ? _green : _red,
-                  ),
-                ),
-              ),
               const Spacer(),
               Text(
                 '$_wifiRssi dBm · $_zone',
@@ -1634,41 +1524,7 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: _panel,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white.withOpacity(0.05)),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  _lastMqttPacketAt == null ? Icons.sync_disabled_rounded : Icons.hub_rounded,
-                  size: 14,
-                  color: _lastMqttPacketAt == null ? _red.withOpacity(0.85) : _cyan.withOpacity(0.85),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _lastMqttPacketAt == null
-                        ? 'MQTT · attente flux · $_machineId'
-                        : 'MQTT · $_mqttPacketCount paquets · ${_lastMqttPacketAt!.hour.toString().padLeft(2, '0')}:${_lastMqttPacketAt!.minute.toString().padLeft(2, '0')}:${_lastMqttPacketAt!.second.toString().padLeft(2, '0')}',
-                    style: GoogleFonts.inter(fontSize: 10, color: _text.withOpacity(0.55), height: 1.2),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (_lastMqttPacketAt == null) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Valeurs issues de la dernière télémétrie API jusqu’à réception MQTT.',
-              style: GoogleFonts.inter(fontSize: 9, height: 1.35, color: _muted.withOpacity(0.75)),
-            ),
-          ],
+          // MQTT status bar removed
           const SizedBox(height: 14),
           GridView.count(
             shrinkWrap: true,
@@ -1676,23 +1532,14 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
             crossAxisCount: 3,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
-            childAspectRatio: 1.22,
+            childAspectRatio: 1.8,
             children: [
               _sensorTile('THERMIQUE', '${_thermal.toStringAsFixed(1)} °C', Icons.thermostat_rounded, _thermal >= 75 ? _red : _cyan, panneKey: 'thermal'),
-              _sensorTile(
-                'PRESSION',
-                _pressure > 0 && _pressure < 2 ? '${_pressure.toStringAsFixed(3)} BAR' : '${_pressure.toStringAsFixed(1)} BAR',
-                Icons.speed_rounded,
-                _cyan,
-                panneKey: 'pressure',
-              ),
+              _sensorTile('PRESSION', '${_pressure.toStringAsFixed(1)} BAR', Icons.speed_rounded, _cyan, panneKey: 'pressure'),
               _sensorTile('PUISSANCE', '${_power.toStringAsFixed(1)} kW', Icons.bolt_rounded, const Color(0xFFFFD54F), panneKey: 'power'),
               _sensorTile('VIBRATION', '${_vibration.toStringAsFixed(2)} mm/s', Icons.vibration_rounded, _vibration >= 4 ? _red : _cyan, panneKey: 'vibration'),
               _sensorTile('MAGNÉTIQUE', '${_magnetic.toStringAsFixed(2)} mT', Icons.explore_rounded, const Color(0xFF90CAF9)),
               _sensorTile('INFRA-ROUGE', irLabel, Icons.local_fire_department_outlined, const Color(0xFFFFAB91)),
-              _sensorTile('RPM', '${_rpm.toStringAsFixed(0)} tr/min', Icons.rotate_right_rounded, _cyan),
-              _sensorTile('COUPLE', '${_torque.toStringAsFixed(1)} Nm', Icons.settings_input_component_rounded, const Color(0xFFB39DDB)),
-              _sensorTile('PRÉSENCE', _presence >= 0.5 ? 'OK' : '—', _presence >= 0.5 ? Icons.person_rounded : Icons.person_off_rounded, _presence >= 0.5 ? _green : _muted),
             ],
           ),
         ],
@@ -1701,82 +1548,82 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   }
 
   Widget _sensorTile(String label, String value, IconData icon, Color accent, {String panneKey = ''}) {
-    final stress = panneKey.isNotEmpty && _panneHints.highlightMetrics.contains(panneKey);
-    return AnimatedBuilder(
-      animation: _pulseCtrl,
-      builder: (_, __) {
-        return Container(
-          decoration: BoxDecoration(
-            color: stress ? const Color(0xFFFF7B7B).withOpacity(0.07 + 0.1 * _pulseCtrl.value) : _panel,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: stress
-                  ? const Color(0xFFFF7B7B).withOpacity(0.5 + 0.45 * _pulseCtrl.value)
-                  : Colors.white.withOpacity(0.06),
-              width: stress ? 2 : 1,
-            ),
-            boxShadow: stress
-                ? [BoxShadow(color: const Color(0xFFFF7B7B).withOpacity(0.18 * _pulseCtrl.value), blurRadius: 10)]
-                : null,
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
+    final hasPanne = panneKey.isNotEmpty && _panneHints.highlightMetrics.contains(panneKey);
+    final themeColor = hasPanne ? _red : accent;
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: _panel.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: themeColor.withOpacity(hasPanne ? 0.4 : 0.08)),
+      ),
+      child: Stack(
+        children: [
+          Row(
             children: [
               Container(
-                width: 36, height: 36,
+                width: 28,
+                height: 28,
                 decoration: BoxDecoration(
-                  color: (stress ? const Color(0xFFFF7B7B) : accent).withOpacity(0.10),
-                  borderRadius: BorderRadius.circular(10),
+                  color: themeColor.withOpacity(0.12),
+                  shape: BoxShape.circle,
                 ),
-                child: Icon(icon, size: 18, color: stress ? const Color(0xFFFFB4AB) : accent),
+                child: Icon(icon, size: 14, color: themeColor),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(label,
-                              style: GoogleFonts.spaceGrotesk(
-                                  fontSize: 9, color: _muted.withOpacity(0.65), fontWeight: FontWeight.w700, letterSpacing: 0.8)),
-                        ),
-                        if (stress)
-                          Text('PANNE',
-                              style: GoogleFonts.spaceGrotesk(
-                                  fontSize: 7, color: const Color(0xFFFF7B7B), fontWeight: FontWeight.w800)),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(value,
-                        style: GoogleFonts.spaceGrotesk(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            color: stress ? const Color(0xFFFFB4AB) : _text,
-                            letterSpacing: -0.2),
-                        overflow: TextOverflow.ellipsis),
-                    const SizedBox(height: 8),
-                    Container(
-                      height: 3,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(2),
-                        gradient: LinearGradient(
-                          colors: [
-                            (stress ? const Color(0xFFFF7B7B) : accent).withOpacity(stress ? 0.95 : 0.35),
-                            (stress ? const Color(0xFFFF7B7B) : accent).withOpacity(0.05),
-                          ],
-                        ),
+                    Text(
+                      label,
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 8,
+                        fontWeight: FontWeight.w700,
+                        color: _text.withOpacity(0.4),
+                        letterSpacing: 0.6,
                       ),
+                    ),
+                    const SizedBox(height: 1),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          value.split(' ')[0],
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            color: _text,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          value.contains(' ') ? value.split(' ')[1] : '',
+                          style: GoogleFonts.inter(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: themeColor.withOpacity(0.7),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
             ],
           ),
-        );
-      },
+          if (hasPanne)
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Icon(Icons.warning_amber_rounded, size: 12, color: _red),
+            ),
+        ],
+      ),
     );
   }
 
@@ -1806,25 +1653,6 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
             child: Text('${techs.length}', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: _orange)),
           ),
           const Spacer(),
-          TextButton.icon(
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => AddTechnicianPage(onBack: () {
-                _loadTechniciansForMachine();
-                Navigator.pop(context);
-              })));
-            },
-            icon: const Icon(Icons.person_add_rounded, size: 14, color: _orange),
-            label: Text('Ajouter Technicien', style: GoogleFonts.spaceGrotesk(fontSize: 11, color: _orange, fontWeight: FontWeight.w600)),
-          ),
-          const SizedBox(width: 6),
-          OutlinedButton.icon(
-            onPressed: _openConfigureMaintenanceMan,
-            icon: const Icon(Icons.engineering_rounded, size: 14),
-            label: Text(
-              'Ajouter Maintenance Man',
-              style: GoogleFonts.spaceGrotesk(fontSize: 11, fontWeight: FontWeight.w600),
-            ),
-          ),
         ]),
         const SizedBox(height: 12),
         if (techs.isEmpty)
@@ -2575,193 +2403,9 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     );
   }
 
-  Widget _aiPanel() {
-    final msg = _iaMessagePanneSiApplicable();
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: 240),
-      child: Container(
-        decoration: BoxDecoration(
-          color: _panel2,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(0.06)),
-          boxShadow: [
-            BoxShadow(
-              color: _riskColor.withOpacity(0.1),
-              blurRadius: 28,
-              spreadRadius: 0.5,
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.all(18),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final fillH = constraints.maxHeight;
-            final minScrollH = fillH.isFinite && fillH > 0 ? fillH : 0.0;
-            return SingleChildScrollView(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: minScrollH),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Icon(Icons.psychology_rounded, color: _orange, size: 24),
-                        const SizedBox(width: 10),
-                        Text(
-                          'ANALYSE I.A.',
-                          style: GoogleFonts.spaceGrotesk(fontSize: 12, fontWeight: FontWeight.w900, color: _text, letterSpacing: 1.2),
-                        ),
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: _riskColor.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: _riskColor.withOpacity(0.45)),
-                          ),
-                          child: Text(
-                            _iaProbPanne >= 70 ? 'CRITIQUE' : (_iaProbPanne >= 40 ? 'SURVEILLANCE' : 'NOMINAL'),
-                            style: GoogleFonts.spaceGrotesk(fontSize: 8, color: _riskColor, fontWeight: FontWeight.w800, letterSpacing: 1),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Probabilité de panne moteur',
-                      style: GoogleFonts.inter(fontSize: 10, color: _muted.withOpacity(0.88)),
-                    ),
-                    const SizedBox(height: 14),
-                    Center(
-                      child: SizedBox(
-                        width: 168,
-                        height: 168,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            CircularProgressIndicator(value: 1, strokeWidth: 8, color: _panel3),
-                            CircularProgressIndicator(
-                              value: (_iaProbPanne / 100).clamp(0.0, 1.0),
-                              strokeWidth: 10,
-                              color: _riskColor,
-                            ),
-                            Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    '$_iaProbPanne%',
-                                    style: GoogleFonts.spaceGrotesk(
-                                      fontSize: 40,
-                                      fontWeight: FontWeight.w900,
-                                      color: _riskColor,
-                                      letterSpacing: -1,
-                                    ),
-                                  ),
-                                  Text(
-                                    _riskLabelFr,
-                                    style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _muted, letterSpacing: 1),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: _panel,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white.withOpacity(0.07)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'TYPE DE PANNE',
-                            style: GoogleFonts.spaceGrotesk(
-                              fontSize: 9,
-                              color: _muted.withOpacity(0.8),
-                              letterSpacing: 1.1,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _iaPanneType.isEmpty ? '—' : _iaPanneType,
-                            style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w800, color: _text, height: 1.2),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            _iaHorizonJoursLine(),
-                            style: GoogleFonts.inter(fontSize: 12, color: _cyan.withOpacity(0.95), fontWeight: FontWeight.w600, height: 1.3),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (msg != null) ...[
-                      const SizedBox(height: 12),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: _panel,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: _riskColor.withOpacity(0.4)),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(_iaAdviceIcon, size: 18, color: _riskColor),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                msg,
-                                style: GoogleFonts.inter(
-                                  fontSize: 13,
-                                  color: _text,
-                                  height: 1.35,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    if (_scenarioExplanation.isNotEmpty && msg != null && _iaProbPanne >= kPanneUiProbMin) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        _scenarioExplanation,
-                        style: GoogleFonts.inter(fontSize: 10, height: 1.3, color: _muted.withOpacity(0.9)),
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                    if (_machineStopped) _machineStoppedBanner(),
-                    if (_machineStopped) const SizedBox(height: 8),
-                    if (_requiresStop && !_machineStopped) _stopAlertBanner(),
-                    if (_canEditIaMotorProfile) ...[
-                      const SizedBox(height: 12),
-                      _adminIaMotorCard(),
-                    ],
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
 
   Widget _historyTabBody() {
+    final isDesktop = MediaQuery.sizeOf(context).width > 900;
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Column(
@@ -2781,7 +2425,16 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
           const SizedBox(height: 8),
           Expanded(
             child: SingleChildScrollView(
-              child: _historyPanel(),
+              child: Column(
+                children: [
+                  _historyPanel(),
+                  const SizedBox(height: 24),
+                  MachineHistoryView(
+                    isDesktop: isDesktop,
+                    machineId: _machineId,
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -3092,36 +2745,6 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     );
   }
 
-  Widget _bottomTicker() {
-    final logs = <String>[
-      '[${_hhmmss(DateTime.now())}] MQTT packets=$_mqttPacketCount',
-      '[${_hhmmss(DateTime.now())}] Temp=${_thermal.toStringAsFixed(1)}°C',
-      '[${_hhmmss(DateTime.now())}] Pression=${_pressure.toStringAsFixed(1)} bar',
-      '[${_hhmmss(DateTime.now())}] IA risque=$_iaProbPanne% ($_iaNiveau)',
-      '[${_hhmmss(DateTime.now())}] Type panne=$_iaPanneType',
-    ];
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-      decoration: BoxDecoration(
-        color: _panel,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Text(
-          logs.join('   ·   '),
-          style: GoogleFonts.inter(
-            fontSize: 12,
-            letterSpacing: 0.2,
-            color: _text.withOpacity(0.78),
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ),
-    );
-  }
 
   String _hhmmss(DateTime d) =>
       '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}:${d.second.toString().padLeft(2, '0')}';

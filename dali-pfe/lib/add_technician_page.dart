@@ -5,7 +5,13 @@ import 'services/api_service.dart';
 class AddTechnicianPage extends StatefulWidget {
   final Map<String, dynamic>? initialData;
   final VoidCallback? onBack;
-  const AddTechnicianPage({super.key, this.initialData, this.onBack});
+  final bool embeddedInAdmin;
+  const AddTechnicianPage({
+    super.key,
+    this.initialData,
+    this.onBack,
+    this.embeddedInAdmin = false,
+  });
 
   @override
   State<AddTechnicianPage> createState() => _AddTechnicianPageState();
@@ -266,6 +272,49 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
   @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width >= 1100;
+    final showShell = !widget.embeddedInAdmin;
+    final form = SingleChildScrollView(
+      padding: EdgeInsets.all(widget.embeddedInAdmin ? 16 : 24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1300),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (widget.embeddedInAdmin && widget.onBack != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: TextButton.icon(
+                  onPressed: widget.onBack,
+                  icon: const Icon(Icons.arrow_back_ios_new, size: 16, color: _tertiary),
+                  label: Text(
+                    'Retour au parc machines',
+                    style: GoogleFonts.inter(color: _tertiary, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            _buildPageHeader(),
+            const SizedBox(height: 24),
+            _buildLeftColumn(),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Icon(Icons.info_outline, color: _onVariant.withOpacity(.5), size: 14),
+                const SizedBox(width: 8),
+                Text(
+                  'Toutes les données sont encryptées selon le protocole AES-256',
+                  style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onVariant.withOpacity(.5)),
+                ),
+              ],
+            )
+          ],
+        ),
+      ),
+    );
+
+    if (!showShell) {
+      return ColoredBox(color: _bg, child: form);
+    }
+
     return Scaffold(
       backgroundColor: _bg,
       body: Row(
@@ -275,33 +324,7 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
             child: Column(
               children: [
                 _buildTopBar(),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 1300),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildPageHeader(),
-                          const SizedBox(height: 24),
-                          _buildLeftColumn(),
-                          const SizedBox(height: 18),
-                          Row(
-                            children: [
-                              Icon(Icons.info_outline, color: _onVariant.withOpacity(.5), size: 14),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Toutes les données sont encryptées selon le protocole AES-256',
-                                style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onVariant.withOpacity(.5)),
-                              ),
-                            ],
-                          )
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
+                Expanded(child: form),
               ],
             ),
           )

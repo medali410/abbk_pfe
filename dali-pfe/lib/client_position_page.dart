@@ -241,41 +241,6 @@ class _ClientPositionPageState extends State<ClientPositionPage> {
       ),
       child: Column(
         children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: _primaryContainer.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.factory_outlined, color: _primaryContainer),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.clientName,
-                        style: GoogleFonts.spaceGrotesk(fontSize: 16, fontWeight: FontWeight.w900, color: _primaryContainer, height: 1.1),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'INDUSTRIAL INTELLIGENCE',
-                        style: GoogleFonts.spaceGrotesk(fontSize: 9, color: _onSurfaceVariant, fontWeight: FontWeight.bold, letterSpacing: 1),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
           // Navigation
           Expanded(
             child: ListView(
@@ -318,10 +283,7 @@ class _ClientPositionPageState extends State<ClientPositionPage> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
-                _buildSidebarBottomLink(Icons.help_outline, 'Support'),
-                const SizedBox(height: 12),
-                _buildSidebarBottomLink(Icons.history, 'Logs'),
+
               ],
             ),
           ),

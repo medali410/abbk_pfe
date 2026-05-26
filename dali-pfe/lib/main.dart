@@ -8,7 +8,6 @@ import 'services/api_service.dart';
 import 'dashboard_page.dart';
 import 'client_dashboard_page.dart';
 import 'add_client_page.dart';
-import 'project_team_page.dart';
 import 'technician_profile_page.dart';
 import 'add_technician_page.dart';
 import 'machine_team_page.dart';
@@ -29,11 +28,56 @@ import 'concepteur_dashboard_page.dart';
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
 
+const Set<String> _appRouteNames = {
+  '/',
+  '/machines',
+  '/login',
+  '/dashboard',
+  '/client-dashboard',
+  '/add-client',
+  '/team',
+  '/technician-profile',
+  '/technician-terminal',
+  '/technician-collaboration',
+  '/conception-observatory',
+  '/concepteur-dashboard',
+  '/mission-control',
+  '/control-calendar',
+  '/control-reports-history',
+  '/preventive-history',
+  '/maintenance-login',
+  '/maintenance-dashboard',
+  '/maintenance-profile',
+  '/maintenance-machine-hub',
+  '/add-technician',
+  '/machine-team',
+  '/machine-detail',
+  '/message-equipe',
+};
+
+/// Sur le web, conserve la route après F5 (ex. `/#/dashboard` → `/dashboard`).
+String resolveInitialWebRoute() {
+  if (!kIsWeb) return '/';
+  final frag = Uri.base.fragment.trim();
+  if (frag.isNotEmpty) {
+    final path = frag.split('?').first;
+    if (path.startsWith('/') && _appRouteNames.contains(path)) return path;
+    final withSlash = path.startsWith('/') ? path : '/$path';
+    if (_appRouteNames.contains(withSlash)) return withSlash;
+  }
+  final path = Uri.base.path;
+  if (path.isNotEmpty && path != '/' && _appRouteNames.contains(path)) {
+    return path;
+  }
+  return '/';
+}
+
 /// Point d’entrée : toujours [LoginPage] d’abord, puis redirection vers `/conception-observatory`
 /// si session **concepteur** sauvegardée — évite l’erreur web `RenderBox was not laid out` / focus
 /// quand l’Observatory était la racine directe du [MaterialApp].
 class SessionEntry extends StatefulWidget {
-  const SessionEntry({super.key});
+  final String? initialSection;
+  const SessionEntry({super.key, this.initialSection});
 
   @override
   State<SessionEntry> createState() => _SessionEntryState();
@@ -203,10 +247,18 @@ class _SessionEntryState extends State<SessionEntry> {
       });
       return;
     }
+    if (role == 'superadmin' || role == 'admin') {
+      _redirectScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed('/dashboard');
+      });
+      return;
+    }
   }
 
   @override
-  Widget build(BuildContext context) => const HomePage();
+  Widget build(BuildContext context) => HomePage(initialSection: widget.initialSection);
 }
 
 Future<void> main() async {
@@ -250,7 +302,7 @@ class MyApp extends StatelessWidget {
           displayColor: const Color(0xFFF4F4F9),
         ),
       ),
-      initialRoute: '/',
+      initialRoute: resolveInitialWebRoute(),
       builder: (context, child) {
         return Stack(
           clipBehavior: Clip.none,
@@ -261,6 +313,7 @@ class MyApp extends StatelessWidget {
       },
       routes: {
         '/': (context) => const SessionEntry(),
+        '/machines': (context) => const SessionEntry(initialSection: 'catalog'),
         '/login': (context) => const LoginPage(),
         '/dashboard': (context) => const DashboardPage(),
         '/client-dashboard':
@@ -276,8 +329,9 @@ class MyApp extends StatelessWidget {
                 'location': (ApiService.savedClientLocation ?? '').trim(),
               },
             ),
+
         '/add-client': (context) => const AddClientPage(),
-        '/team': (context) => const ProjectTeamPage(),
+        '/team': (context) => const DashboardPage(),
         '/technician-profile': (context) => const TechnicianProfilePage(),
         '/technician-terminal': (context) => const TechnicianTerminalPage(),
         '/technician-collaboration':

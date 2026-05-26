@@ -1,16 +1,17 @@
-# dali_pfe
+# DALI PFE — Frontend Flutter
 
-A new Flutter project.
+Application Flutter (`dali-pfe`). L’ancien backend MongoDB (`iot-backend`) a été retiré.
 
-## Getting Started
+## Lancer l’app (sans API pour l’instant)
 
-This project is a starting point for a Flutter application.
+```powershell
+cd dali-pfe
+flutter pub get
+flutter run -d chrome --dart-define=API_PORT=3001
+```
 
-A few resources to get you started if this is your first Flutter project:
+Les appels HTTP dans `lib/services/api_service.dart` ciblent `http://localhost:3001/api` — un **nouveau backend Node.js + SQL** doit être ajouté (voir `../docs/BACKEND_SQL.md` à la racine du dépôt).
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## Documentation
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- Plan backend SQL : `../docs/BACKEND_SQL.md`

@@ -9,9 +9,11 @@ import 'login_page.dart';
 import 'machine_detail_ai_page.dart';
 import 'ai_analysis_page.dart';
 import 'services/api_service.dart';
+import 'utils/catalog_list_utils.dart';
+import 'utils/client_auth_gate.dart';
+import 'widgets/hero_looping_video_background.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:video_player/video_player.dart';
 import 'machine_detail_pro_page.dart';
 import 'dart:async';
 
@@ -78,6 +80,10 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   Future<List<Map<String, dynamic>>>? _publicCatalogFuture;
   final TextEditingController _publicCatalogSearchController = TextEditingController();
   String _publicCatalogSearchQuery = '';
+  String? _publicCatalogStatusFilter;
+  String? _publicCatalogBrandFilter;
+  CatalogSortOption? _publicCatalogSort;
+  CatalogToolbarPanel _publicCatalogPanel = CatalogToolbarPanel.none;
 
   double _toDouble(dynamic value, [double fallback = 0.0]) {
     if (value == null) return fallback;
@@ -1266,14 +1272,13 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             }
 
             final allMachines = snapshot.data ?? const <Map<String, dynamic>>[];
-            final q = _publicCatalogSearchQuery.toLowerCase().trim();
-            final filtered = allMachines.where((m) {
-              if (q.isEmpty) return true;
-              final machineId = (m['machineId'] ?? m['_id'] ?? m['id'] ?? '').toString().toLowerCase();
-              final name = (m['name'] ?? m['model'] ?? '').toString().toLowerCase();
-              final brand = (m['brand'] ?? m['marque'] ?? '').toString().toLowerCase();
-              return machineId.contains(q) || name.contains(q) || brand.contains(q);
-            }).toList();
+            final filtered = filterAndSortCatalogMachines(
+              allMachines,
+              searchQuery: _publicCatalogSearchQuery,
+              statusFilter: _publicCatalogStatusFilter,
+              brandFilter: _publicCatalogBrandFilter,
+              sort: _publicCatalogSort,
+            );
 
             if (filtered.isEmpty) {
               return _buildCatalogEmptyState();
@@ -1294,7 +1299,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 final machineId = (machine['machineId'] ?? machine['_id'] ?? machine['id'] ?? '').toString();
                 return _ClientPublicMachineCard(
                   machine: machine,
-                  canBuy: true,
+                  onRequireLogin: _openCatalogClientLogin,
                   onBuy: () => _buyMachineFromClientHome(
                     context,
                     machineId: machineId,
@@ -1388,57 +1393,141 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   }
 
   Widget _buildClientHeroVisual() {
-    return const _ClientHeroVideoSlides(
+    return const HeroLoopingVideoBackground(
       fallbackImageUrl:
           'https://images.unsplash.com/photo-1565043589221-1a6fd9ae45c7?auto=format&fit=crop&w=1400&q=80',
     );
   }
 
+  bool get _hasPublicCatalogFilters =>
+      catalogFilterValueIsActive(_publicCatalogStatusFilter) ||
+      catalogFilterValueIsActive(_publicCatalogBrandFilter);
+
+  String _publicCatalogFilterChipLabel() {
+    if (!_hasPublicCatalogFilters) return 'Filtre';
+    final parts = <String>[];
+    final st = catalogStatusFilterLabel(_publicCatalogStatusFilter);
+    if (st != null) parts.add(st);
+    if (catalogFilterValueIsActive(_publicCatalogBrandFilter)) {
+      parts.add(_publicCatalogBrandFilter!);
+    }
+    return parts.join(' · ');
+  }
+
+  void _togglePublicCatalogFilterPanel() {
+    setState(() {
+      _publicCatalogPanel =
+          _publicCatalogPanel == CatalogToolbarPanel.filter
+              ? CatalogToolbarPanel.none
+              : CatalogToolbarPanel.filter;
+    });
+  }
+
+  void _togglePublicCatalogSortPanel() {
+    setState(() {
+      _publicCatalogPanel = _publicCatalogPanel == CatalogToolbarPanel.sort
+          ? CatalogToolbarPanel.none
+          : CatalogToolbarPanel.sort;
+    });
+  }
+
   Widget _buildClientCatalogToolbar(bool isDesktop) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-        child: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            color: const Color(0x55182236),
-            border: Border.all(color: const Color(0x33FFFFFF)),
-          ),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.search_rounded,
-                size: 18,
-                color: Color(0xFFA7B1C6),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  controller: _publicCatalogSearchController,
-                  onChanged: (v) => setState(() => _publicCatalogSearchQuery = v),
-                  style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
-                  decoration: InputDecoration(
-                    hintText: 'Rechercher par nom, ID ou marque...',
-                    hintStyle: GoogleFonts.inter(
-                      color: const Color(0x77A7B1C6),
-                      fontSize: 13,
-                    ),
-                    border: InputBorder.none,
-                    isDense: true,
+    final width = MediaQuery.of(context).size.width;
+    final showCatalogActions = isDesktop || width >= 760;
+
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _publicCatalogFuture,
+      builder: (context, snapshot) {
+        final allMachines = snapshot.data ?? const <Map<String, dynamic>>[];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: const Color(0x55182236),
+                    border: Border.all(color: const Color(0x33FFFFFF)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.search_rounded,
+                        size: 18,
+                        color: Color(0xFFA7B1C6),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _publicCatalogSearchController,
+                          onChanged: (v) => setState(
+                            () => _publicCatalogSearchQuery = v,
+                          ),
+                          style: GoogleFonts.inter(
+                            color: Colors.white,
+                            fontSize: 13,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: 'Rechercher par nom, ID ou marque...',
+                            hintStyle: GoogleFonts.inter(
+                              color: const Color(0x77A7B1C6),
+                              fontSize: 13,
+                            ),
+                            border: InputBorder.none,
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      if (showCatalogActions) ...[
+                        _buildClientCatalogChip(
+                          Icons.filter_alt_outlined,
+                          _publicCatalogFilterChipLabel(),
+                          onTap: _togglePublicCatalogFilterPanel,
+                          active:
+                              _publicCatalogPanel ==
+                                  CatalogToolbarPanel.filter ||
+                              _hasPublicCatalogFilters,
+                        ),
+                        const SizedBox(width: 8),
+                        _buildClientCatalogChip(
+                          Icons.tune,
+                          'Tri',
+                          onTap: _togglePublicCatalogSortPanel,
+                          active:
+                              _publicCatalogPanel ==
+                                  CatalogToolbarPanel.sort ||
+                              _publicCatalogSort != null,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
-              if (isDesktop) ...[
-                _buildClientCatalogChip(Icons.filter_alt_outlined, 'Filtre'),
-                const SizedBox(width: 8),
-                _buildClientCatalogChip(Icons.tune, 'Tri'),
-              ],
-            ],
-          ),
-        ),
-      ),
+            ),
+            if (showCatalogActions)
+              CatalogFilterSortPanel(
+                panel: _publicCatalogPanel,
+                brands: distinctCatalogBrands(allMachines),
+                statusFilter: _publicCatalogStatusFilter,
+                brandFilter: _publicCatalogBrandFilter,
+                sort: _publicCatalogSort,
+                onStatusChanged: (status) {
+                  setState(() => _publicCatalogStatusFilter = status);
+                },
+                onBrandChanged: (brand) {
+                  setState(() => _publicCatalogBrandFilter = brand);
+                },
+                onSortChanged: (sort) {
+                  setState(() => _publicCatalogSort = sort);
+                },
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -1481,13 +1570,20 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  Widget _buildClientCatalogChip(IconData icon, String label) {
-    return Container(
+  Widget _buildClientCatalogChip(
+    IconData icon,
+    String label, {
+    VoidCallback? onTap,
+    bool active = false,
+  }) {
+    final child = Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0x1FFFFFFF),
+        color: active ? const Color(0x331D88E5) : const Color(0x1FFFFFFF),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0x33FFFFFF)),
+        border: Border.all(
+          color: active ? const Color(0xFF1D88E5) : const Color(0x33FFFFFF),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1503,6 +1599,15 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             ),
           ),
         ],
+      ),
+    );
+    if (onTap == null) return child;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: child,
       ),
     );
   }
@@ -1527,6 +1632,16 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         ],
       ),
     );
+  }
+
+  Future<void> _openCatalogClientLogin() async {
+    await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const LoginPage(showSignupTitle: false),
+      ),
+    );
+    if (mounted) setState(() {});
   }
 
   Future<void> _buyMachineFromClientHome(
@@ -5070,13 +5185,24 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
 class _ClientPublicMachineCard extends StatelessWidget {
   const _ClientPublicMachineCard({
     required this.machine,
-    required this.canBuy,
     required this.onBuy,
+    this.onRequireLogin,
   });
 
   final Map<String, dynamic> machine;
-  final bool canBuy;
   final VoidCallback onBuy;
+  final Future<void> Function()? onRequireLogin;
+
+  Future<void> _runIfAuthenticated(
+    BuildContext context,
+    VoidCallback action,
+  ) async {
+    final ok = await ensureClientLoggedIn(
+      context,
+      openLogin: onRequireLogin,
+    );
+    if (ok) action();
+  }
 
   bool _looksLikeNetworkImage(String value) {
     final v = value.trim().toLowerCase();
@@ -5154,12 +5280,8 @@ class _ClientPublicMachineCard extends StatelessWidget {
     final machineId =
         (machine['machineId'] ?? machine['_id'] ?? machine['id'] ?? '')
             .toString();
-    final name =
-        (machine['name'] ?? machine['model'] ?? machineId).toString();
-    final brand = (machine['brand'] ?? machine['marque'] ?? '').toString();
-    final description = (machine['description'] ?? machine['type'] ?? 'Machine industrielle')
-        .toString();
-    final price = (machine['price'] ?? machine['prix'] ?? '').toString();
+    final name = catalogMachineDisplayName(machine);
+    final priceLabel = catalogMachinePriceLabel(machine);
     final imageUrl = _normalizeMachineImageValue(
       (machine['imageUrl'] ?? machine['image'] ?? machine['photo'] ?? '')
           .toString(),
@@ -5233,10 +5355,10 @@ class _ClientPublicMachineCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Text(
-            name.isEmpty ? 'Machine' : name,
-            maxLines: 1,
+            name,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: GoogleFonts.inter(
               color: Colors.white,
@@ -5244,58 +5366,29 @@ class _ClientPublicMachineCard extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           Text(
-            machineId.isEmpty ? 'ID: -' : 'ID: $machineId',
+            priceLabel,
             style: GoogleFonts.inter(
-              color: const Color(0xFFA7B1C6),
-              fontSize: 12,
-            ),
-          ),
-          if (brand.isNotEmpty) ...[
-            const SizedBox(height: 3),
-            Text(
-              'Marque: $brand',
-              style: GoogleFonts.inter(
-                color: const Color(0xFFA7B1C6),
-                fontSize: 12,
-              ),
-            ),
-          ],
-          const SizedBox(height: 10),
-          Text(
-            description,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.inter(
-              color: const Color(0xFFD5DDF0),
-              fontSize: 13,
-              height: 1.35,
+              color: const Color(0xFFFFBE86),
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const Spacer(),
-          if (price.isNotEmpty)
-            Text(
-              'Prix: $price',
-              style: GoogleFonts.inter(
-                color: const Color(0xFFFFBE86),
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
           const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: () {
+                  onPressed: () => _runIfAuthenticated(context, () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => MachineDetailProPage(machine: machine),
                       ),
                     );
-                  },
+                  }),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Color(0x557AA7E8)),
                     foregroundColor: const Color(0xFFD7E7FF),
@@ -5310,18 +5403,7 @@ class _ClientPublicMachineCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton(
-                  onPressed:
-                      canBuy
-                          ? onBuy
-                          : () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Veuillez vous connecter pour acheter.',
-                                ),
-                              ),
-                            );
-                          },
+                  onPressed: () => _runIfAuthenticated(context, onBuy),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFFF6E00),
                     foregroundColor: Colors.white,
@@ -5349,152 +5431,4 @@ class _SensorData {
   final String label;
   final String value;
   const _SensorData(this.label, this.value);
-}
-
-class _ClientHeroVideoSlides extends StatefulWidget {
-  const _ClientHeroVideoSlides({
-    required this.fallbackImageUrl,
-  });
-
-  final String fallbackImageUrl;
-
-  @override
-  State<_ClientHeroVideoSlides> createState() => _ClientHeroVideoSlidesState();
-}
-
-class _ClientHeroVideoSlidesState extends State<_ClientHeroVideoSlides> {
-  final Duration _endThreshold = const Duration(milliseconds: 250);
-
-  List<String> _videoAssets = const [];
-  int _index = 0;
-  VideoPlayerController? _controller;
-  bool _initializing = false;
-  bool _advancing = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _bootstrap();
-  }
-
-  Future<void> _bootstrap() async {
-    if (_initializing) return;
-    _initializing = true;
-    try {
-      final assets = await _loadVideoAssetsFromManifest();
-      if (!mounted) return;
-      if (assets.isEmpty) return;
-      setState(() => _videoAssets = assets);
-      await _switchToIndex(0);
-    } finally {
-      _initializing = false;
-    }
-  }
-
-  Future<List<String>> _loadVideoAssetsFromManifest() async {
-    try {
-      final raw = await rootBundle.loadString('AssetManifest.json');
-      final decoded = json.decode(raw);
-      if (decoded is! Map<String, dynamic>) return const [];
-      final keys = decoded.keys.toList();
-      keys.sort();
-
-      const okExt = ['.mp4', '.webm'];
-      return keys
-          .where((k) => k.startsWith('assets/videos/'))
-          .where((k) => okExt.any((ext) => k.toLowerCase().endsWith(ext)))
-          .toList(growable: false);
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  void _handleTick() {
-    final c = _controller;
-    if (c == null || !c.value.isInitialized) return;
-
-    final d = c.value.duration;
-    final p = c.value.position;
-    if (d > Duration.zero && d - p <= _endThreshold) {
-      _next();
-      return;
-    }
-
-    if (d > Duration.zero && !c.value.isPlaying && p >= d - _endThreshold) {
-      _next();
-      return;
-    }
-  }
-
-  Future<void> _switchToIndex(int idx, {int attempts = 0}) async {
-    final c = _controller;
-    c?.removeListener(_handleTick);
-    await c?.dispose();
-
-    if (_videoAssets.isEmpty) return;
-    if (attempts >= _videoAssets.length) {
-      _controller = null;
-      if (mounted) setState(() {});
-      return;
-    }
-
-    _index = idx % _videoAssets.length;
-    final assetPath = _videoAssets[_index];
-    final next = VideoPlayerController.asset(assetPath);
-    try {
-      next.addListener(_handleTick);
-      _controller = next;
-      await next.initialize();
-      await next.setVolume(0.0);
-      await next.setLooping(false);
-      await next.play();
-      if (mounted) setState(() {});
-    } catch (_) {
-      next.removeListener(_handleTick);
-      await next.dispose();
-      final nextIndex = (_index + 1) % _videoAssets.length;
-      return _switchToIndex(nextIndex, attempts: attempts + 1);
-    }
-  }
-
-  void _next() {
-    if (_advancing || _videoAssets.isEmpty) return;
-    _advancing = true;
-    final nextIndex = (_index + 1) % _videoAssets.length;
-    _switchToIndex(nextIndex).whenComplete(() => _advancing = false);
-  }
-
-  @override
-  void dispose() {
-    _controller?.removeListener(_handleTick);
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = _controller;
-    if (c == null || !c.value.isInitialized || c.value.hasError) {
-      return SizedBox.expand(
-        child: Image.network(widget.fallbackImageUrl, fit: BoxFit.cover),
-      );
-    }
-
-    final w = c.value.size.width;
-    final h = c.value.size.height;
-    if (w <= 0 || h <= 0) {
-      return SizedBox.expand(
-        child: Image.network(widget.fallbackImageUrl, fit: BoxFit.cover),
-      );
-    }
-
-    return FittedBox(
-      fit: BoxFit.cover,
-      child: SizedBox(
-        width: w,
-        height: h,
-        child: VideoPlayer(c),
-      ),
-    );
-  }
 }

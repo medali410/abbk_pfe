@@ -5,15 +5,17 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:video_player/video_player.dart';
-
 import 'client_dashboard_page.dart';
 import 'login_page.dart';
 import 'machine_detail_pro_page.dart';
 import 'services/api_service.dart';
+import 'utils/catalog_list_utils.dart';
+import 'utils/client_auth_gate.dart';
+import 'widgets/hero_looping_video_background.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  final String? initialSection;
+  const HomePage({super.key, this.initialSection});
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -24,6 +26,10 @@ class _HomePageState extends State<HomePage> {
   bool _animateIn = false;
   bool _canBuyAsClient = false;
   String _searchQuery = '';
+  String? _catalogStatusFilter;
+  String? _catalogBrandFilter;
+  CatalogSortOption? _catalogSort;
+  CatalogToolbarPanel _catalogPanel = CatalogToolbarPanel.none;
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _homeSectionKey = GlobalKey();
   final GlobalKey _catalogSectionKey = GlobalKey();
@@ -41,6 +47,10 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         _animateIn = true;
       });
+      // Handle initial scroll to section
+      if (widget.initialSection == 'catalog') {
+        _scrollToSection(_catalogSectionKey);
+      }
     });
   }
 
@@ -66,6 +76,7 @@ class _HomePageState extends State<HomePage> {
       _canBuyAsClient = token.isNotEmpty && role == 'client';
     });
   }
+
 
   Future<void> _consumeGoogleOAuthReturnIfPresent() async {
     if (!kIsWeb) return;
@@ -142,8 +153,13 @@ class _HomePageState extends State<HomePage> {
     final width = MediaQuery.of(context).size.width;
     final isDesktop = width >= 1100;
     final isTablet = width >= 760;
+    final isMobile = width < 760;
+    final isNarrow = width < 400;
     final stackedHeader = width < 980;
-    final stickyHeaderHeight = stackedHeader ? 132.0 : 78.0;
+    final tightHeader = width < 560;
+    final stickyHeaderHeight = !stackedHeader
+        ? 78.0
+        : (isNarrow ? 118.0 : 128.0);
 
     return Scaffold(
       body: Container(
@@ -159,20 +175,15 @@ class _HomePageState extends State<HomePage> {
             future: _machinesFuture,
             builder: (context, snapshot) {
               final machines = snapshot.data ?? const <Map<String, dynamic>>[];
-              final filteredMachines =
-                  machines.where((m) {
-                    final machineId =
-                        (m['machineId'] ?? m['_id'] ?? m['id'] ?? '')
-                            .toString();
-                    final name = (m['name'] ?? m['model'] ?? '').toString();
-                    final brand = (m['brand'] ?? m['marque'] ?? '').toString();
-                    final q = _searchQuery.toLowerCase().trim();
-                    if (q.isEmpty) return true;
-                    return machineId.toLowerCase().contains(q) ||
-                        name.toLowerCase().contains(q) ||
-                        brand.toLowerCase().contains(q);
-                  }).toList();
-              final padding = isDesktop ? 44.0 : (isTablet ? 26.0 : 16.0);
+              final filteredMachines = filterAndSortCatalogMachines(
+                machines,
+                searchQuery: _searchQuery,
+                statusFilter: _catalogStatusFilter,
+                brandFilter: _catalogBrandFilter,
+                sort: _catalogSort,
+              );
+              final padding =
+                  isDesktop ? 44.0 : (isTablet ? 26.0 : (isNarrow ? 12.0 : 16.0));
               return RefreshIndicator(
                 onRefresh: _reloadMachines,
                 child: Align(
@@ -219,13 +230,18 @@ class _HomePageState extends State<HomePage> {
                                       child: _buildHero(
                                         total: filteredMachines.length,
                                         isDesktop: isDesktop,
+                                        isMobile: isMobile,
+                                        isNarrow: isNarrow,
                                       ),
                                     ),
                                   ),
                                   const SizedBox(height: 18),
                                   _buildEntrance(
                                     delayMs: 95,
-                                    child: _buildToolbar(isDesktop),
+                                    child: _buildToolbar(
+                                      compact: isMobile,
+                                      allMachines: machines,
+                                    ),
                                   ),
                                   const SizedBox(height: 18),
                                   _buildEntrance(
@@ -327,9 +343,10 @@ class _HomePageState extends State<HomePage> {
     );
     final w = MediaQuery.sizeOf(context).width;
     final showInlineNav = w >= 980;
+    final tightHeader = w < 560;
     final logo = Container(
-      constraints: BoxConstraints(maxWidth: w < 400 ? 120 : 190),
-      height: 46,
+      constraints: BoxConstraints(maxWidth: w < 400 ? 100 : (tightHeader ? 130 : 190)),
+      height: tightHeader ? 40 : 46,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -350,18 +367,29 @@ class _HomePageState extends State<HomePage> {
             label: 'Accueil',
             sectionId: 'home',
             baseStyle: navStyle,
-            onTap: () => _scrollToSection(_homeSectionKey),
+            onTap: () {
+              _scrollToSection(_homeSectionKey);
+              if (ModalRoute.of(context)?.settings.name != '/') {
+                Navigator.of(context).pushReplacementNamed('/');
+              }
+            },
           ),
           const SizedBox(width: 14),
           _buildNavItem(
             label: 'Machines',
             sectionId: 'catalog',
             baseStyle: navStyle,
-            onTap: () => _scrollToSection(_catalogSectionKey),
+            onTap: () {
+              _scrollToSection(_catalogSectionKey);
+              if (ModalRoute.of(context)?.settings.name != '/machines') {
+                Navigator.of(context).pushReplacementNamed('/machines');
+              }
+            },
           ),
         ],
       ),
     );
+
 
     final clientBadge =
         _canBuyAsClient
@@ -402,8 +430,7 @@ class _HomePageState extends State<HomePage> {
             )
             : const SizedBox.shrink();
 
-    final authButton = ElevatedButton(
-      onPressed: () async {
+    Future<void> onAuthPressed() async {
         if (_canBuyAsClient &&
             (ApiService.savedClientId ?? '').trim().isNotEmpty) {
           if (!context.mounted) return;
@@ -433,14 +460,19 @@ class _HomePageState extends State<HomePage> {
         if (result == true) {
           await _hydrateAuthState();
         }
-      },
+    }
+
+    final connexionButton = ElevatedButton(
+      onPressed: onAuthPressed,
       style: ElevatedButton.styleFrom(
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         backgroundColor: const Color(0xFFFF6E00),
         foregroundColor: Colors.white,
         elevation: 0,
         padding: EdgeInsets.symmetric(
-          horizontal: w < 360 ? 10 : 16,
-          vertical: 12,
+          horizontal: tightHeader ? 10 : (w < 360 ? 10 : 16),
+          vertical: tightHeader ? 8 : 12,
         ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ).copyWith(
@@ -451,60 +483,86 @@ class _HomePageState extends State<HomePage> {
       ),
       child: Text(
         _canBuyAsClient ? 'Mon compte' : 'Connexion',
-        style: TextStyle(fontSize: w < 360 ? 12 : 14),
+        style: TextStyle(fontSize: tightHeader ? 11 : (w < 360 ? 12 : 14)),
       ),
     );
-    final signUpLink = GestureDetector(
-      onTap: () async {
-        await Navigator.push<void>(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const LoginPage(showSignupTitle: true),
-          ),
-        );
-      },
+
+    Future<void> onSignUpPressed() async {
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const LoginPage(showSignupTitle: true),
+        ),
+      );
+    }
+
+    final signUpButton = TextButton(
+      onPressed: onSignUpPressed,
+      style: TextButton.styleFrom(
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        foregroundColor: const Color(0xFFD7E7FF),
+      ),
       child: Text(
         "s'inscrire",
-        textAlign: TextAlign.center,
         style: GoogleFonts.inter(
-          color: const Color(0xFFD7E7FF),
-          fontSize: 12,
+          fontSize: tightHeader ? 11 : 12,
           fontWeight: FontWeight.w600,
           decoration: TextDecoration.underline,
           decorationColor: const Color(0xFFD7E7FF),
         ),
       ),
     );
+
     final authActions = Row(
       mainAxisSize: MainAxisSize.min,
       textDirection: TextDirection.ltr,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         if (!_canBuyAsClient) ...[
-          signUpLink,
-          const SizedBox(width: 10),
+          signUpButton,
+          SizedBox(width: tightHeader ? 4 : 8),
         ],
-        authButton,
+        connexionButton,
       ],
     );
+
+    Widget authCluster({bool scaleToFit = false}) {
+      final cluster = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_canBuyAsClient) clientBadge,
+          authActions,
+        ],
+      );
+      if (!scaleToFit) return cluster;
+      return FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerRight,
+        child: cluster,
+      );
+    }
 
     if (!showInlineNav) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Flexible(child: logo),
-              if (MediaQuery.sizeOf(context).width >= 760)
-                const Spacer()
-              else
-                const SizedBox(height: 10),
-              clientBadge,
-              authActions,
+              logo,
+              const SizedBox(width: 8),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: authCluster(scaleToFit: true),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 10),
-          navRow,
+          Center(child: navRow),
         ],
       );
     }
@@ -518,19 +576,34 @@ class _HomePageState extends State<HomePage> {
             label: 'Accueil',
             sectionId: 'home',
             baseStyle: navStyle,
-            onTap: () => _scrollToSection(_homeSectionKey),
+            onTap: () {
+              _scrollToSection(_homeSectionKey);
+              if (ModalRoute.of(context)?.settings.name != '/') {
+                Navigator.of(context).pushReplacementNamed('/');
+              }
+            },
           ),
           const SizedBox(width: 14),
           _buildNavItem(
             label: 'Machines',
             sectionId: 'catalog',
             baseStyle: navStyle,
-            onTap: () => _scrollToSection(_catalogSectionKey),
+            onTap: () {
+              _scrollToSection(_catalogSectionKey);
+              if (ModalRoute.of(context)?.settings.name != '/machines') {
+                Navigator.of(context).pushReplacementNamed('/machines');
+              }
+            },
           ),
         ],
+
         const Spacer(),
-        clientBadge,
-        authActions,
+        Flexible(
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: authCluster(scaleToFit: w < 1100),
+          ),
+        ),
       ],
     );
   }
@@ -630,11 +703,17 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Widget _buildHero({required int total, required bool isDesktop}) {
+  Widget _buildHero({
+    required int total,
+    required bool isDesktop,
+    required bool isMobile,
+    required bool isNarrow,
+  }) {
+    final heroHeight = isDesktop ? 360.0 : (isNarrow ? 320.0 : 300.0);
     return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(isMobile ? 14 : 20),
       child: Container(
-        height: isDesktop ? 360 : 320,
+        height: heroHeight,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
           color: const Color(0xFF141B31),
@@ -647,16 +726,27 @@ class _HomePageState extends State<HomePage> {
             // Couche de lisibilité : sombre à gauche + vignette sur les bords.
             Container(
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                  colors: [
-                    const Color(0xEE131B32),
-                    const Color(0xB3161F38),
-                    const Color(0x66161F38),
-                  ],
-                  stops: const [0.0, 0.48, 1.0],
-                ),
+                gradient: isMobile
+                    ? const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Color(0x99131B32),
+                          Color(0xEE131B32),
+                          Color(0xF0131B32),
+                        ],
+                        stops: [0.0, 0.45, 1.0],
+                      )
+                    : const LinearGradient(
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
+                        colors: [
+                          Color(0xEE131B32),
+                          Color(0xB3161F38),
+                          Color(0x66161F38),
+                        ],
+                        stops: [0.0, 0.48, 1.0],
+                      ),
               ),
             ),
             Container(
@@ -675,12 +765,21 @@ class _HomePageState extends State<HomePage> {
             ),
 
             Align(
-              alignment: Alignment.centerLeft,
+              alignment:
+                  isMobile ? Alignment.bottomCenter : Alignment.centerLeft,
               child: Padding(
-                padding: EdgeInsets.all(isDesktop ? 24 : 18),
+                padding: EdgeInsets.all(isDesktop ? 24 : (isNarrow ? 14 : 18)),
                 child: SizedBox(
                   width: isDesktop ? 560 : double.infinity,
-                  child: _buildHeroText(total: total, isDesktop: isDesktop),
+                  child: SingleChildScrollView(
+                    physics: const ClampingScrollPhysics(),
+                    child: _buildHeroText(
+                      total: total,
+                      isDesktop: isDesktop,
+                      isMobile: isMobile,
+                      isNarrow: isNarrow,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -690,24 +789,35 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildHeroText({required int total, required bool isDesktop}) {
+  Widget _buildHeroText({
+    required int total,
+    required bool isDesktop,
+    required bool isMobile,
+    required bool isNarrow,
+  }) {
+    final titleSize = isDesktop ? 38.0 : (isNarrow ? 22.0 : 26.0);
+    final align =
+        isMobile ? CrossAxisAlignment.center : CrossAxisAlignment.start;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: align,
       children: [
         Text(
           'Catalogue machines',
+          textAlign: isMobile ? TextAlign.center : TextAlign.start,
           style: GoogleFonts.inter(
             color: const Color(0xFFFFB87A),
             fontWeight: FontWeight.w700,
             letterSpacing: 0.6,
+            fontSize: isNarrow ? 11 : 12,
           ),
         ),
         const SizedBox(height: 8),
         Text(
           'L\'efficacite predite par l\'IA',
+          textAlign: isMobile ? TextAlign.center : TextAlign.start,
           style: GoogleFonts.inter(
             color: Colors.white,
-            fontSize: isDesktop ? 38 : 28,
+            fontSize: titleSize,
             fontWeight: FontWeight.w800,
             height: 1.15,
             shadows: const [
@@ -723,9 +833,10 @@ class _HomePageState extends State<HomePage> {
         Text(
           'Visualisez les equipements critiques en temps reel '
           'et accedez aux machines disponibles depuis la base.',
+          textAlign: isMobile ? TextAlign.center : TextAlign.start,
           style: GoogleFonts.inter(
             color: const Color(0xFFD5DCEE),
-            fontSize: 14,
+            fontSize: isNarrow ? 12 : 14,
             height: 1.35,
             shadows: const [
               Shadow(
@@ -740,6 +851,7 @@ class _HomePageState extends State<HomePage> {
         Wrap(
           spacing: 8,
           runSpacing: 8,
+          alignment: isMobile ? WrapAlignment.center : WrapAlignment.start,
           children: [
             _chip(Icons.precision_manufacturing_rounded, '$total machines'),
             _chip(Icons.update_rounded, 'Temps reel'),
@@ -750,56 +862,163 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildHeroVisual() {
-    return const _HeroVideoSlides(
+    return const HeroLoopingVideoBackground(
       fallbackImageUrl:
           'https://images.unsplash.com/photo-1565043589221-1a6fd9ae45c7?auto=format&fit=crop&w=1200&q=80',
     );
   }
 
-  Widget _buildToolbar(bool isDesktop) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-        child: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            color: const Color(0x55182236),
-            border: Border.all(color: const Color(0x33FFFFFF)),
-          ),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.search_rounded,
-                size: 18,
-                color: Color(0xFFA7B1C6),
+  Widget _buildToolbar({
+    required bool compact,
+    required List<Map<String, dynamic>> allMachines,
+  }) {
+    final searchRow = Row(
+      children: [
+        const Icon(
+          Icons.search_rounded,
+          size: 18,
+          color: Color(0xFFA7B1C6),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: TextField(
+            onChanged: (v) => setState(() => _searchQuery = v),
+            style: GoogleFonts.inter(
+              color: Colors.white,
+              fontSize: compact ? 12 : 13,
+            ),
+            decoration: InputDecoration(
+              hintText: 'Rechercher par nom, ID ou marque...',
+              hintStyle: GoogleFonts.inter(
+                color: const Color(0x77A7B1C6),
+                fontSize: compact ? 12 : 13,
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  onChanged: (v) => setState(() => _searchQuery = v),
-                  style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
-                  decoration: InputDecoration(
-                    hintText: 'Rechercher par nom, ID ou marque...',
-                    hintStyle: GoogleFonts.inter(
-                      color: const Color(0x77A7B1C6),
-                      fontSize: 13,
-                    ),
-                    border: InputBorder.none,
-                    isDense: true,
-                  ),
-                ),
-              ),
-              if (isDesktop) ...[
-                _chip(Icons.filter_alt_outlined, 'Filtre'),
-                const SizedBox(width: 8),
-                _chip(Icons.tune, 'Tri'),
-              ],
-            ],
+              border: InputBorder.none,
+              isDense: true,
+            ),
           ),
         ),
-      ),
+      ],
+    );
+
+    final filterRow = Row(
+      children: [
+        Expanded(
+          child: _chip(
+            Icons.filter_alt_outlined,
+            _catalogFilterChipLabel(),
+            onTap: _toggleCatalogFilterPanel,
+            active:
+                _catalogPanel == CatalogToolbarPanel.filter ||
+                _hasCatalogFilters,
+            fillWidth: true,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _chip(
+            Icons.tune,
+            'Tri',
+            onTap: _toggleCatalogSortPanel,
+            active:
+                _catalogPanel == CatalogToolbarPanel.sort ||
+                _catalogSort != null,
+            fillWidth: true,
+          ),
+        ),
+      ],
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: const Color(0x55182236),
+                border: Border.all(color: const Color(0x33FFFFFF)),
+              ),
+              child: compact
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        searchRow,
+                        const SizedBox(height: 8),
+                        filterRow,
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        const Icon(
+                          Icons.search_rounded,
+                          size: 18,
+                          color: Color(0xFFA7B1C6),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            onChanged: (v) => setState(() => _searchQuery = v),
+                            style: GoogleFonts.inter(
+                              color: Colors.white,
+                              fontSize: 13,
+                            ),
+                            decoration: InputDecoration(
+                              hintText:
+                                  'Rechercher par nom, ID ou marque...',
+                              hintStyle: GoogleFonts.inter(
+                                color: const Color(0x77A7B1C6),
+                                fontSize: 13,
+                              ),
+                              border: InputBorder.none,
+                              isDense: true,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _chip(
+                          Icons.filter_alt_outlined,
+                          _catalogFilterChipLabel(),
+                          onTap: _toggleCatalogFilterPanel,
+                          active:
+                              _catalogPanel == CatalogToolbarPanel.filter ||
+                              _hasCatalogFilters,
+                        ),
+                        const SizedBox(width: 8),
+                        _chip(
+                          Icons.tune,
+                          'Tri',
+                          onTap: _toggleCatalogSortPanel,
+                          active:
+                              _catalogPanel == CatalogToolbarPanel.sort ||
+                              _catalogSort != null,
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+        ),
+        CatalogFilterSortPanel(
+            panel: _catalogPanel,
+            brands: distinctCatalogBrands(allMachines),
+            statusFilter: _catalogStatusFilter,
+            brandFilter: _catalogBrandFilter,
+            sort: _catalogSort,
+            onStatusChanged: (status) {
+              setState(() => _catalogStatusFilter = status);
+            },
+            onBrandChanged: (brand) {
+              setState(() => _catalogBrandFilter = brand);
+            },
+            onSortChanged: (sort) {
+              setState(() => _catalogSort = sort);
+            },
+          ),
+      ],
     );
   }
 
@@ -828,7 +1047,7 @@ class _HomePageState extends State<HomePage> {
                 'Unites de surveillance haute precision',
                 style: GoogleFonts.inter(
                   color: Colors.white,
-                  fontSize: 29,
+                  fontSize: constraints.maxWidth < 400 ? 22 : 26,
                   fontWeight: FontWeight.w800,
                   height: 1.08,
                 ),
@@ -886,28 +1105,80 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _chip(IconData icon, String text) {
-    return Container(
+  bool get _hasCatalogFilters =>
+      catalogFilterValueIsActive(_catalogStatusFilter) ||
+      catalogFilterValueIsActive(_catalogBrandFilter);
+
+  String _catalogFilterChipLabel() {
+    if (!_hasCatalogFilters) return 'Filtre';
+    final parts = <String>[];
+    final st = catalogStatusFilterLabel(_catalogStatusFilter);
+    if (st != null) parts.add(st);
+    if (catalogFilterValueIsActive(_catalogBrandFilter)) {
+      parts.add(_catalogBrandFilter!);
+    }
+    return parts.join(' · ');
+  }
+
+  void _toggleCatalogFilterPanel() {
+    setState(() {
+      _catalogPanel = _catalogPanel == CatalogToolbarPanel.filter
+          ? CatalogToolbarPanel.none
+          : CatalogToolbarPanel.filter;
+    });
+  }
+
+  void _toggleCatalogSortPanel() {
+    setState(() {
+      _catalogPanel = _catalogPanel == CatalogToolbarPanel.sort
+          ? CatalogToolbarPanel.none
+          : CatalogToolbarPanel.sort;
+    });
+  }
+
+  Widget _chip(
+    IconData icon,
+    String text, {
+    VoidCallback? onTap,
+    bool active = false,
+    bool fillWidth = false,
+  }) {
+    final label = Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: GoogleFonts.inter(
+        color: const Color(0xFFD2E6FF),
+        fontWeight: FontWeight.w600,
+        fontSize: 12,
+      ),
+    );
+    final child = Container(
+      width: fillWidth ? double.infinity : null,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0x221D88E5),
+        color: active ? const Color(0x441D88E5) : const Color(0x221D88E5),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0x3D7CB8FF)),
+        border: Border.all(
+          color: active ? const Color(0xFF1D88E5) : const Color(0x3D7CB8FF),
+        ),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: fillWidth ? MainAxisSize.max : MainAxisSize.min,
         children: [
           Icon(icon, size: 14, color: const Color(0xFFAED0FF)),
           const SizedBox(width: 6),
-          Text(
-            text,
-            style: GoogleFonts.inter(
-              color: const Color(0xFFD2E6FF),
-              fontWeight: FontWeight.w600,
-              fontSize: 12,
-            ),
-          ),
+          if (fillWidth) Expanded(child: label) else label,
         ],
+      ),
+    );
+    if (onTap == null) return child;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: child,
       ),
     );
   }
@@ -1157,208 +1428,33 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildFooter() {
+    final w = MediaQuery.sizeOf(context).width;
+    final lineStyle = GoogleFonts.inter(
+      color: const Color(0x77A7B1C6),
+      fontSize: 11,
+    );
     return Container(
       padding: const EdgeInsets.only(top: 14),
       decoration: const BoxDecoration(
         border: Border(top: BorderSide(color: Color(0x33FFFFFF))),
       ),
-      child: Text(
-        '© 2026 Predictive Cloud. Confidentialite • Conditions • Support',
-        textAlign: TextAlign.center,
-        style: GoogleFonts.inter(color: const Color(0x77A7B1C6), fontSize: 11),
-      ),
-    );
-  }
-}
-
-class _HeroVideoSlides extends StatefulWidget {
-  const _HeroVideoSlides({
-    required this.fallbackImageUrl,
-  });
-
-  final String fallbackImageUrl;
-
-  @override
-  State<_HeroVideoSlides> createState() => _HeroVideoSlidesState();
-}
-
-class _HeroVideoSlidesState extends State<_HeroVideoSlides> {
-  final Duration _endThreshold = const Duration(milliseconds: 250);
-
-  List<String> _videoAssets = const [];
-  int _index = 0;
-  VideoPlayerController? _controller;
-  bool _initializing = false;
-  bool _advancing = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _bootstrap();
-  }
-
-  Future<void> _bootstrap() async {
-    if (_initializing) return;
-    _initializing = true;
-    try {
-      final assets = await _loadVideoAssetsFromManifest();
-      if (!mounted) return;
-      if (assets.isEmpty) return;
-      setState(() => _videoAssets = assets);
-      await _switchToIndex(0);
-    } finally {
-      _initializing = false;
-    }
-  }
-
-  Future<List<String>> _loadVideoAssetsFromManifest() async {
-    try {
-      final raw = await rootBundle.loadString('AssetManifest.json');
-      final decoded = json.decode(raw);
-      if (decoded is! Map<String, dynamic>) return const [];
-      final keys = decoded.keys.toList();
-      keys.sort();
-
-      const okExt = ['.mp4', '.webm'];
-      return keys
-          .where((k) => k.startsWith('assets/videos/'))
-          .where(
-            (k) => okExt.any((ext) => k.toLowerCase().endsWith(ext)),
-          )
-          .toList(growable: false);
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  void _handleTick() {
-    final c = _controller;
-    if (c == null || !c.value.isInitialized) return;
-
-    final d = c.value.duration;
-    final p = c.value.position;
-
-    // Cas principal : fin de lecture.
-    if (d != null && d > Duration.zero && d - p <= _endThreshold) {
-      _next();
-      return;
-    }
-
-    // Sur certains navigateurs, la fin remonte plutôt via "paused at end".
-    if (d != null &&
-        d > Duration.zero &&
-        !c.value.isPlaying &&
-        p >= d - _endThreshold) {
-      _next();
-      return;
-    }
-
-    // Fallback : certaines durées peuvent être null sur le web selon codec.
-    if (d == null && !c.value.isPlaying && p >= const Duration(seconds: 2)) {
-      _next();
-    }
-  }
-
-  Future<void> _switchToIndex(int idx, {int attempts = 0}) async {
-    final c = _controller;
-    c?.removeListener(_handleTick);
-    await c?.dispose();
-
-    if (_videoAssets.isEmpty) return;
-    if (attempts >= _videoAssets.length) {
-      // Toutes les vidéos semblent illisibles -> fallback image.
-      _controller = null;
-      if (mounted) setState(() {});
-      return;
-    }
-    _index = idx % _videoAssets.length;
-    final assetPath = _videoAssets[_index];
-
-    final next = VideoPlayerController.asset(assetPath);
-    try {
-      next.addListener(_handleTick);
-      _controller = next;
-
-      await next.initialize();
-      // Hero "background" : on mute + on laisse tourner en séquence.
-      await next.setVolume(0.0);
-      await next.setLooping(false);
-      await next.play();
-      if (mounted) setState(() {});
-    } catch (_) {
-      // Certains backends peuvent ne pas supporter setVolume.
-      next.removeListener(_handleTick);
-      await next.dispose();
-      final nextIndex = (_index + 1) % _videoAssets.length;
-      return _switchToIndex(nextIndex, attempts: attempts + 1);
-    }
-  }
-
-  void _next() {
-    if (_advancing || _videoAssets.isEmpty) return;
-    _advancing = true;
-    final nextIndex = (_index + 1) % _videoAssets.length;
-    _switchToIndex(nextIndex).whenComplete(() => _advancing = false);
-  }
-
-  @override
-  void dispose() {
-    _controller?.removeListener(_handleTick);
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = _controller;
-    if (c == null || !c.value.isInitialized) {
-      return GestureDetector(
-        onTap: () async => await _controller?.play(),
-        child: SizedBox.expand(
-          child: Image.network(widget.fallbackImageUrl, fit: BoxFit.cover),
-        ),
-      );
-    }
-
-    if (c.value.hasError) {
-      return SizedBox.expand(
-        child: Image.network(widget.fallbackImageUrl, fit: BoxFit.cover),
-      );
-    }
-
-    final w = c.value.size.width;
-    final h = c.value.size.height;
-    if (w <= 0 || h <= 0) {
-      return SizedBox.expand(
-        child: Image.network(widget.fallbackImageUrl, fit: BoxFit.cover),
-      );
-    }
-
-    return GestureDetector(
-      onTap: () async => await _controller?.play(),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width: w,
-              height: h,
-              child: VideoPlayer(c),
+      child: w < 520
+          ? Column(
+              children: [
+                Text('© 2026 Predictive Cloud', textAlign: TextAlign.center, style: lineStyle),
+                const SizedBox(height: 6),
+                Text(
+                  'Confidentialite • Conditions • Support',
+                  textAlign: TextAlign.center,
+                  style: lineStyle,
+                ),
+              ],
+            )
+          : Text(
+              '© 2026 Predictive Cloud. Confidentialite • Conditions • Support',
+              textAlign: TextAlign.center,
+              style: lineStyle,
             ),
-          ),
-          if (!c.value.isPlaying)
-            Container(
-              color: Colors.black.withOpacity(0.15),
-              alignment: Alignment.center,
-              child: const Icon(
-                Icons.play_circle_fill_rounded,
-                color: Colors.white70,
-                size: 42,
-              ),
-            ),
-        ],
-      ),
     );
   }
 }
@@ -1479,6 +1575,14 @@ class _MachineCard extends StatefulWidget {
 class _MachineCardState extends State<_MachineCard> {
   bool _isHovered = false;
 
+  Future<void> _runIfAuthenticated(void Function() action) async {
+    final ok = await ensureClientLoggedIn(
+      context,
+      openLogin: widget.onRequireLogin,
+    );
+    if (ok && mounted) action();
+  }
+
   bool _looksLikeNetworkImage(String value) {
     final v = value.trim().toLowerCase();
     return v.startsWith('http://') || v.startsWith('https://');
@@ -1506,12 +1610,8 @@ class _MachineCardState extends State<_MachineCard> {
     final machineId =
         (machine['machineId'] ?? machine['_id'] ?? machine['id'] ?? '')
             .toString();
-    final name = (machine['name'] ?? machine['model'] ?? machineId).toString();
-    final brand = (machine['brand'] ?? machine['marque'] ?? '').toString();
-    final description =
-        (machine['description'] ?? machine['type'] ?? 'Machine industrielle')
-            .toString();
-    final price = (machine['price'] ?? machine['prix'] ?? '').toString();
+    final name = catalogMachineDisplayName(machine);
+    final priceLabel = catalogMachinePriceLabel(machine);
     final imageUrl = _normalizeMachineImageValue(
       (machine['imageUrl'] ?? machine['image'] ?? machine['photo'] ?? '')
           .toString(),
@@ -1602,10 +1702,10 @@ class _MachineCardState extends State<_MachineCard> {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Text(
-                name.isEmpty ? 'Machine' : name,
-                maxLines: 1,
+                name,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.inter(
                   color: Colors.white,
@@ -1613,60 +1713,32 @@ class _MachineCardState extends State<_MachineCard> {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               Text(
-                machineId.isEmpty ? 'ID: -' : 'ID: $machineId',
+                priceLabel,
                 style: GoogleFonts.inter(
-                  color: const Color(0xFFA7B1C6),
-                  fontSize: 12,
-                ),
-              ),
-              if (brand.isNotEmpty) ...[
-                const SizedBox(height: 3),
-                Text(
-                  'Marque: $brand',
-                  style: GoogleFonts.inter(
-                    color: const Color(0xFFA7B1C6),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 10),
-              Text(
-                description,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.inter(
-                  color: const Color(0xFFD5DDF0),
-                  fontSize: 13,
-                  height: 1.35,
+                  color: const Color(0xFFFFBE86),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               const Spacer(),
-              if (price.isNotEmpty)
-                Text(
-                  'Prix: $price',
-                  style: GoogleFonts.inter(
-                    color: const Color(0xFFFFBE86),
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
               const SizedBox(height: 10),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed:
-                          () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder:
-                                  (context) => MachineDetailProPage(
-                                    machine: machine,
-                                  ),
-                            ),
+                      onPressed: () => _runIfAuthenticated(() {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder:
+                                (context) => MachineDetailProPage(
+                                  machine: machine,
+                                ),
                           ),
+                        );
+                      }),
                       style: OutlinedButton.styleFrom(
                         side: const BorderSide(color: Color(0x557AA7E8)),
                         foregroundColor: const Color(0xFFD7E7FF),
@@ -1685,21 +1757,9 @@ class _MachineCardState extends State<_MachineCard> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed:
-                          widget.canBuy
-                              ? () => _buyMachine(context, machineId: machineId)
-                              : () async {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Veuillez vous connecter pour acheter.',
-                                    ),
-                                  ),
-                                );
-                                if (widget.onRequireLogin != null) {
-                                  await widget.onRequireLogin!.call();
-                                }
-                              },
+                      onPressed: () => _runIfAuthenticated(
+                        () => _buyMachine(context, machineId: machineId),
+                      ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFFF6E00),
                         foregroundColor: Colors.white,

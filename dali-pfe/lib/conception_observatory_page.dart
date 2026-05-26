@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'constants/deployed_sensors.dart';
+import 'client_detail_page.dart';
 import 'client_position_page.dart';
 import 'machine_detail_ai_page.dart';
 import 'services/api_service.dart';
@@ -1848,7 +1849,7 @@ class _ConceptionObservatoryPageState extends State<ConceptionObservatoryPage> w
                   Navigator.push<void>(
                     context,
                     MaterialPageRoute<void>(
-                      builder: (_) => ClientPositionPage(clientName: name, clientData: {'clientId': cid}),
+                      builder: (_) => ClientDetailPage(clientName: name, rawMap: {'clientId': cid}),
                     ),
                   );
                 },
@@ -1913,7 +1914,7 @@ class _ConceptionObservatoryPageState extends State<ConceptionObservatoryPage> w
                     Navigator.push<void>(
                       context,
                       MaterialPageRoute<void>(
-                        builder: (_) => ClientPositionPage(clientName: name, clientData: {'clientId': cid}),
+                        builder: (_) => ClientDetailPage(clientName: name, rawMap: {'clientId': cid}),
                       ),
                     );
                   },

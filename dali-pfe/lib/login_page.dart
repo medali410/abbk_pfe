@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'client_dashboard_page.dart';
 import 'dashboard_page.dart';
+import 'home_page.dart';
 import 'services/api_service.dart';
 
 class LoginPage extends StatefulWidget {
@@ -35,11 +36,29 @@ class _LoginPageState extends State<LoginPage> {
       TextEditingController();
   final TextEditingController _signupAddressController = TextEditingController();
   bool _signupSubmitting = false;
+  /// Backend prêt pour OAuth Google (vrais GOOGLE_CLIENT_ID / SECRET dans .env).
+  bool _googleOAuthConfigured = !kIsWeb;
 
   @override
   void initState() {
     super.initState();
     _consumeGoogleOAuthReturn();
+    _refreshGoogleOAuthAvailability();
+  }
+
+  Future<void> _refreshGoogleOAuthAvailability() async {
+    final ok = await ApiService.isGoogleOAuthConfigured();
+    if (mounted) setState(() => _googleOAuthConfigured = ok);
+  }
+
+  void _goBackToHome(BuildContext context) {
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+      return;
+    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const HomePage()),
+    );
   }
 
   @override
@@ -100,29 +119,36 @@ class _LoginPageState extends State<LoginPage> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 24.0),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Logo
-                      Row(
-                        children: [
-                          Container(
-                            width: 190,
-                            height: 46,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Image.asset(
-                              'assets/images/abbk_logo.png',
-                              fit: BoxFit.contain,
-                              filterQuality: FilterQuality.high,
-                            ),
-                          ),
-                        ],
+                      IconButton(
+                        onPressed: () => _goBackToHome(context),
+                        icon: const Icon(
+                          Icons.arrow_back_rounded,
+                          color: Colors.white,
+                        ),
+                        tooltip: 'Retour à l\'accueil',
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.white.withOpacity(0.12),
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        width: 190,
+                        height: 46,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Image.asset(
+                          'assets/images/abbk_logo.png',
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.high,
+                        ),
                       ),
                     ],
                   ),
@@ -273,30 +299,50 @@ class _LoginPageState extends State<LoginPage> {
                     style: GoogleFonts.inter(fontWeight: FontWeight.w700),
                   ),
         ),
-        const SizedBox(height: 14),
-        Row(
-          children: [
-            Expanded(child: Divider(color: Colors.white.withOpacity(0.15))),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text(
-                'OU',
-                style: GoogleFonts.inter(
-                  fontSize: 10,
-                  color: const Color(0xFFA0A0B0),
-                  letterSpacing: 3,
+        _buildGoogleOAuthBlock(
+          context,
+          label: 'Se connecter avec Google',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGoogleOAuthBlock(
+    BuildContext context, {
+    required String label,
+    bool ouBefore = true,
+  }) {
+    return Column(
+      children: [
+        if (ouBefore) ...[
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(child: Divider(color: Colors.white.withOpacity(0.15))),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text(
+                  'OU',
+                  style: GoogleFonts.inter(
+                    fontSize: 10,
+                    color: const Color(0xFFA0A0B0),
+                    letterSpacing: 3,
+                  ),
                 ),
               ),
-            ),
-            Expanded(child: Divider(color: Colors.white.withOpacity(0.15))),
-          ],
-        ),
-        const SizedBox(height: 14),
-        _socialConnectPill(
-          context: context,
-          leading: _googleGLogo(),
-          label: 'Se connecter avec Google',
-          onTap: () => _authWithGoogle(context),
+              Expanded(child: Divider(color: Colors.white.withOpacity(0.15))),
+            ],
+          ),
+          const SizedBox(height: 14),
+        ],
+        Opacity(
+          opacity: _googleOAuthConfigured ? 1 : 0.72,
+          child: _socialConnectPill(
+            context: context,
+            leading: _googleGLogo(),
+            label: label,
+            onTap: () => _authWithGoogle(context),
+          ),
         ),
       ],
     );
@@ -425,13 +471,23 @@ class _LoginPageState extends State<LoginPage> {
           ),
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 12),
-        _socialConnectPill(
-          context: context,
-          leading: _googleGLogo(),
+        _buildGoogleOAuthBlock(
+          context,
           label: 'S\'inscrire avec Google',
-          onTap: () => _authWithGoogle(context),
+          ouBefore: false,
         ),
+        if (!_googleOAuthConfigured) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Connexion Google (optionnel) : GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET dans backend/.env.',
+            style: GoogleFonts.inter(
+              fontSize: 10,
+              color: const Color(0xFFFFB692),
+              height: 1.35,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
         const SizedBox(height: 18),
         Row(
           children: [
@@ -551,6 +607,24 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _authWithGoogle(BuildContext context) async {
     try {
       if (kIsWeb) {
+        final configured = await ApiService.isGoogleOAuthConfigured();
+        if (!configured) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Connexion Google non configurée.\n'
+                'Ajoutez dans backend/.env :\n'
+                'GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET (OAuth « Application Web »).\n'
+                'URI de redirection : http://localhost:3001/api/auth/google/callback',
+                style: GoogleFonts.inter(fontSize: 13),
+              ),
+              backgroundColor: Colors.orange.shade800,
+              duration: const Duration(seconds: 10),
+            ),
+          );
+          return;
+        }
         final returnUrl = '${Uri.base.origin}/#/login';
         final uri = Uri.parse(
           '${ApiService.baseUrl}/auth/google/start?returnUrl=${Uri.encodeComponent(returnUrl)}',

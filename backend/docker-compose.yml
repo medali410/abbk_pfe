@@ -1,0 +1,25 @@
+# PostgreSQL local — même schéma que la base partagée (Neon / Supabase).
+# Démarrer : docker compose up -d
+# Arrêter  : docker compose down
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dali_pfe_postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: dali
+      POSTGRES_PASSWORD: dali_local_2026
+      POSTGRES_DB: dali_pfe
+    volumes:
+      - dali_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dali -d dali_pfe"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  dali_pg_data:

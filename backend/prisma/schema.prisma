@@ -1,0 +1,163 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  nom       String
+  adresse   String   @default("")
+  role      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  admin            Admin?
+  client           Client?
+  concepteur       Concepteur?
+  technician       Technician?
+  maintenanceAgent MaintenanceAgent?
+}
+
+model Admin {
+  id     Int  @id @default(autoincrement())
+  userId Int  @unique
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Client {
+  id            Int     @id @default(autoincrement())
+  userId        Int     @unique
+  clientId      String  @unique
+  motorType     String  @default("Général")
+  location      String  @default("")
+  loginDisabled Boolean @default(false)
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Concepteur {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @unique
+  companyId  String   @default("")
+  location   String   @default("")
+  specialite String   @default("")
+  machineIds String   @default("[]")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Technician {
+  id            Int    @id @default(autoincrement())
+  userId        Int    @unique
+  technicianId  String @unique
+  companyId     String @default("")
+  specialization String @default("")
+  status        String @default("Disponible")
+  machineIds    String @default("[]")
+  user          User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MaintenanceAgent {
+  id                  Int    @id @default(autoincrement())
+  userId              Int    @unique
+  maintenanceAgentId  String @unique
+  clientId            String @default("")
+  firstName           String @default("")
+  lastName            String @default("")
+  user                User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Machine {
+  id          String   @id
+  name        String
+  type        String   @default("")
+  disponible  Boolean  @default(true)
+  status      String   @default("STOPPED")
+  companyId   String   @default("")
+  motorType   String   @default("air_cooled")
+  location    String   @default("")
+  model3dUrl  String   @default("")
+  modele3dId  Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  modele3d    Modele3d?
+}
+
+model Modele3d {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String   @default("")
+  photoUrl    String   @default("")
+  machineId   String   @unique
+  materiels   String   @default("[]")
+  createdById Int?
+  machine     Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Plans, schémas, rapports (distinct des modèles 3D).
+model Document {
+  id            Int      @id @default(autoincrement())
+  documentId    String   @unique
+  name          String
+  version       String   @default("v1.0")
+  documentType  String   @default("")
+  clientId      String   @default("")
+  status        String   @default("Actif")
+  securityEmail String   @default("")
+  passwordHash  String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Telemetry {
+  id        Int      @id @default(autoincrement())
+  machineId String
+  temp      Float    @default(0.0)
+  pression  Float    @default(0.0)
+  vibration Float    @default(0.0)
+  magnet    Float    @default(0.0)
+  presence  Int      @default(0)
+  rpm       Int      @default(0)
+  torque    Float    @default(0.0)
+  timestamp DateTime @default(now())
+}
+
+model ChatRoom {
+  id           Int                   @id @default(autoincrement())
+  roomId       String                @unique
+  name         String?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  messages     ChatMessage[]
+  participants ChatRoomParticipant[]
+}
+
+model ChatMessage {
+  id             Int      @id @default(autoincrement())
+  roomId         String
+  chatRoom       ChatRoom @relation(fields: [roomId], references: [roomId], onDelete: Cascade)
+  from           String   // role
+  senderName     String
+  text           String
+  attachmentUrl  String?
+  attachmentType String?
+  createdAt      DateTime @default(now())
+}
+
+model ChatRoomParticipant {
+  id       Int      @id @default(autoincrement())
+  roomId   String
+  chatRoom ChatRoom @relation(fields: [roomId], references: [roomId], onDelete: Cascade)
+  userId   Int
+  role     String   // "technician", "client", "conception", "admin"
+  userName String   @default("")
+  joinedAt DateTime @default(now())
+
+  @@unique([roomId, userId])
+}

@@ -152,8 +152,6 @@ class _EmbeddedClientListViewState
             children: [
               _buildHeader(isDesktop, allClients.length),
               const SizedBox(height: 32),
-              _buildKPIRow(isDesktop, allClients),
-              const SizedBox(height: 32),
               _buildGrid(filtered, isDesktop, apiClients),
             ],
           ),
@@ -193,7 +191,7 @@ class _EmbeddedClientListViewState
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '🏢 Clients',
+          'Clients',
           style: GoogleFonts.inter(
             fontSize: 40,
             fontWeight: FontWeight.w800,
@@ -202,26 +200,6 @@ class _EmbeddedClientListViewState
           ),
         ),
         const SizedBox(height: 6),
-        Row(
-          children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: const BoxDecoration(
-                color: _secondary,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '$totalClients client(s) enregistré(s) dans le cloud prédictif',
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 13,
-                color: _onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
       ],
     );
   }
@@ -343,10 +321,10 @@ class _EmbeddedClientListViewState
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: isDesktop ? 2 : 1,
-        mainAxisSpacing: 20,
-        crossAxisSpacing: 20,
-        childAspectRatio: isDesktop ? 1.55 : 1.4,
+        crossAxisCount: 1,
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 0,
+        childAspectRatio: isDesktop ? 6.0 : 2.8,
       ),
       itemCount: clients.length,
       itemBuilder: (_, i) => _ClientCard(
@@ -456,21 +434,74 @@ class _ClientCardState extends State<_ClientCard> {
   @override
   Widget build(BuildContext context) {
     final c = widget.client;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ClientPositionPage(
-                clientName: c.name,
-                clientData: widget.rawMap,
-              ),
+    final id = widget.rawMap['clientId']?.toString() ?? widget.rawMap['id']?.toString() ?? '';
+
+    return Dismissible(
+      key: Key('client-$id'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        decoration: BoxDecoration(
+          color: Colors.red.withOpacity(0.8),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.delete, color: Colors.white),
+      ),
+      confirmDismiss: (direction) async {
+        return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: const Color(0xFF1D1D38),
+            title: Text('Supprimer ${c.name}?', style: GoogleFonts.inter(color: Colors.white)),
+            content: const Text(
+              'Cela supprimera définitivement le client et TOUTES ses machines.',
+              style: TextStyle(color: Colors.white70),
             ),
-          );
-        },
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('ANNULER'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('SUPPRIMER', style: TextStyle(color: Color(0xFFFFB4AB))),
+              ),
+            ],
+          ),
+        );
+      },
+      onDismissed: (direction) async {
+        if (id.isNotEmpty) {
+          try {
+            await api.ApiService.deleteClient(id);
+            widget.onRefresh();
+          } catch (e) {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Erreur suppression: $e'), backgroundColor: Colors.red),
+              );
+            }
+          }
+        }
+      },
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovering = true),
+        onExit: (_) => setState(() => _hovering = false),
+        child: InkWell(
+          onTap: () {
+            showDialog(
+              context: context,
+              builder: (context) => AddClientPage(
+                isDialog: true,
+                onBack: () {
+                  Navigator.pop(context);
+                  widget.onRefresh();
+                },
+                initialData: widget.rawMap,
+              ),
+            );
+          },
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
@@ -498,24 +529,6 @@ class _ClientCardState extends State<_ClientCard> {
             // ── Top row: logo + info + status
             Row(
               children: [
-                // Logo
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: SizedBox(
-                    width: 52,
-                    height: 52,
-                    child: Image.network(
-                      c.imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        color: const Color(0xFF272743),
-                        child: const Icon(Icons.business,
-                            color: Color(0xFF594136), size: 28),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
                 // Name + location
                 Expanded(
                   child: Column(
@@ -550,203 +563,13 @@ class _ClientCardState extends State<_ClientCard> {
                     ],
                   ),
                 ),
-                const SizedBox(width: 16),
-                // Actions: Edit/Delete
-                Column(
-                  children: [
-                    if (api.ApiService.canManageFleet)
-                      ElevatedButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => AddClientPage(
-                                onBack: () {
-                                  Navigator.pop(context);
-                                  widget.onRefresh();
-                                },
-                                initialData: widget.rawMap,
-                              ),
-                            ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF1D1D38),
-                          foregroundColor: const Color(0xFFE2BFB0),
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.edit, size: 14),
-                            const SizedBox(width: 8),
-                            const Text('MODIFIER', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                      ),
-                    if (api.ApiService.canManageFleet) const SizedBox(height: 8),
-                    if (api.ApiService.isSuperAdmin)
-                      ElevatedButton(
-                        onPressed: () async {
-                          final confirm = await showDialog<bool>(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              backgroundColor: const Color(0xFF1D1D38),
-                              title: Text('Supprimer ${c.name}?', style: GoogleFonts.inter(color: Colors.white)),
-                              content: const Text('Voulez-vous vraiment supprimer ce client ? Cette action est irréversible.', style: TextStyle(color: Colors.white70)),
-                              actions: [
-                                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ANNULER')),
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context, true),
-                                  child: const Text('SUPPRIMER', style: TextStyle(color: Color(0xFFFFB4AB))),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (confirm == true) {
-                            try {
-                              final id = widget.rawMap['clientId'] ?? widget.rawMap['id'] ?? widget.rawMap['_id'] ?? '';
-                              await api.ApiService.deleteClient(id);
-                              widget.onRefresh();
-                            } catch (e) {
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
-                              }
-                            }
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFFB4AB).withOpacity(0.1),
-                          foregroundColor: const Color(0xFFFFB4AB),
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.delete_outline, size: 14),
-                            const SizedBox(width: 8),
-                            const Text('EFFACER', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(width: 16),
-                // Status badge
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 7,
-                          height: 7,
-                          decoration: BoxDecoration(
-                            color: widget.statusColor,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          widget.statusLabel,
-                          style: GoogleFonts.inter(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: widget.statusColor,
-                            letterSpacing: 1,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      c.status == 'critical'
-                          ? c.lastSync
-                          : 'Dernière synchro: ${c.lastSync}',
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 9,
-                        color: const Color(0xFFE2BFB0).withOpacity(0.5),
-                      ),
-                    ),
-                  ],
-                ),
               ],
             ),
 
-            const SizedBox(height: 20),
-
-            // ── Stats row
-            Row(
-              children: [
-                Expanded(
-                    child: _StatBox(
-                  label: 'Machines',
-                  value: c.machines.toString().padLeft(2, '0'),
-                  color: const Color(0xFFE2DFFF),
-                )),
-                const SizedBox(width: 8),
-                Expanded(
-                    child: _StatBox(
-                  label: 'Techs',
-                  value: c.techs.toString().padLeft(2, '0'),
-                  color: const Color(0xFFE2DFFF),
-                )),
-                const SizedBox(width: 8),
-                Expanded(
-                    child: _StatBox(
-                  label: 'Alertes',
-                  value: c.alerts.toString().padLeft(2, '0'),
-                  color: widget.alertColor,
-                )),
-              ],
-            ),
-
-            const Spacer(),
-
-            // ── Health bar
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'SANTÉ DU SYSTÈME',
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 9,
-                        letterSpacing: 1.5,
-                        color: const Color(0xFFE2BFB0).withOpacity(0.6),
-                      ),
-                    ),
-                    Text(
-                      '${(c.health * 100).round()}%',
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFFE2DFFF),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: c.health,
-                    minHeight: 6,
-                    backgroundColor:
-                        const Color(0xFF0B0B26),
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                        widget.healthColor),
-                  ),
-                ),
-              ],
-            ),
+            // Stats removed for minimal layout
           ],
         ),
+      ),
       ),
       ),
     );
