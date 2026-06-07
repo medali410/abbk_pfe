@@ -279,15 +279,20 @@ class _DashboardPageState extends State<DashboardPage> {
     final logo = GestureDetector(
       onTap: () => Navigator.pushReplacementNamed(context, '/'),
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 190),
-        height: 46,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: const BoxDecoration(
+        constraints: const BoxConstraints(maxWidth: 180),
+        height: 44,
+        margin: const EdgeInsets.only(left: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(14),
-            bottomLeft: Radius.circular(14),
-          ),
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFFF6E00).withOpacity(0.12),
+              blurRadius: 12,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Image.asset(
           'assets/images/abbk_logo.png',
@@ -298,21 +303,37 @@ class _DashboardPageState extends State<DashboardPage> {
     );
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 12, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(20),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
           child: Container(
+            height: 75,
             decoration: BoxDecoration(
-              color: const Color(0xAA121A30),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0x33FFFFFF)),
+              gradient: LinearGradient(
+                colors: [
+                  const Color(0xFF15193B).withOpacity(0.85),
+                  const Color(0xFF1C224D).withOpacity(0.75),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white.withOpacity(0.12), width: 1.2),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 15,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
+                const SizedBox(width: 12),
                 logo,
+                const SizedBox(width: 20),
                 if (isDesktop)
                   Expanded(
                     child: _DashboardTopNavMenu(
@@ -323,10 +344,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   )
                 else
                   const Spacer(),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 8, 12, 8),
-                  child: _buildLogoutButton(),
-                ),
+                _buildLogoutButton(),
+                const SizedBox(width: 16),
               ],
             ),
           ),
@@ -342,25 +361,29 @@ class _DashboardPageState extends State<DashboardPage> {
         color: Colors.transparent,
         child: InkWell(
           onTap: _logout,
-          borderRadius: BorderRadius.circular(10),
-          hoverColor: const Color(0x18FF6E00),
+          borderRadius: BorderRadius.circular(12),
+          hoverColor: Colors.redAccent.withOpacity(0.1),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0x33FF8A65)),
+              borderRadius: BorderRadius.circular(12),
+              color: Colors.redAccent.withOpacity(0.05),
+              border: Border.all(
+                color: Colors.redAccent.withOpacity(0.3),
+                width: 1.5,
+              ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.logout_rounded, color: Color(0xFFFF8A65), size: 20),
-                const SizedBox(width: 6),
+                const Icon(Icons.logout_rounded, color: Colors.redAccent, size: 20),
+                const SizedBox(width: 8),
                 Text(
                   'Quitter',
                   style: GoogleFonts.inter(
                     fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFFFFBE86),
+                    fontWeight: FontWeight.w800,
+                    color: Colors.redAccent,
                   ),
                 ),
               ],
@@ -402,76 +425,88 @@ class _DashboardPageState extends State<DashboardPage> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Supervision Globale',
-              style: GoogleFonts.inter(
-                fontSize: 32,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -1.0,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'État opérationnel du parc industriel',
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 12,
-                color: const Color(0xFFA98A7C),
-                fontWeight: FontWeight.w500,
-                letterSpacing: 2.0,
-              ),
-            ),
-            if (!canAddMachine) ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFF6E00).withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFFF6E00).withOpacity(0.45)),
-                ),
-                child: Text(
-                  'Ajout machine reserve au role Concepteur',
-                  style: GoogleFonts.inter(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFFFFB692),
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: const Color(0xFF191934),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF66BB6A),
-                  shape: BoxShape.circle,
+              Text(
+                'Supervision Globale',
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -1.0,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(height: 4),
               Text(
-                'Système en ligne',
+                'État opérationnel du parc industriel',
+                overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.5,
-                  color: Colors.white,
+                  color: const Color(0xFFA98A7C),
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 2.0,
                 ),
               ),
+              if (!canAddMachine) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF6E00).withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFFF6E00).withOpacity(0.45)),
+                  ),
+                  child: Text(
+                    'Ajout machine reserve au role Concepteur',
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFFFFB692),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ],
             ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF191934),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF66BB6A),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    'Système en ligne',
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -782,24 +817,35 @@ class _DashboardPageState extends State<DashboardPage> {
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           _BottomNavItem(
-            icon: Icons.hub_outlined,
+            icon: Icons.dashboard_outlined,
             label: 'Accueil',
             active: _currentPage == 0,
             onTap: () => _goTo(0),
           ),
           _BottomNavItem(
-            icon: Icons.analytics_outlined,
+            icon: Icons.precision_manufacturing_outlined,
             label: 'Machines',
             active: _currentPage == 3,
             onTap: () => _goTo(3),
           ),
           _BottomNavItem(
-            icon: Icons.domain,
+            icon: Icons.groups_outlined,
             label: 'Clients',
-            active: _currentPage == 2,
+            active: _currentPage == 1 || _currentPage == 2,
             onTap: () => _goTo(2),
           ),
-
+          _BottomNavItem(
+            icon: Icons.engineering_outlined,
+            label: 'Concepteurs',
+            active: _currentPage == 6 || _currentPage == 10 || _currentPage == 5,
+            onTap: () => _goTo(6),
+          ),
+          _BottomNavItem(
+            icon: Icons.chat_bubble_outline,
+            label: 'Messagerie',
+            active: _currentPage == 7,
+            onTap: () => _goTo(7),
+          ),
         ],
       ),
     );
@@ -832,6 +878,7 @@ class _DashboardTopNavMenu extends StatelessWidget {
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
         children: [
           _SidebarMenuTile(
             icon: Icons.dashboard_outlined,
@@ -888,9 +935,19 @@ class _DashboardTopNavMenu extends StatelessWidget {
 
   Widget _navDivider() => Container(
         width: 1,
-        height: 28,
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        color: const Color(0xFF32324E),
+        height: 22,
+        margin: const EdgeInsets.symmetric(horizontal: 6),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.white.withOpacity(0.0),
+              Colors.white.withOpacity(0.12),
+              Colors.white.withOpacity(0.0),
+            ],
+          ),
+        ),
       );
 }
 
@@ -1479,7 +1536,7 @@ class _EmbeddedAddClientViewState extends State<_EmbeddedAddClientView> {
 }
 
 
-class _SidebarMenuTile extends StatelessWidget {
+class _SidebarMenuTile extends StatefulWidget {
   final IconData icon;
   final IconData? activeIcon;
   final String label;
@@ -1497,43 +1554,110 @@ class _SidebarMenuTile extends StatelessWidget {
   });
 
   @override
+  State<_SidebarMenuTile> createState() => _SidebarMenuTileState();
+}
+
+class _SidebarMenuTileState extends State<_SidebarMenuTile> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    final highlight = accent ?? const Color(0xFFFF6E00);
-    final iconData = active && activeIcon != null ? activeIcon! : icon;
+    final highlight = widget.accent ?? const Color(0xFFFF6E00);
+    final iconData = widget.active && widget.activeIcon != null
+        ? widget.activeIcon!
+        : widget.icon;
+    final isActive = widget.active;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 3),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(10),
-          hoverColor: const Color(0x18FFFFFF),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOutExpo,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              color: active ? highlight.withValues(alpha: 0.14) : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+              gradient: isActive
+                  ? LinearGradient(
+                      colors: [
+                        highlight.withOpacity(0.25),
+                        highlight.withOpacity(0.08),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    )
+                  : _hovered
+                      ? LinearGradient(
+                          colors: [
+                            Colors.white.withOpacity(0.08),
+                            Colors.white.withOpacity(0.02),
+                          ],
+                        )
+                      : null,
               border: Border.all(
-                color: active ? highlight.withValues(alpha: 0.45) : Colors.transparent,
+                color: isActive
+                    ? highlight.withOpacity(0.5)
+                    : _hovered
+                        ? Colors.white.withOpacity(0.15)
+                        : Colors.transparent,
+                width: 1.5,
               ),
+              boxShadow: isActive
+                  ? [
+                      BoxShadow(
+                        color: highlight.withOpacity(0.2),
+                        blurRadius: 15,
+                        spreadRadius: -2,
+                      ),
+                    ]
+                  : null,
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (isActive)
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    width: 6,
+                    height: 6,
+                    margin: const EdgeInsets.only(right: 10),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: highlight,
+                      boxShadow: [
+                        BoxShadow(
+                          color: highlight,
+                          blurRadius: 8,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                  ),
                 Icon(
                   iconData,
-                  color: active ? highlight : const Color(0xFF9AA3B8),
+                  color: isActive
+                      ? highlight
+                      : _hovered
+                          ? Colors.white
+                          : const Color(0xFF9AA3B8),
                   size: 20,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 10),
                 Text(
-                  label,
+                  widget.label,
                   style: GoogleFonts.inter(
                     fontSize: 13,
-                    fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-                    color: active ? const Color(0xFFF4F4F9) : const Color(0xFF9AA3B8),
+                    fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+                    color: isActive
+                        ? Colors.white
+                        : _hovered
+                            ? Colors.white
+                            : const Color(0xFF9AA3B8),
+                    letterSpacing: isActive ? 0.2 : 0,
                   ),
                 ),
               ],
@@ -1638,14 +1762,25 @@ class _MetricRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: GoogleFonts.inter(fontSize: 10, color: const Color(0xFFA98A7C), letterSpacing: 1.5)),
-              const SizedBox(height: 4),
-              Text(value, style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(fontSize: 10, color: const Color(0xFFA98A7C), letterSpacing: 1.5),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: color),
+                ),
+              ],
+            ),
           ),
+          const SizedBox(width: 8),
           Icon(icon, color: color.withOpacity(0.4), size: 36),
         ],
       ),

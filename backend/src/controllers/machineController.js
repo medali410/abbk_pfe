@@ -6,7 +6,8 @@ async function list(req, res) {
         const catalog = String(req.query.catalog || '') === '1';
         const includeAll = String(req.query.includeAllMongo || '') === '1';
         const unassigned = String(req.query.unassigned || '') === '1';
-        const rows = await MachineModel.findMany({ catalog, includeAll, unassigned });
+        const concepterId = req.query.concepterId || null;
+        const rows = await MachineModel.findMany({ catalog, includeAll, unassigned, concepterId });
         res.set('Cache-Control', 'no-store');
         return res.json(rows.map(serializeMachine));
     } catch (err) {
@@ -67,4 +68,29 @@ async function remove(req, res) {
     }
 }
 
-module.exports = { list, create, getById, stop, remove };
+async function update(req, res) {
+    try {
+        const { machineId } = req.params;
+        const row = await MachineModel.update(machineId, req.body);
+        return res.json(serializeMachine(row));
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+async function start(req, res) {
+    try {
+        const { machineId } = req.params;
+        console.log(`🚀 DÉMARRAGE machine ${machineId}`);
+        const row = await MachineModel.updateStatus(machineId, 'RUNNING');
+        return res.json({
+            success: true,
+            message: 'Machine démarrée avec succès',
+            machine: serializeMachine(row)
+        });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+module.exports = { list, create, getById, update, stop, start, remove };

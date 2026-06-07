@@ -167,7 +167,7 @@ class _MachineDetailProPageState extends State<MachineDetailProPage> {
                                           _fallbackBanner(),
                                     )
                                   : Image.network(
-                                      imageUrl,
+                                      ApiService.fullUrl(imageUrl),
                                       fit: BoxFit.cover,
                                       errorBuilder: (_, __, ___) =>
                                           _fallbackBanner(),

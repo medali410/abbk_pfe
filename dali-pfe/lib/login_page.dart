@@ -391,6 +391,9 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
       if (role == 'conception' || role == 'concepteur') {
+        await ApiService.saveConcepteurSession(
+          Map<String, dynamic>.from(response),
+        );
         Navigator.pushReplacementNamed(context, '/concepteur-dashboard');
         return;
       }
@@ -707,6 +710,9 @@ class _LoginPageState extends State<LoginPage> {
       }
       if (role == 'conception' || role == 'concepteur') {
         await ApiService.clearStoredClientSession();
+        await ApiService.saveConcepteurSession(
+          Map<String, dynamic>.from(response),
+        );
         if (!context.mounted) return;
         Navigator.pushReplacementNamed(context, '/concepteur-dashboard');
         return;
@@ -808,6 +814,15 @@ class _LoginPageState extends State<LoginPage> {
     }
     if (role == 'conception' || role == 'concepteur') {
       await ApiService.clearStoredClientSession();
+      await ApiService.saveConcepteurSession({
+        'email': oauthEmail,
+        'name': (qp['name'] ?? '').trim(),
+        'nom': (qp['name'] ?? '').trim(),
+        'concepteurId': (qp['concepteurId'] ?? qp['id'] ?? '').toString(),
+        'id': (qp['id'] ?? '').toString(),
+        'adresse': (qp['adresse'] ?? '').trim(),
+        'location': (qp['location'] ?? '').trim(),
+      });
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/concepteur-dashboard');
       return;

@@ -414,6 +414,11 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
       }
       _requiresStop = (data['requires_stop'] == true) || _iaProbPanne >= 75;
       _notificationMessage = (data['notification_message'] ?? '').toString();
+
+      final status = (data['status'] ?? data['machineStatus'] ?? '').toString().toUpperCase();
+      if (status.isNotEmpty) {
+        _machineStopped = status == 'STOPPED';
+      }
     });
     _checkAutoAlert();
   }
@@ -513,10 +518,12 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
       var mt = (info['motorType'] ?? 'EL_M').toString().trim().toUpperCase();
       if (mt != 'EL_S' && mt != 'EL_M' && mt != 'EL_L') mt = 'EL_M';
       final scale = info['rulHoursPerModelUnit'];
+      final status = (info['status'] ?? '').toString().toUpperCase();
       setState(() {
         _companyId = info['companyId']?.toString();
         _machineIaMotorType = mt;
         _adminIaMotor = mt;
+        _machineStopped = (status == 'STOPPED');
         _adminRulScaleController.text =
             scale != null && scale.toString().trim().isNotEmpty ? scale.toString() : '';
       });
@@ -1526,21 +1533,29 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
           ),
           // MQTT status bar removed
           const SizedBox(height: 14),
-          GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: 3,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 1.8,
-            children: [
-              _sensorTile('THERMIQUE', '${_thermal.toStringAsFixed(1)} °C', Icons.thermostat_rounded, _thermal >= 75 ? _red : _cyan, panneKey: 'thermal'),
-              _sensorTile('PRESSION', '${_pressure.toStringAsFixed(1)} BAR', Icons.speed_rounded, _cyan, panneKey: 'pressure'),
-              _sensorTile('PUISSANCE', '${_power.toStringAsFixed(1)} kW', Icons.bolt_rounded, const Color(0xFFFFD54F), panneKey: 'power'),
-              _sensorTile('VIBRATION', '${_vibration.toStringAsFixed(2)} mm/s', Icons.vibration_rounded, _vibration >= 4 ? _red : _cyan, panneKey: 'vibration'),
-              _sensorTile('MAGNÉTIQUE', '${_magnetic.toStringAsFixed(2)} mT', Icons.explore_rounded, const Color(0xFF90CAF9)),
-              _sensorTile('INFRA-ROUGE', irLabel, Icons.local_fire_department_outlined, const Color(0xFFFFAB91)),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isSmall = constraints.maxWidth < 450;
+              final int crossAxisCount = isSmall ? 2 : 3;
+              final double childAspectRatio = isSmall ? 2.5 : 1.8;
+
+              return GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: crossAxisCount,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: childAspectRatio,
+                children: [
+                  _sensorTile('THERMIQUE', '${_thermal.toStringAsFixed(1)} °C', Icons.thermostat_rounded, _thermal >= 75 ? _red : _cyan, panneKey: 'thermal'),
+                  _sensorTile('PRESSION', '${_pressure.toStringAsFixed(1)} BAR', Icons.speed_rounded, _cyan, panneKey: 'pressure'),
+                  _sensorTile('PUISSANCE', '${_power.toStringAsFixed(1)} kW', Icons.bolt_rounded, const Color(0xFFFFD54F), panneKey: 'power'),
+                  _sensorTile('VIBRATION', '${_vibration.toStringAsFixed(2)} mm/s', Icons.vibration_rounded, _vibration >= 4 ? _red : _cyan, panneKey: 'vibration'),
+                  _sensorTile('MAGNÉTIQUE', '${_magnetic.toStringAsFixed(2)} mT', Icons.explore_rounded, const Color(0xFF90CAF9)),
+                  _sensorTile('INFRA-ROUGE', irLabel, Icons.local_fire_department_outlined, const Color(0xFFFFAB91)),
+                ],
+              );
+            },
           ),
         ],
       ),

@@ -98,6 +98,18 @@ io.on('connection', (socket) => {
                 });
             }
 
+            // AUTO-JOIN DESIGNER if it's a conception room
+            if (roomId.startsWith('chat_conception_')) {
+                const designerIdStr = roomId.replace('chat_conception_', '');
+                const designerId = parseInt(designerIdStr, 10);
+                if (!isNaN(designerId)) {
+                    await chatController._ensureParticipant(roomId, {
+                        userId: designerId,
+                        role: 'conception',
+                    });
+                }
+            }
+
             // Broadcast to room
             socket.to(roomId).emit('chat_message', data);
         } catch (err) {

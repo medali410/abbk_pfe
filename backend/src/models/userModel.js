@@ -13,7 +13,14 @@ async function getProfileExtras(user) {
     }
     if (r === 'conception') {
         const p = await prisma.concepteur.findUnique({ where: { userId: user.id } });
-        return p ? { companyId: p.companyId } : {};
+        return p
+            ? {
+                  concepteurId: p.id,
+                  companyId: p.companyId,
+                  location: p.location,
+                  specialite: p.specialite,
+              }
+            : {};
     }
     if (r === 'technician') {
         const p = await prisma.technician.findUnique({ where: { userId: user.id } });

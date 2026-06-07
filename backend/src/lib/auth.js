@@ -10,6 +10,12 @@ async function verifyPassword(plain, hash) {
     return bcrypt.compare(String(plain), String(hash));
 }
 
+function getAuthUserId(auth) {
+    const raw = auth?.sub ?? auth?.id ?? auth?.userId ?? 0;
+    const userId = Number(raw);
+    return Number.isFinite(userId) && userId > 0 ? userId : 0;
+}
+
 function requireAuth(req, res, next) {
     const header = req.headers.authorization || '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : '';
@@ -109,6 +115,7 @@ module.exports = {
     hashPassword,
     verifyPassword,
     signToken,
+    getAuthUserId,
     requireAuth,
     requireFleetManager,
     loginPayload,

@@ -32,6 +32,18 @@ async function getChatMessages(req, res) {
             update: {},
         });
 
+        // AUTO-JOIN DESIGNER if it's a conception room
+        if (roomId.startsWith('chat_conception_')) {
+            const designerIdStr = roomId.replace('chat_conception_', '');
+            const designerId = parseInt(designerIdStr, 10);
+            if (!isNaN(designerId)) {
+                await _ensureParticipant(roomId, {
+                    userId: designerId,
+                    role: 'conception',
+                });
+            }
+        }
+
         const messages = await prisma.chatMessage.findMany({
             where: { roomId },
             orderBy: { createdAt: 'asc' },
@@ -62,16 +74,33 @@ async function getConceptionConversations(req, res) {
             take: 50,
         });
 
-        const result = rooms.map((room) => {
+        const result = await Promise.all(rooms.map(async (room) => {
             const last = room.messages[0];
-            let displayName = room.name || room.roomId;
 
-            // Build participant names for display
-            const participantNames = (room.participants || [])
-                .map((p) => p.userName)
-                .filter(Boolean);
-            if (participantNames.length > 0 && !room.name) {
-                displayName = participantNames.join(', ');
+            // Fetch real user names from the User table for each participant
+            const participantsWithNames = await Promise.all(
+                (room.participants || []).map(async (p) => {
+                    const user = await prisma.user.findUnique({
+                        where: { id: p.userId },
+                        select: { nom: true }
+                    });
+                    return {
+                        userId: p.userId,
+                        role: p.role,
+                        userName: user ? user.nom : (p.userName || 'Utilisateur inconnu'),
+                    };
+                })
+            );
+
+            let displayName = room.name || room.roomId;
+            const otherParticipants = participantsWithNames
+                .filter(p => !p.userName.toLowerCase().includes('admin'))
+                .map(p => p.userName);
+
+            if (otherParticipants.length > 0) {
+                displayName = otherParticipants[0];
+            } else if (participantsWithNames.length > 0) {
+                displayName = participantsWithNames[0].userName;
             }
 
             return {
@@ -80,13 +109,9 @@ async function getConceptionConversations(req, res) {
                 lastText: last ? last.text : 'Aucun message',
                 lastAt: last ? last.createdAt : room.createdAt,
                 senderName: last ? last.senderName : '',
-                participants: (room.participants || []).map((p) => ({
-                    userId: p.userId,
-                    role: p.role,
-                    userName: p.userName,
-                })),
+                participants: participantsWithNames,
             };
-        });
+        }));
 
         return res.json(result);
     } catch (err) {
@@ -175,28 +200,51 @@ async function getConversationsByRole(req, res) {
 
         // Deduplicate rooms (multiple participants with same role in one room)
         const seen = new Set();
-        const result = [];
+        const roomsToProcess = [];
         for (const p of participations) {
             if (seen.has(p.roomId)) continue;
             seen.add(p.roomId);
+            roomsToProcess.push(p.chatRoom);
+        }
 
-            const room = p.chatRoom;
+        const result = await Promise.all(roomsToProcess.map(async (room) => {
             const last = room.messages[0];
-            const displayName = room.name || room.roomId;
 
-            result.push({
+            // Fetch real user names from the User table for each participant
+            const participantsWithNames = await Promise.all(
+                (room.participants || []).map(async (p) => {
+                    const user = await prisma.user.findUnique({
+                        where: { id: p.userId },
+                        select: { nom: true }
+                    });
+                    return {
+                        userId: p.userId,
+                        role: p.role,
+                        userName: user ? user.nom : (p.userName || 'Utilisateur inconnu'),
+                    };
+                })
+            );
+
+            let displayName = room.name || room.roomId;
+            const otherParticipants = participantsWithNames
+                .filter(p => !p.userName.toLowerCase().includes('admin'))
+                .map(p => p.userName);
+
+            if (otherParticipants.length > 0) {
+                displayName = otherParticipants[0];
+            } else if (participantsWithNames.length > 0) {
+                displayName = participantsWithNames[0].userName;
+            }
+
+            return {
                 roomId: room.roomId,
                 name: displayName,
                 lastText: last ? last.text : 'Aucun message',
                 lastAt: last ? last.createdAt : room.createdAt,
                 senderName: last ? last.senderName : '',
-                participants: (room.participants || []).map((pp) => ({
-                    userId: pp.userId,
-                    role: pp.role,
-                    userName: pp.userName,
-                })),
-            });
-        }
+                participants: participantsWithNames,
+            };
+        }));
 
         return res.json(result);
     } catch (err) {
@@ -279,6 +327,18 @@ async function postChatMessage(req, res) {
             create: { roomId },
             update: { updatedAt: new Date() },
         });
+
+        // AUTO-JOIN DESIGNER if it's a conception room
+        if (roomId.startsWith('chat_conception_')) {
+            const designerIdStr = roomId.replace('chat_conception_', '');
+            const designerId = parseInt(designerIdStr, 10);
+            if (!isNaN(designerId)) {
+                await _ensureParticipant(roomId, {
+                    userId: designerId,
+                    role: 'conception',
+                });
+            }
+        }
 
         const message = await prisma.chatMessage.create({
             data: {
@@ -402,6 +462,37 @@ async function uploadAttachment(req, res) {
     }
 }
 
+// ─── DELETE /api/chat/rooms/:roomId ──────────────────────────────────────────
+// Deletes a room and all its messages (cascades via Prisma).
+async function deleteChatMessage(req, res) {
+    try {
+        const { messageId } = req.params;
+        await prisma.chatMessage.delete({
+            where: { id: parseInt(messageId) },
+        });
+        return res.json({ success: true, message: 'Message supprimé' });
+    } catch (err) {
+        console.error('Erreur suppression message:', err);
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+async function deleteChatRoom(req, res) {
+    try {
+        const { roomId } = req.params;
+        await prisma.chatRoom.delete({
+            where: { roomId },
+        });
+        return res.json({ message: 'Discussion supprimée avec succès' });
+    } catch (err) {
+        // If room doesn't exist, ignore error or return 404
+        if (err.code === 'P2025') {
+            return res.status(404).json({ error: 'Discussion introuvable' });
+        }
+        return res.status(500).json({ error: err.message });
+    }
+}
+
 module.exports = {
     getChatMessages,
     getConceptionConversations,
@@ -412,5 +503,7 @@ module.exports = {
     getRoomParticipants,
     addRoomParticipant,
     uploadAttachment,
+    deleteChatRoom,
+    deleteChatMessage,
     _ensureParticipant,
 };

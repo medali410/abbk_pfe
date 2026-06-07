@@ -109,15 +109,6 @@ class _AdminMachinesHubPageState extends State<AdminMachinesHubPage> {
               active: _view == _MachinesSubview.history,
               onTap: _openHistory,
             ),
-            if (_view == _MachinesSubview.detail && _selectedMachineId != null) ...[
-              const SizedBox(width: 8),
-              _subNavChip(
-                label: 'Fiche · ${_selectedMachineName ?? _selectedMachineId}',
-                icon: Icons.monitor_heart_outlined,
-                active: true,
-                onTap: () {},
-              ),
-            ],
           ],
         ),
       ),

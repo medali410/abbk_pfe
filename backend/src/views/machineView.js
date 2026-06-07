@@ -11,8 +11,9 @@ function serializeMachine(m) {
         companyId: m.companyId || '',
         motorType: m.motorType,
         location: m.location || '',
-        model3dUrl: m.model3dUrl || '',
-        modele3dId: m.modele3dId,
+        imageUrl: m.imageUrl || '',
+        isPublic: m.isPublic !== false,
+        concepteurId: m.concepteurId || '',
         createdAt: m.createdAt,
         updatedAt: m.updatedAt,
     };

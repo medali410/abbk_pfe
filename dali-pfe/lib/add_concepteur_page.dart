@@ -248,10 +248,36 @@ class _AddConcepteurPageState extends State<AddConcepteurPage> {
                           ? 'ÉDITION DU PROFIL CONCEPTEUR'
                           : 'NOUVEAU COMPTE CONCEPTEUR',
                       style: GoogleFonts.spaceGrotesk(
-                        fontSize: 14,
+                        fontSize: 16,
                         color: _primary,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 2,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 3,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      height: 2,
+                      width: 40,
+                      decoration: BoxDecoration(
+                        color: _primary,
+                        boxShadow: [
+                          BoxShadow(
+                            color: _primary.withOpacity(0.5),
+                            blurRadius: 8,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      _isEdit
+                          ? 'Modifiez les informations essentielles ci-dessous.'
+                          : 'Remplissez les informations pour créer un nouvel accès conception.',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: _onSurface.withOpacity(0.7),
+                        height: 1.5,
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -305,23 +331,47 @@ class _AddConcepteurPageState extends State<AddConcepteurPage> {
                     ),
                     _field('LOCALISATION / SITE', _location, icon: Icons.location_on_outlined),
                     const SizedBox(height: 24),
-                    FilledButton(
-                      onPressed: _loading || _loadingProfile ? null : _submit,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: _primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: _loading
+                    const SizedBox(height: 32),
+                    InkWell(
+                      onTap: _loading || _loadingProfile ? null : _submit,
+                      borderRadius: BorderRadius.circular(16),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          gradient: LinearGradient(
+                            colors: [
+                              _primary,
+                              const Color(0xFFFF8A65),
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: _primary.withOpacity(0.3),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: _loading
                           ? const SizedBox(
-                              height: 22,
-                              width: 22,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
                             )
                           : Text(
-                              _isEdit ? 'ENREGISTRER' : 'CRÉER LE COMPTE',
-                              style: GoogleFonts.inter(fontWeight: FontWeight.bold, letterSpacing: 1),
+                              _isEdit ? 'METTRE À JOUR LE PROFIL' : 'CONFIRMER LA CRÉATION',
+                              style: GoogleFonts.spaceGrotesk(
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.5,
+                                color: Colors.white,
+                                fontSize: 14,
+                              ),
                             ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -367,24 +417,30 @@ class _AddConcepteurPageState extends State<AddConcepteurPage> {
             controller: c,
             keyboardType: keyboard,
             obscureText: obscure,
-            style: GoogleFonts.inter(color: _onSurface, fontSize: 14),
+            style: GoogleFonts.inter(color: _onSurface, fontSize: 14, fontWeight: FontWeight.w500),
             decoration: InputDecoration(
               filled: true,
-              fillColor: _surface,
-              prefixIcon: icon != null ? Icon(icon, color: _primary.withValues(alpha: 0.7), size: 18) : null,
+              fillColor: Colors.white.withOpacity(0.03),
+              prefixIcon: icon != null ? Icon(icon, color: _primary.withOpacity(0.7), size: 20) : null,
               suffixIcon: suffix,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: _onVariant.withValues(alpha: 0.1)),
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: _onVariant.withValues(alpha: 0.1)),
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: _primary, width: 1.5),
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: _primary, width: 2),
+              ),
+              hintText: label.toUpperCase(),
+              hintStyle: GoogleFonts.spaceGrotesk(
+                fontSize: 10,
+                color: _onVariant.withOpacity(0.2),
+                letterSpacing: 1,
               ),
             ),
           ),

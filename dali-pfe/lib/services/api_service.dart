@@ -14,6 +14,7 @@ class ApiService {
   static const _kClientPhotoUrl = 'api_client_photo_url';
   static const _kClientBackgroundUrl = 'api_client_background_url';
   static const _kTechnicianProfileJson = 'api_technician_profile_json';
+  static const _kConcepteurProfileJson = 'api_concepteur_profile_json';
 
   static String? _authToken;
   static String? _userRole;
@@ -38,6 +39,10 @@ class ApiService {
   /// Profil technicien (persisté) : `_id`, `technicianId`, `companyId`, etc. — pour rechargement web / calendrier.
   static Map<String, dynamic>? _savedTechnicianProfile;
   static Map<String, dynamic>? get savedTechnicianProfile => _savedTechnicianProfile;
+
+  /// Profil concepteur (persisté) : nom, email, concepteurId, etc.
+  static Map<String, dynamic>? _savedConcepteurProfile;
+  static Map<String, dynamic>? get savedConcepteurProfile => _savedConcepteurProfile;
 
   static bool get isSuperAdmin =>
       (_userRole ?? '').toLowerCase() == 'superadmin';
@@ -98,6 +103,19 @@ class ApiService {
     } else {
       _savedTechnicianProfile = null;
     }
+    final concepteurRaw = p.getString(_kConcepteurProfileJson);
+    if (concepteurRaw != null && concepteurRaw.isNotEmpty) {
+      try {
+        final d = json.decode(concepteurRaw);
+        if (d is Map<String, dynamic>) {
+          _savedConcepteurProfile = d;
+        }
+      } catch (_) {
+        _savedConcepteurProfile = null;
+      }
+    } else {
+      _savedConcepteurProfile = null;
+    }
   }
 
   static Future<void> saveAuth(String? token, String role, {bool persist = true}) async {
@@ -143,6 +161,23 @@ class ApiService {
     await p.remove(_kClientBackgroundUrl);
     _savedTechnicianProfile = null;
     await p.remove(_kTechnicianProfileJson);
+    _savedConcepteurProfile = null;
+    await p.remove(_kConcepteurProfileJson);
+  }
+
+  /// À appeler après login concepteur : conserve nom/email/id pour le panneau profil.
+  static Future<void> saveConcepteurSession(Map<String, dynamic> profile) async {
+    final copy = Map<String, dynamic>.from(profile);
+    copy.remove('loginPassword');
+    copy.remove('password');
+    copy.remove('token');
+    _savedConcepteurProfile = copy;
+    final p = await SharedPreferences.getInstance();
+    try {
+      await p.setString(_kConcepteurProfileJson, json.encode(copy));
+    } catch (e) {
+      debugPrint('ApiService.saveConcepteurSession: indisponible ($e)');
+    }
   }
 
   /// À appeler après login technicien : permet au calendrier / profil de fonctionner après F5 sur le web.
@@ -447,9 +482,13 @@ class ApiService {
   }
 
   /// Machines assignées (companyId renseigné) — base Atlas via API.
-  static Future<List<Map<String, dynamic>>> getMachines() async {
+  static Future<List<Map<String, dynamic>>> getMachines({String? concepterId}) async {
+    var url = '$baseUrl/machines';
+    if (concepterId != null && concepterId.isNotEmpty) {
+      url += '?concepterId=${Uri.encodeComponent(concepterId)}';
+    }
     final response = await http.get(
-      Uri.parse('$baseUrl/machines'),
+      Uri.parse(url),
       headers: _getHeaders,
     );
     if (response.statusCode == 200) {
@@ -461,8 +500,18 @@ class ApiService {
 
 
   /// URIs catalogue : repli localhost ↔ 127.0.0.1 si [API_BASE] force un seul hôte.
-  static List<Uri> _catalogMachinesUris() {
-    final primary = Uri.parse('$baseUrl/machines?catalog=1');
+  static List<Uri> _catalogMachinesUris({
+    String? concepterId,
+    bool includeAll = false,
+  }) {
+    var path = '$baseUrl/machines?catalog=1';
+    if (includeAll) {
+      path += '&includeAllMongo=1';
+    }
+    if (concepterId != null && concepterId.isNotEmpty) {
+      path += '&concepterId=${Uri.encodeComponent(concepterId)}';
+    }
+    final primary = Uri.parse(path);
     if (!kIsWeb) return [primary];
     const fromEnv = String.fromEnvironment('API_BASE', defaultValue: '');
     if (fromEnv.isNotEmpty) return [primary];
@@ -473,9 +522,15 @@ class ApiService {
   }
 
   /// Catalogue / liste complète : uniquement la base principale (Atlas), pas de repli local.
-  static Future<List<Map<String, dynamic>>> getCatalogMachines() async {
+  static Future<List<Map<String, dynamic>>> getCatalogMachines({
+    String? concepterId,
+    bool includeAll = false,
+  }) async {
     Object? lastError;
-    for (final uri in _catalogMachinesUris()) {
+    for (final uri in _catalogMachinesUris(
+      concepterId: concepterId,
+      includeAll: includeAll,
+    )) {
       try {
         debugPrint('[API] GET catalogue → $uri');
         final response = await _getWithStartupRetry(uri);
@@ -645,6 +700,37 @@ class ApiService {
     );
     if (response.statusCode == 200) return;
     _throwApiError(response, 'Suppression du technicien impossible');
+  }
+
+  /// Profil du concepteur connecté — GET /api/concepteurs/me.
+  static Future<Map<String, dynamic>> getMyConcepteurProfile() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/concepteurs/me'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final decoded = json.decode(response.body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    }
+    _throwApiError(response, 'Profil concepteur indisponible');
+  }
+
+  /// Mise à jour du profil concepteur connecté — PATCH /api/concepteurs/me.
+  static Future<Map<String, dynamic>> updateMyConcepteurProfile(
+    Map<String, dynamic> data,
+  ) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/concepteurs/me'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode(data),
+    );
+    if (response.statusCode == 200) {
+      final decoded = json.decode(response.body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    }
+    _throwApiError(response, 'Mise à jour du profil concepteur refusée');
   }
 
   // -------------------------
@@ -857,7 +943,7 @@ class ApiService {
     _throwApiError(response, 'Provision equipe impossible');
   }
 
-  static Future<Map<String, dynamic>> addMachine(String clientId, Map<String, dynamic> data) async {
+  static Future<Map<String, dynamic>> addMachineToClient(String clientId, Map<String, dynamic> data) async {
     final response = await http.post(
       Uri.parse('$baseUrl/clients/$clientId/machines'),
       headers: await jsonHeadersAuthorized(),
@@ -873,16 +959,23 @@ class ApiService {
   static Future<Map<String, dynamic>> createStandaloneMachine(
     Map<String, dynamic> data, {
     String actorRole = '',
+    String? concepterId,
   }) async {
     final routeRole = actorRole.toLowerCase().trim();
     final roleAllowed = routeRole == 'concepteur' || routeRole == 'conception';
     if (!roleAllowed && !canAddMachineAsConcepteur) {
       throw Exception('Accès refusé : seul le rôle Concepteur peut ajouter une machine.');
     }
+    
+    final body = Map<String, dynamic>.from(data);
+    if (concepterId != null && concepterId.isNotEmpty) {
+      body['concepteurId'] = concepterId;
+    }
+
     final response = await http.post(
       Uri.parse('$baseUrl/machines'),
       headers: await jsonHeadersAuthorized(),
-      body: json.encode(data),
+      body: json.encode(body),
     );
     if (response.statusCode == 201) {
       return json.decode(response.body);
@@ -1073,8 +1166,10 @@ class ApiService {
   // REMOTE MACHINE CONTROL
   // -------------------------
 
+  // addMachine(Map data) was a duplicate of createStandaloneMachine, removed.
+
   static Future<Map<String, dynamic>> getMachineInfo(String machineId) async {
-    final response = await http.get(Uri.parse('$baseUrl/machines/$machineId/info'));
+    final response = await http.get(Uri.parse('$baseUrl/machines/$machineId'));
     if (response.statusCode == 200) {
       return json.decode(response.body) as Map<String, dynamic>;
     }
@@ -1096,18 +1191,6 @@ class ApiService {
     _throwApiError(response, 'Mise à jour machine refusée');
   }
 
-  static Future<Map<String, dynamic>> startMachineMarche(String machineId) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/machines/$machineId/start-marche'),
-      headers: await jsonHeadersAuthorized(),
-      body: json.encode(<String, dynamic>{}),
-    );
-    if (response.statusCode == 200) {
-      return json.decode(response.body) as Map<String, dynamic>;
-    }
-    _throwApiError(response, 'Enregistrement « machine en marche » impossible');
-  }
-
   static Future<Map<String, dynamic>> stopMachine(String machineId, {String? reason, String? stoppedBy}) async {
     final body = <String, dynamic>{
       'machineId': machineId,
@@ -1123,16 +1206,39 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(response.body) as Map<String, dynamic>;
     }
-    throw Exception('Erreur arrêt machine (${response.statusCode})');
+    _throwApiError(response, 'Arrêt machine impossible');
   }
+
+  static Future<Map<String, dynamic>> startMachine(String machineId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/machines/$machineId/start'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    _throwApiError(response, 'Démarrage machine impossible');
+  }
+
+  static Future<Map<String, dynamic>> startMachineMarche(String machineId) => startMachine(machineId);
 
   static Future<void> deleteMachine(String machineId) async {
     final response = await http.delete(
-      Uri.parse('$baseUrl/machines/$machineId?localMongo=1'),
+      Uri.parse('$baseUrl/machines/$machineId'),
       headers: await jsonHeadersAuthorized(),
     );
-    if (response.statusCode == 200) return;
-    _throwApiError(response, 'Suppression de la machine impossible');
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      _throwApiError(response, 'Impossible de supprimer la machine');
+    }
+  }
+
+  static String fullUrl(String? path) {
+    if (path == null || path.isEmpty) return '';
+    if (path.startsWith('http')) return path;
+    if (path.startsWith('data:')) return path; // Base64
+    // Assumes backend serves uploads from /uploads or similar
+    final cleanPath = path.startsWith('/') ? path.substring(1) : path;
+    return '$baseUrl/$cleanPath'.replaceFirst('/api/', '/'); 
   }
 
   // -------------------------
@@ -1682,7 +1788,27 @@ class ApiService {
     return <Map<String, dynamic>>[];
   }
 
-  static Future<String?> uploadChatAttachment({
+  static Future<void> deleteChatRoom(String roomId) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/chat/rooms/${Uri.encodeComponent(roomId)}'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      _throwApiError(response, 'Impossible de supprimer la discussion');
+    }
+  }
+
+  static Future<void> deleteChatMessage(String messageId) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/chat/messages/$messageId'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      _throwApiError(response, 'Impossible de supprimer le message');
+    }
+  }
+
+  static Future<String?> uploadFile({
     required String base64Data,
     required String filename,
   }) async {
@@ -1701,10 +1827,16 @@ class ApiService {
       }
       return null;
     } catch (e) {
-      debugPrint('Erreur uploadChatAttachment: $e');
+      debugPrint('Erreur uploadFile: $e');
       return null;
     }
   }
+
+  // Alias for backward compatibility
+  static Future<String?> uploadChatAttachment({
+    required String base64Data,
+    required String filename,
+  }) => uploadFile(base64Data: base64Data, filename: filename);
 
   // -------------------------
   // CONTROLES (STEP 4 & 5)

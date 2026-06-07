@@ -2336,7 +2336,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         children: [
           // Brand
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+            padding: const EdgeInsets.only(left: 32, right: 24, top: 28, bottom: 28),
             child: Row(
               children: [
                 Container(

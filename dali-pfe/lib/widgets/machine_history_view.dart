@@ -141,12 +141,16 @@ class _MachineHistoryViewState extends State<MachineHistoryView> {
       children: [
         Container(width: 4, height: 18, color: _primary),
         const SizedBox(width: 10),
-        Text(
-          title,
-          style: GoogleFonts.inter(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: _onSurface,
+        Expanded(
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.inter(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: _onSurface,
+            ),
           ),
         ),
       ],

@@ -1,6 +1,11 @@
 const ActorModel = require('../models/actorModel');
+const {
+    getConcepteurProfileDashboard,
+    buildConcepteurProfileUpdate,
+} = require('../models/concepteurProfileModel');
 const { mergeUserProfile } = require('../views/userView');
-const { createUserWithProfile, hashPassword } = require('../lib/auth');
+const { serializeConcepteurProfileDashboard } = require('../views/concepteurProfileView');
+const { createUserWithProfile, hashPassword, getAuthUserId } = require('../lib/auth');
 const { sendWelcomeEmail } = require('../lib/emailService');
 const { prisma } = require('../lib/prisma');
 
@@ -181,11 +186,78 @@ async function listMaintenanceAgents(req, res) {
     }
 }
 
+async function getMyConcepteurProfile(req, res) {
+    try {
+        const userId = getAuthUserId(req.auth);
+        if (!userId) return res.status(401).json({ error: 'Non authentifié' });
+
+        const dashboard = await getConcepteurProfileDashboard(userId);
+        if (!dashboard) {
+            return res.status(404).json({ error: 'Profil concepteur introuvable' });
+        }
+
+        res.set('Cache-Control', 'no-store');
+        return res.json(
+            serializeConcepteurProfileDashboard(
+                dashboard.row.user,
+                dashboard.row,
+                dashboard.projectTeam,
+            ),
+        );
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+async function updateMyConcepteurProfile(req, res) {
+    try {
+        const userId = getAuthUserId(req.auth);
+        if (!userId) return res.status(401).json({ error: 'Non authentifié' });
+
+        const dashboard = await getConcepteurProfileDashboard(userId);
+        if (!dashboard) {
+            return res.status(404).json({ error: 'Profil concepteur introuvable' });
+        }
+
+        const { userData, profileData, password } = buildConcepteurProfileUpdate(req.body);
+        if (password) {
+            userData.password = await hashPassword(password);
+        }
+
+        const hasUserUpdate = Object.keys(userData).length > 0;
+        const hasProfileUpdate = Object.keys(profileData).length > 0;
+
+        const updatedUser = hasUserUpdate
+            ? await prisma.user.update({ where: { id: userId }, data: userData })
+            : dashboard.row.user;
+
+        const updatedProfile = hasProfileUpdate
+            ? await prisma.concepteur.update({
+                  where: { id: dashboard.row.id },
+                  data: profileData,
+              })
+            : dashboard.row;
+
+        const refreshed = await getConcepteurProfileDashboard(userId);
+        return res.json(
+            serializeConcepteurProfileDashboard(
+                refreshed.row.user,
+                refreshed.row,
+                refreshed.projectTeam,
+            ),
+        );
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
 module.exports = {
     listConcepteurs,
     createConcepteur,
     getConcepteur,
     updateConcepteur,
+    getMyConcepteurProfile,
+    updateMyConcepteurProfile,
     listTechnicians,
     listMaintenanceAgents,
 };

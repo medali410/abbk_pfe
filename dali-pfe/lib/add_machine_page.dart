@@ -36,6 +36,7 @@ class _AddMachinePageState extends State<AddMachinePage> {
   bool _isSaving = false;
   bool _isAuthorized = false;
   bool _isCheckingAuth = true;
+  bool _isPublic = false;
 
   // Design Tokens
   static const _bg = Color(0xFF0A0A1F);
@@ -207,6 +208,7 @@ class _AddMachinePageState extends State<AddMachinePage> {
       "motorType": _motorType,
       "model3dUrl": _model3dController.text.trim(),
       "imageUrl": normalizedImage,
+      "isPublic": _isPublic,
       "seuilsControle": _seuilsControle,
     };
 
@@ -228,7 +230,7 @@ class _AddMachinePageState extends State<AddMachinePage> {
         return createdName.isNotEmpty && mname == createdName;
       });
       if (!stored) {
-        throw Exception('Machine non confirmee en base de donnees. Reessayez.');
+        throw FormatException('Machine non confirmee en base de donnees. Reessayez.');
       }
 
       if (widget.clientId.isNotEmpty) {
@@ -437,6 +439,23 @@ class _AddMachinePageState extends State<AddMachinePage> {
           ),
           const SizedBox(height: 24),
           _buildMachinePhotoField(),
+          const SizedBox(height: 24),
+          SwitchListTile(
+            title: Text(
+              _isPublic ? 'MACHINE PUBLIÉE' : 'MACHINE NON PUBLIÉE',
+              style: GoogleFonts.spaceGrotesk(color: _onSurface, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1),
+            ),
+            subtitle: Text(
+              _isPublic
+                  ? 'Activé : visible dans le catalogue public'
+                  : 'Désactivé : visible uniquement dans votre dashboard',
+              style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 11),
+            ),
+            value: _isPublic,
+            activeColor: _primary,
+            contentPadding: EdgeInsets.zero,
+            onChanged: (v) => setState(() => _isPublic = v),
+          ),
           const SizedBox(height: 32),
         ],
       ),
@@ -542,7 +561,7 @@ class _AddMachinePageState extends State<AddMachinePage> {
             )
           : (_looksLikeNetworkImage(raw)
               ? Image.network(
-                  raw,
+                  ApiService.fullUrl(raw),
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => const Center(
                     child: Icon(Icons.broken_image_outlined, color: _onSurfaceVariant),

@@ -49,6 +49,7 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
 
   Future<List<Map<String, dynamic>>>? _techniciansFuture;
   Map<String, dynamic>? _activeIntervention;
+  Map<String, dynamic>? _machineData;
   bool _forceShowMaintenance = false;
 
   static const _bg = Color(0xFF10102B);
@@ -82,9 +83,21 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
         ? 'Zone A-01'
         : (_machineId == 'MAC_EXP' ? 'Zone B-02' : 'Zone inconnue');
     _loadInitialTelemetry();
+    _loadMachineData();
     _initSocket();
     _techniciansFuture = ApiService.getMaintenanceAgents();
     _checkActiveIntervention();
+  }
+
+  Future<void> _loadMachineData() async {
+    try {
+      final data = await ApiService.getMachineInfo(_machineId);
+      if (mounted) {
+        setState(() => _machineData = data);
+      }
+    } catch (e) {
+      debugPrint('Error loading machine specific data: $e');
+    }
   }
 
   Future<void> _checkActiveIntervention() async {
@@ -607,6 +620,37 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (_machineData != null && (_machineData!['imageUrl'] ?? '').toString().isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(right: 20),
+            child: Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _secondary.withOpacity(0.3)),
+                image: DecorationImage(
+                  image: NetworkImage(ApiService.fullUrl(_machineData!['imageUrl'])),
+                  fit: BoxFit.cover,
+                  onError: (obj, stack) => debugPrint('Error loading machine image: $obj'),
+                ),
+              ),
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.only(right: 20),
+            child: Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: _surfaceHigh,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _secondary.withOpacity(0.1)),
+              ),
+              child: const Icon(Icons.precision_manufacturing, color: _onSurfaceVariant, size: 32),
+            ),
+          ),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

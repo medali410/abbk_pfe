@@ -205,29 +205,28 @@ class _EmbeddedClientListViewState
   }
 
   Widget _buildSearchBar() {
-    return SizedBox(
-      width: 280,
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(color: _outline.withOpacity(0.3)),
+    return Container(
+      width: 320,
+      height: 48,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.03),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: TextField(
+        onChanged: (v) => setState(() => _search = v),
+        style: GoogleFonts.inter(color: _onSurface, fontSize: 13),
+        decoration: InputDecoration(
+          prefixIcon: Icon(Icons.search_rounded,
+              color: _orange.withOpacity(0.7), size: 20),
+          hintText: 'Rechercher un client...',
+          hintStyle: GoogleFonts.inter(
+            color: _onSurface.withOpacity(0.3),
+            fontSize: 13,
           ),
-        ),
-        child: TextField(
-          onChanged: (v) => setState(() => _search = v),
-          style: GoogleFonts.spaceGrotesk(color: _onSurface, fontSize: 13),
-          decoration: InputDecoration(
-            prefixIcon: Icon(Icons.search,
-                color: _onSurfaceVariant.withOpacity(0.6), size: 20),
-            hintText: 'Rechercher un client...',
-            hintStyle: GoogleFonts.spaceGrotesk(
-              color: _onSurfaceVariant.withOpacity(0.3),
-              fontSize: 13,
-            ),
-            border: InputBorder.none,
-            contentPadding:
-                const EdgeInsets.symmetric(vertical: 12),
-          ),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
         ),
       ),
     );
@@ -317,14 +316,18 @@ class _EmbeddedClientListViewState
         ),
       );
     }
+    final screenWidth = MediaQuery.of(context).size.width;
+    final int crossAxisCount = isDesktop ? 3 : (screenWidth > 600 ? 2 : 1);
+    final double aspectRatio = isDesktop ? 3.2 : (screenWidth > 600 ? 2.5 : 3.5);
+
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 1,
+        crossAxisCount: crossAxisCount,
         mainAxisSpacing: 16,
-        crossAxisSpacing: 0,
-        childAspectRatio: isDesktop ? 6.0 : 2.8,
+        crossAxisSpacing: 16,
+        childAspectRatio: aspectRatio,
       ),
       itemCount: clients.length,
       itemBuilder: (_, i) => _ClientCard(
@@ -431,6 +434,10 @@ class _ClientCard extends StatefulWidget {
 class _ClientCardState extends State<_ClientCard> {
   bool _hovering = false;
 
+  static const _secondary = Color(0xFF75D1FF);
+  static const _tertiary = Color(0xFFEFB1F9);
+  static const _orange = Color(0xFFFF6E00);
+
   @override
   Widget build(BuildContext context) {
     final c = widget.client;
@@ -504,116 +511,143 @@ class _ClientCardState extends State<_ClientCard> {
           },
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.all(24),
+          duration: const Duration(milliseconds: 250),
+          padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-          color: _hovering
-              ? const Color(0xFF272743)
-              : const Color(0xFF1D1D38),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-              color: const Color(0xFF594136).withOpacity(0.15)),
-          boxShadow: _hovering
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
-                    blurRadius: 20,
-                    offset: const Offset(0, 4),
-                  )
-                ]
-              : null,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Top row: logo + info + status
-            Row(
-              children: [
-                // Name + location
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        c.name,
-                        style: GoogleFonts.inter(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFFE2DFFF),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(Icons.location_on_outlined,
-                              size: 13,
-                              color: const Color(0xFFE2BFB0)
-                                  .withOpacity(0.6)),
-                          const SizedBox(width: 2),
-                          Text(
-                            c.location,
-                            style: GoogleFonts.spaceGrotesk(
-                              fontSize: 11,
-                              color: const Color(0xFFE2BFB0)
-                                  .withOpacity(0.7),
-                            ),
-                          ),
+            color: _hovering ? const Color(0xFF24244A) : const Color(0xFF1D1D38),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: _hovering ? _secondary.withOpacity(0.3) : Colors.white.withOpacity(0.05),
+              width: 1.5,
+            ),
+            boxShadow: [
+              if (_hovering)
+                BoxShadow(
+                  color: _secondary.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          _secondary.withOpacity(0.2),
+                          _tertiary.withOpacity(0.2),
                         ],
                       ),
-                    ],
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white.withOpacity(0.1)),
+                    ),
+                    child: Center(
+                      child: Text(
+                        c.name.substring(0, 1).toUpperCase(),
+                        style: GoogleFonts.spaceGrotesk(
+                          color: _secondary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 20,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ],
-            ),
-
-            // Stats removed for minimal layout
-          ],
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          c.name,
+                          style: GoogleFonts.inter(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.location_on_rounded, size: 12, color: _orange.withOpacity(0.7)),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                c.location,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  color: Colors.white.withOpacity(0.5),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: widget.statusColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: widget.statusColor.withOpacity(0.3)),
+                    ),
+                    child: Text(
+                      widget.statusLabel,
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: widget.statusColor,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-      ),
       ),
       ),
     );
   }
-}
 
-// ─── Stat Box ─────────────────────────────────────────────────
-class _StatBox extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-
-  const _StatBox(
-      {required this.label, required this.value, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0B0B26),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        children: [
-          Text(
-            label.toUpperCase(),
-            style: GoogleFonts.spaceGrotesk(
-              fontSize: 8,
-              letterSpacing: 1,
-              color: const Color(0xFFE2BFB0).withOpacity(0.5),
+  Widget _miniStat(String label, String value, IconData icon, {Color? color}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 14, color: color ?? Colors.white.withOpacity(0.4)),
+            const SizedBox(width: 6),
+            Text(
+              value,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: color ?? Colors.white,
+              ),
             ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 8,
+            color: Colors.white.withOpacity(0.3),
+            letterSpacing: 0.5,
           ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: GoogleFonts.spaceGrotesk(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

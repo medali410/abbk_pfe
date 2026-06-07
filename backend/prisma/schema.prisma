@@ -47,6 +47,13 @@ model Concepteur {
   location   String   @default("")
   specialite String   @default("")
   machineIds String   @default("[]")
+  imageUrl   String   @default("")
+  phone      String   @default("")
+  city       String   @default("")
+  country    String   @default("")
+  websiteUrl String   @default("")
+  profileUrl String   @default("")
+  status     String   @default("Actif")
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -80,6 +87,9 @@ model Machine {
   companyId   String   @default("")
   motorType   String   @default("air_cooled")
   location    String   @default("")
+  imageUrl    String   @default("")
+  isPublic    Boolean  @default(true)
+  concepteurId String   @default("")
   model3dUrl  String   @default("")
   modele3dId  Int?
   createdAt   DateTime @default(now())

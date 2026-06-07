@@ -1,11 +1,17 @@
+import 'dart:async';
 import 'dart:convert';
-import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
+import 'package:file_picker/file_picker.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../services/api_service.dart';
+import 'voice_player_widget.dart';
 
 class MessageEquipeView extends StatefulWidget {
   final String? technicianId;
@@ -28,16 +34,22 @@ class MessageEquipeView extends StatefulWidget {
 }
 
 class _MessageEquipeViewState extends State<MessageEquipeView> {
-  static const _bg = Color(0xFF10102B);
-  static const _low = Color(0xFF191934);
-  static const _container = Color(0xFF1D1D38);
-  static const _high = Color(0xFF272743);
-  static const _highest = Color(0xFF32324E);
-  static const _primary = Color(0xFFFF6E00);
-  static const _secondary = Color(0xFF75D1FF);
-  static const _text = Color(0xFFE2DFFF);
-  static const _muted = Color(0xFFE2BFB0);
-  static const _error = Color(0xFFFFB4AB);
+  static const _bg = Color(0xFF080D14);
+  static const _sidebar = Color(0xFF0D1526);
+  static const _header = Color(0xFF0F1C31);
+  static const _itemActive = Color(0xFF162240);
+  static const _myBubble = Color(0xFF1A3A6E);
+  static const _otherBubble = Color(0xFF0F1C31);
+  static const _text = Color(0xFFE2E8F0);
+  static const _muted = Color(0xFF6B869A);
+  static const _accent = Color(0xFF3B82F6);
+  static const _secondary = Color(0xFF3B82F6);
+  static const _primary = Color(0xFF3B82F6);
+  static const _highest = Color(0xFF162035);
+  static const _error = Color(0xFFF15C6D);
+  static const _low = Color(0xFF080D14);
+  static const _high = Color(0xFF202C33);
+  static const _container = Color(0xFF111B21);
 
   io.Socket? _socket;
   final TextEditingController _input = TextEditingController();
@@ -49,6 +61,15 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
   late String _technicianId;
   late String _clientId;
   bool _isTyping = false;
+  bool _isLocating = false;
+  
+  // Voice Recording State
+  bool _isRecording = false;
+  String? _recordingPath;
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  Timer? _recordingTimer;
+  int _recordingDurationSeconds = 0;
+
   final ScrollController _messagesScroll = ScrollController();
   List<Map<String, dynamic>> _searchResults = [];
   bool _isSearching = false;
@@ -82,7 +103,66 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     _searchController.dispose();
     _messagesScroll.dispose();
     _socket?.dispose();
+    _audioRecorder.dispose();
+    _recordingTimer?.cancel();
     super.dispose();
+  }
+
+  String _resolveDesignerName(Map<String, dynamic> c) {
+    // 1. Try direct fields from the conversation object
+    String n = (c['name'] ?? c['displayName'] ?? c['concepteurName'] ?? c['technicianName'] ?? c['clientName'] ?? c['concepteur_name'] ?? c['technician_name'] ?? '').toString();
+    
+    // 2. If name is missing or is generic "Administrateur", look into participants
+    if (n.isEmpty || n.toLowerCase().contains('admin')) {
+      final participants = c['participants'] as List?;
+      if (participants != null && participants.isNotEmpty) {
+        try {
+          // Priority A: Find a participant by role (Designer/Technician/etc.)
+          Map<String, dynamic>? other;
+          final targetRoles = {'conception', 'technician', 'technologique', 'maintenance', 'concepteur', 'designer', 'user'};
+          for (final p in participants) {
+            final role = (p['role'] ?? p['userRole'] ?? p['user_role'] ?? p['type'] ?? p['status'] ?? '').toString().toLowerCase();
+            if (targetRoles.contains(role)) {
+              other = Map<String, dynamic>.from(p as Map);
+              // If this is a valid role but the name is still "admin", keep looking for a better one
+              final nameCheck = (other['fullName'] ?? other['userName'] ?? other['name'] ?? '').toString().toLowerCase();
+              if (nameCheck.contains('admin')) {
+                other = null;
+                continue;
+              }
+              break;
+            }
+          }
+
+          // Priority B: Find anyone who is NOT the current user and NOT "admin"
+          other ??= Map<String, dynamic>.from(
+            (participants.firstWhere(
+              (p) {
+                final uname = (p['userName'] ?? p['user_name'] ?? p['name'] ?? p['full_name'] ?? p['fullName'] ?? '').toString().toLowerCase();
+                final currentLow = _senderName.toLowerCase();
+                return uname != currentLow && !uname.contains('admin');
+              },
+              orElse: () => participants.first,
+            )) as Map,
+          );
+
+          // Priority C: Resolve the string name from the found participant (check every possible field)
+          final first = (other['firstName'] ?? other['first_name'] ?? other['prenom'] ?? '').toString();
+          final last = (other['lastName'] ?? other['last_name'] ?? other['nom'] ?? '').toString();
+          if (first.isNotEmpty || last.isNotEmpty) {
+            n = '$first $last'.trim();
+          } else {
+            final foundName = (other['fullName'] ?? other['full_name'] ?? other['userName'] ?? other['user_name'] ?? 
+                 other['name'] ?? other['displayName'] ?? other['display_name'] ?? '').toString();
+            if (foundName.isNotEmpty) n = foundName;
+          }
+        } catch (_) {}
+      }
+    }
+    
+    // Final check: if it still contains admin, but we have NO other choice, just use it.
+    // Or if n is completely empty, use 'Discussion'
+    return n.isNotEmpty ? n : 'Discussion';
   }
 
   Future<void> _initChat() async {
@@ -133,10 +213,11 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     _activeRoomId = room;
     _socket?.emit('join_chat_room', {'roomId': room});
 
-    // Resolve designer details: use conversation participants as fallback
-    final designerName = (c['concepteurName'] ?? c['name'] ?? '').toString();
-    if (designerName.isNotEmpty) {
-      // Try to search for the designer first
+    // Resolve designer details: find the designer/technician participant (not the admin)
+    String designerName = _resolveDesignerName(c);
+
+    if (designerName.isNotEmpty && !designerName.toLowerCase().contains('admin')) {
+      // Try to search for the designer first for full profile info
       try {
         final results = await ApiService.searchConcepteurs(designerName);
         if (mounted && results.isNotEmpty) {
@@ -147,7 +228,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
             );
           });
         } else {
-          // Fallback: build minimal info from conversation data
+          // Fallback: build minimal info from resolved name
           if (mounted) {
             setState(() {
               _selectedDesignerDetails = {
@@ -159,7 +240,6 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
           }
         }
       } catch (_) {
-        // Fallback on error
         if (mounted) {
           setState(() {
             _selectedDesignerDetails = {
@@ -171,15 +251,11 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
         }
       }
     } else {
-      // No name available — use participants from conversation data
-      final participants = c['participants'] as List?;
-      final pName = participants != null && participants.isNotEmpty
-          ? (participants.first['userName'] ?? 'Concepteur').toString()
-          : 'Concepteur';
+      // Fallback: show whatever name we resolved
       if (mounted) {
         setState(() {
           _selectedDesignerDetails = {
-            'name': pName,
+            'name': designerName.isNotEmpty ? designerName : 'Discussion',
             'specialite': '',
             'machines': <String>[],
           };
@@ -201,6 +277,39 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
         _messages = [];
         _selectedDesignerDetails = null;
       });
+    }
+  }
+
+  Future<void> _deleteConversation() async {
+    if (_activeRoomId.isEmpty) return;
+    
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _low,
+        title: Text('Effacer la discussion', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Text('Voulez-vous vraiment supprimer tout l\'historique de cette discussion ? Cette action est irréversible.', 
+          style: GoogleFonts.inter(color: _muted)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ANNULER', style: TextStyle(color: _muted))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true), 
+            child: const Text('EFFACER', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold))
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await ApiService.deleteChatRoom(_activeRoomId);
+      _closeConversation();
+      await _initChat(); // Refresh list
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      }
     }
   }
 
@@ -322,108 +431,9 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     }
   }
 
-  void _showExtrasOptions() {
-    if (_activeRoomId.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Sélectionnez une conversation d\'abord.')),
-        );
-      }
-      return;
-    }
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1A1A2E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  color: _muted.withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              Text('Options supplémentaires',
-                  style: GoogleFonts.inter(color: _text, fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 20),
-              _extrasButton(
-                icon: Icons.location_on,
-                color: const Color(0xFFFF6E00),
-                title: 'Partager ma localisation',
-                subtitle: 'Envoyer mes coordonnées GPS',
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _shareRealLocation();
-                },
-              ),
-              const SizedBox(height: 12),
-              _extrasButton(
-                icon: Icons.mic,
-                color: const Color(0xFF75D1FF),
-                title: 'Reconnaissance vocale',
-                subtitle: 'Dicter un message',
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _startVoiceRecognition();
-                },
-              ),
-              const SizedBox(height: 16),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _extrasButton({required IconData icon, required Color color, required String title, required String subtitle, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: _highest.withOpacity(0.5),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: _muted.withOpacity(0.1)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, color: color, size: 22),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: GoogleFonts.inter(color: _text, fontWeight: FontWeight.w600, fontSize: 14)),
-                  const SizedBox(height: 2),
-                  Text(subtitle, style: GoogleFonts.inter(color: _muted, fontSize: 11)),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right, color: _muted.withOpacity(0.4)),
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<void> _shareRealLocation() async {
+    if (_isLocating) return;
+    if (mounted) setState(() => _isLocating = true);
     try {
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -431,115 +441,186 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
         if (permission == LocationPermission.denied) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Permission de localisation refusée.')),
+              const SnackBar(
+                content: Text('Permission de localisation refusée.'),
+                duration: Duration(seconds: 10),
+              ),
             );
           }
           return;
         }
       }
+
       if (permission == LocationPermission.deniedForever) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Activez la localisation dans les paramètres.')),
+            SnackBar(
+              content: const Text('Localisation désactivée. Veuillez l\'activer dans les paramètres.'),
+              duration: const Duration(seconds: 10),
+              action: SnackBarAction(
+                label: 'PARAMÈTRES',
+                onPressed: () => Geolocator.openAppSettings(),
+              ),
+            ),
           );
         }
         return;
       }
 
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-      );
-      final locationText = '📍 Position GPS: ${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
-      _sendMockText(locationText);
+      // Attempt real location with fallbacks
+      Position? position;
+      try {
+        position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 10),
+          ),
+        );
+      } catch (e) {
+        debugPrint('High accuracy failed, trying last known... $e');
+        position = await Geolocator.getLastKnownPosition();
+      }
+
+      if (position != null) {
+        final locationText = 'Position GPS: ${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}';
+        _sendMockText(locationText);
+      } else {
+        throw FormatException('Impossible d\'obtenir une position (Time-out or No Signal)');
+      }
     } catch (e) {
       debugPrint('Erreur localisation: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur localisation: $e')),
+          SnackBar(
+            content: const Text('Erreur: Signal GPS trop faible ou désactivé.'),
+            duration: const Duration(seconds: 10),
+            action: SnackBarAction(
+              label: 'RÉESSAYER',
+              onPressed: _shareRealLocation,
+            ),
+          ),
         );
+      }
+    } finally {
+      if (mounted) setState(() => _isLocating = false);
+    }
+  }
+
+
+  Future<void> _startVoiceRecording() async {
+    if (!await _audioRecorder.hasPermission()) return;
+    
+    final dir = await getTemporaryDirectory();
+    final filePath = path.join(dir.path, 'voice_${DateTime.now().millisecondsSinceEpoch}.m4a');
+    
+    await _audioRecorder.start(const RecordConfig(), path: filePath);
+    
+    if (mounted) {
+      setState(() {
+        _isRecording = true;
+        _recordingPath = filePath;
+        _recordingDurationSeconds = 0;
+      });
+      
+      _recordingTimer?.cancel();
+      _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (mounted) {
+          setState(() => _recordingDurationSeconds++);
+        }
+      });
+    }
+  }
+
+  Future<void> _stopVoiceRecording() async {
+    _recordingTimer?.cancel();
+    final finalPath = await _audioRecorder.stop();
+    
+    if (finalPath != null && mounted) {
+      final file = File(finalPath);
+      final bytes = await file.readAsBytes();
+      final base64Data = base64Encode(bytes);
+      
+      setState(() {
+        _isRecording = false;
+        _recordingPath = null;
+      });
+
+      final url = await ApiService.uploadChatAttachment(
+        base64Data: base64Data,
+        filename: path.basename(finalPath),
+      );
+
+      if (url != null) {
+        final localMessage = <String, dynamic>{
+          'roomId': _activeRoomId,
+          'from': _senderRole,
+          'senderName': _senderName,
+          'text': '[Message Vocal]',
+          'attachmentUrl': url,
+          'attachmentType': 'audio',
+          'createdAt': DateTime.now().toIso8601String(),
+        };
+
+        if (mounted) {
+          setState(() => _messages.add(localMessage));
+          _scrollToLatest();
+        }
+
+        final currentUserId = (_senderRole == 'technician' && _technicianId.isNotEmpty) 
+            ? int.tryParse(_technicianId)
+            : (_senderRole == 'client' && _clientId.isNotEmpty)
+                ? int.tryParse(_clientId)
+                : 1;
+
+        _socket?.emit('chat_message', {
+          'roomId': _activeRoomId,
+          'from': _senderRole,
+          'userId': currentUserId,
+          'senderName': _senderName,
+          'text': '[Message Vocal]',
+          'attachmentUrl': url,
+          'attachmentType': 'audio',
+        });
       }
     }
   }
 
-  Future<void> _startVoiceRecognition() async {
-    final speech = stt.SpeechToText();
-    bool available = await speech.initialize(
-      onError: (error) => debugPrint('Erreur STT: $error'),
-    );
-    if (!available) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Reconnaissance vocale non disponible.')),
-        );
-      }
-      return;
+  Future<void> _cancelVoiceRecording() async {
+    _recordingTimer?.cancel();
+    await _audioRecorder.stop();
+    if (mounted) {
+      setState(() {
+        _isRecording = false;
+        _recordingPath = null;
+      });
     }
+  }
 
-    if (!mounted) return;
-
-    // Show listening dialog
-    showDialog(
+  Future<void> _deleteMessage(int messageId) async {
+    final confirmed = await showDialog<bool>(
       context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        String recognizedText = '';
-        bool isListening = true;
-
-        speech.listen(
-          onResult: (result) {
-            recognizedText = result.recognizedWords;
-            if (result.finalResult) {
-              isListening = false;
-              Navigator.pop(ctx);
-              if (recognizedText.isNotEmpty) {
-                _input.text = recognizedText;
-                if (mounted) setState(() => _isTyping = true);
-              }
-            }
-          },
-          localeId: 'fr_FR',
-          listenFor: const Duration(seconds: 15),
-        );
-
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF1A1A2E),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              title: Text('🎙️ Écoute en cours...', style: GoogleFonts.inter(color: _text, fontSize: 16, fontWeight: FontWeight.bold)),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: _primary.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(Icons.mic, color: _primary, size: 40),
-                  ),
-                  const SizedBox(height: 16),
-                  Text('Parlez maintenant...', style: GoogleFonts.inter(color: _muted, fontSize: 13)),
-                  const SizedBox(height: 10),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    speech.stop();
-                    Navigator.pop(ctx);
-                  },
-                  child: Text('Annuler', style: GoogleFonts.inter(color: _error)),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: Text('Supprimer ?', style: GoogleFonts.inter(color: Colors.white)),
+        content: Text('Voulez-vous vraiment supprimer ce message ?', style: GoogleFonts.inter(color: _muted)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('ANNULER', style: TextStyle(color: _muted))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('SUPPRIMER', style: TextStyle(color: _error))),
+        ],
+      ),
     );
-  }
 
+    if (confirmed == true) {
+      try {
+        await ApiService.deleteChatMessage(messageId.toString());
+        setState(() {
+          _messages.removeWhere((m) => m['id'] == messageId);
+        });
+      } catch (e) {
+        debugPrint('Erreur suppression: $e');
+      }
+    }
+  }
   void _sendMockText(String txt) {
     if (_activeRoomId.isEmpty) return;
     final localMessage = <String, dynamic>{
@@ -623,47 +704,64 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.sizeOf(context).width > 900;
     
-    final body = Row(
-      children: [
-        // Left Sidebar (Conversations)
-        if (isDesktop) Container(
-          width: 280,
-          color: _low,
-          child: Column(
+    final showSidebar = isDesktop || _activeRoomId.isEmpty;
+    final showChat = isDesktop || _activeRoomId.isNotEmpty;
+
+    final sidebarContent = Container(
+      width: isDesktop ? 320 : null,
+      decoration: BoxDecoration(
+        color: _low,
+        border: Border(right: BorderSide(color: Colors.white.withOpacity(0.05), width: 1)),
+      ),
+      child: Column(
             children: [
-              const SizedBox(height: 20),
-              const SizedBox(height: 10),
+              const SizedBox(height: 24),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('RECHERCHE & DISCUSSIONS',
-                        style: GoogleFonts.spaceGrotesk(color: _muted, fontSize: 11, letterSpacing: 1.3)),
-                    const SizedBox(height: 12),
+                    Text('MESSAGERIE',
+                        style: GoogleFonts.spaceGrotesk(
+                          color: _accent,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 2,
+                        )),
+                    const SizedBox(height: 16),
                     Container(
-                      height: 40,
+                      height: 48,
                       decoration: BoxDecoration(
-                        color: _highest.withOpacity(0.4),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: _muted.withOpacity(0.15)),
+                        color: Colors.white.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white.withOpacity(0.08)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _accent.withOpacity(0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: TextField(
                         controller: _searchController,
                         onChanged: _doSearch,
-                        style: GoogleFonts.inter(color: _text, fontSize: 13),
+                        style: GoogleFonts.inter(color: _text, fontSize: 13, fontWeight: FontWeight.w500),
                         decoration: InputDecoration(
-                          hintText: 'Rechercher concepteur...',
-                          hintStyle: GoogleFonts.inter(color: _muted.withOpacity(0.4), fontSize: 13),
-                          icon: Icon(Icons.search, color: _muted.withOpacity(0.6), size: 18),
+                          hintText: 'Rechercher un contact...',
+                          hintStyle: GoogleFonts.inter(color: _muted.withOpacity(0.3), fontSize: 13),
+                          icon: Icon(Icons.search_rounded, color: _accent, size: 22),
                           border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 14),
                         ),
                       ),
                     ),
                   ],
                 ),
               ),
+              const SizedBox(height: 12),
+              const Divider(color: Colors.white10),
               Expanded(
                 child: _isSearching 
                   ? const Center(child: CircularProgressIndicator(color: _primary, strokeWidth: 2))
@@ -690,52 +788,124 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                             );
                           },
                         )
-                      : ListView.builder(
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
                           itemCount: _conversations.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 2),
                           itemBuilder: (context, i) {
                             final c = _conversations[i];
                             final room = (c['roomId'] ?? '').toString();
                             final active = room == _activeRoomId;
-                            return InkWell(
-                              onTap: () => _switchConversation(c),
-                              child: Container(
-                                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: active ? _high : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: active ? Border(left: const BorderSide(color: _primary, width: 3)) : null,
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                        (c['concepteurName'] ?? c['technicianName'] ?? c['clientName'] ?? 'Concepteur').toString(),
-                                        style: GoogleFonts.inter(color: _text, fontWeight: FontWeight.w700, fontSize: 13)),
-                                    const SizedBox(height: 2),
-                                    Row(
-                                      children: [
-                                        Text(_fmtTime(c['lastAt']),
-                                            style: GoogleFonts.spaceGrotesk(color: _muted.withOpacity(0.7), fontSize: 9)),
-                                        const Spacer(),
-                                        if (active)
-                                          Container(
-                                            width: 8,
-                                            height: 8,
-                                            decoration: const BoxDecoration(
-                                              color: _primary,
-                                              shape: BoxShape.circle,
-                                            ),
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                              child: Stack(
+                                children: [
+                                  Material(
+                                    color: active ? _accent.withOpacity(0.08) : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: InkWell(
+                                      onTap: () => _switchConversation(c),
+                                      borderRadius: BorderRadius.circular(16),
+                                      hoverColor: Colors.white.withOpacity(0.04),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(16),
+                                          border: Border.all(
+                                            color: active ? _accent.withOpacity(0.3) : Colors.transparent,
+                                            width: 1,
                                           ),
-                                      ],
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Stack(
+                                              children: [
+                                                 _avatar(
+                                                  name: _resolveDesignerName(c),
+                                                  size: 46,
+                                                ),
+                                                Positioned(
+                                                  right: 0,
+                                                  bottom: 0,
+                                                  child: Container(
+                                                    width: 12,
+                                                    height: 12,
+                                                    decoration: BoxDecoration(
+                                                      color: const Color(0xFF22C55E),
+                                                      shape: BoxShape.circle,
+                                                      border: Border.all(color: _low, width: 2),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(width: 16),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Row(
+                                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                    children: [
+                                                      Expanded(
+                                                         child: Text(
+                                                          _resolveDesignerName(c),
+                                                          style: GoogleFonts.inter(
+                                                            color: active ? Colors.white : _text,
+                                                            fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                                                            fontSize: 14.5,
+                                                          ),
+                                                          overflow: TextOverflow.ellipsis,
+                                                        ),
+                                                      ),
+                                                      Text(_fmtTime(c['lastAt']),
+                                                          style: GoogleFonts.inter(
+                                                            color: active ? _accent : _muted.withOpacity(0.5),
+                                                            fontSize: 10,
+                                                            fontWeight: active ? FontWeight.w700 : FontWeight.normal
+                                                          )),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(height: 6),
+                                                  Text(
+                                                    (c['lastText'] ?? 'Ouvrir la discussion').toString(),
+                                                    style: GoogleFonts.inter(
+                                                      color: active ? Colors.white.withOpacity(0.8) : _muted.withOpacity(0.7),
+                                                      fontSize: 12,
+                                                      fontWeight: active ? FontWeight.w500 : FontWeight.normal
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
                                     ),
-                                    const SizedBox(height: 2),
-                                    Text((c['lastText'] ?? 'Aucun message').toString(),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: GoogleFonts.inter(color: _muted, fontSize: 11)),
-                                  ],
-                                ),
+                                  ),
+                                  if (active)
+                                    Positioned(
+                                      left: 0,
+                                      top: 16,
+                                      bottom: 16,
+                                      child: Container(
+                                        width: 3,
+                                        decoration: BoxDecoration(
+                                          color: _accent,
+                                          borderRadius: BorderRadius.circular(4),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: _accent.withOpacity(0.6),
+                                              blurRadius: 4,
+                                              spreadRadius: 1,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
                             );
                           },
@@ -743,65 +913,67 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
               ),
             ],
           ),
-        ),
+    );
+
+    final body = Row(
+      children: [
+        if (showSidebar)
+          isDesktop ? sidebarContent : Expanded(child: sidebarContent),
         
-        // Main Chat Area
-        Expanded(
-          child: Column(
+        if (showChat)
+          Expanded(
+            child: Column(
             children: [
-              if (!widget.embedded) Container(
-                height: 76,
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                decoration: BoxDecoration(color: _bg, border: Border(bottom: BorderSide(color: _muted.withOpacity(0.15)))),
-                child: Row(
-                  children: [
-                    Text(
-                        _senderRole == 'conception' ? 'Espace Concepteur' :
-                        _senderRole == 'client' ? 'Messagerie Client' : 'Messagerie Technicien',
-                        style: GoogleFonts.inter(color: _primary, fontSize: 20, fontWeight: FontWeight.w900)),
-                    const Spacer(),
-                    if (_activeRoomId.isNotEmpty)
-                      IconButton(
-                        onPressed: _closeConversation,
-                        tooltip: 'Quitter la conversation',
-                        icon: const Icon(Icons.close, color: _muted, size: 20),
-                      ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: _highest.withOpacity(0.45),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: _muted.withOpacity(0.15)),
-                      ),
-                      child: Text('En Ligne',
-                          style: GoogleFonts.spaceGrotesk(color: _secondary, fontSize: 10, fontWeight: FontWeight.w700)),
-                    ),
-                  ],
-                ),
-              ),
-              if (widget.embedded && _activeRoomId.isNotEmpty)
+              if (_activeRoomId.isNotEmpty)
                 Container(
-                  height: 44,
+                  height: 60,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  decoration: BoxDecoration(color: _bg, border: Border(bottom: BorderSide(color: _muted.withOpacity(0.15)))),
+                  decoration: const BoxDecoration(
+                    color: _header,
+                    border: Border(left: BorderSide(color: Colors.white10, width: 0.5)),
+                  ),
                   child: Row(
                     children: [
-                      Text(
-                        _selectedDesignerDetails?['name'] ?? 'Conversation',
-                        style: GoogleFonts.inter(color: _text, fontSize: 14, fontWeight: FontWeight.w600),
+                      if (!isDesktop) ...[
+                        IconButton(
+                          onPressed: _closeConversation,
+                          icon: const Icon(Icons.arrow_back, color: Colors.white),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      _avatar(name: _selectedDesignerDetails?['name']?.toString() ?? 'C', size: 40),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              _selectedDesignerDetails?['name'] ?? 'Discussion',
+                              style: GoogleFonts.inter(color: _text, fontSize: 15, fontWeight: FontWeight.w600),
+                            ),
+                            Text('en ligne', style: GoogleFonts.inter(color: _accent, fontSize: 11)),
+                          ],
+                        ),
                       ),
-                      const Spacer(),
                       IconButton(
                         onPressed: _closeConversation,
-                        tooltip: 'Quitter la conversation',
-                        icon: const Icon(Icons.close, color: _muted, size: 18),
+                        icon: const Icon(Icons.close, color: _muted, size: 20),
                       ),
                     ],
                   ),
                 ),
               Expanded(
                 child: Container(
-                  color: _container.withOpacity(0.45),
+                  decoration: BoxDecoration(
+                    color: _bg,
+                    image: DecorationImage(
+                      image: const NetworkImage('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png'),
+                      repeat: ImageRepeat.repeat,
+                      opacity: 0.06,
+                      colorFilter: ColorFilter.mode(_bg.withOpacity(0.9), BlendMode.dstATop),
+                    ),
+                  ),
                   child: ListView.builder(
                     controller: _messagesScroll,
                     padding: const EdgeInsets.all(20),
@@ -814,157 +986,201 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                       final critical = text.toLowerCase().contains('alerte critique');
                       return Align(
                         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-                        child: Container(
-                          constraints: const BoxConstraints(maxWidth: 540),
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: critical
-                                ? _error.withOpacity(0.18)
-                                : (mine ? _primary.withOpacity(0.9) : _highest),
-                            borderRadius: BorderRadius.only(
-                              topLeft: const Radius.circular(12),
-                              topRight: const Radius.circular(12),
-                              bottomLeft: Radius.circular(mine ? 12 : 4),
-                              bottomRight: Radius.circular(mine ? 4 : 12),
+                        child: GestureDetector(
+                          onLongPress: mine && m['id'] != null ? () => _deleteMessage(m['id']) : null,
+                          child: Container(
+                            constraints: const BoxConstraints(maxWidth: 540),
+                            margin: const EdgeInsets.symmetric(vertical: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: mine ? _myBubble : _otherBubble,
+                              borderRadius: BorderRadius.circular(8),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.12),
+                                  blurRadius: 1,
+                                  offset: const Offset(0, 1),
+                                ),
+                              ],
                             ),
-                            border: critical ? Border.all(color: _error.withOpacity(0.7)) : null,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.14),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (!mine)
-                                Text(sender,
-                                    style: GoogleFonts.inter(
-                                        color: _muted, fontSize: 10, fontWeight: FontWeight.w700)),
-                              
-                              if (m['attachmentUrl'] != null && m['attachmentUrl'].toString().isNotEmpty) ...[
-                                const SizedBox(height: 5),
-                                if (m['attachmentType'] == 'image')
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: Image.network(
-                                      '${ApiService.baseUrl.replaceAll('/api', '')}${m['attachmentUrl']}',
-                                      width: 200,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  )
-                                else if (m['attachmentType'] == 'document')
-                                  Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black12,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (!mine) ...[
+                                  Text(sender, style: GoogleFonts.inter(color: _accent, fontSize: 10, fontWeight: FontWeight.bold)),
+                                  const SizedBox(height: 2),
+                                ],
+                                
+                                if (m['attachmentUrl'] != null && m['attachmentUrl'].toString().isNotEmpty) ...[
+                                  const SizedBox(height: 5),
+                                  if (m['attachmentType'] == 'image')
+                                    ClipRRect(
                                       borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: _muted.withOpacity(0.3)),
+                                      child: Image.network(
+                                        '${ApiService.baseUrl.replaceAll('/api', '')}${m['attachmentUrl']}',
+                                        width: 200,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    )
+                                  else if (m['attachmentType'] == 'document')
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black12,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: _muted.withOpacity(0.3)),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.insert_drive_file, color: Colors.white70, size: 24),
+                                          const SizedBox(width: 8),
+                                          Text('Document joint', style: GoogleFonts.inter(color: Colors.white70, fontSize: 12)),
+                                        ],
+                                      ),
+                                    )
+                                  else if (m['attachmentType'] == 'audio')
+                                    VoicePlayerWidget(
+                                      url: '${ApiService.baseUrl.replaceAll('/api', '')}${m['attachmentUrl']}',
+                                      color: mine ? Colors.white : _primary,
                                     ),
-                                    child: Row(
+                                  const SizedBox(height: 5),
+                                ],
+
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Flexible(child: Text(text, style: GoogleFonts.inter(color: _text, fontSize: 13.5))),
+                                    const SizedBox(width: 8),
+                                    Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        const Icon(Icons.insert_drive_file, color: Colors.white70, size: 24),
-                                        const SizedBox(width: 8),
-                                        Text('Document joint', style: GoogleFonts.inter(color: Colors.white70, fontSize: 12)),
+                                        Text(_fmtTime(m['createdAt'] ?? m['at']), style: GoogleFonts.inter(color: _muted, fontSize: 9)),
+                                        if (mine) ...[
+                                          const SizedBox(width: 3),
+                                          Icon(Icons.done_all, color: Colors.cyanAccent.withOpacity(0.6), size: 12),
+                                        ],
                                       ],
                                     ),
-                                  ),
-                                const SizedBox(height: 5),
-                              ],
-
-                              Text(text, style: GoogleFonts.inter(color: _text, fontSize: 13)),
-                              const SizedBox(height: 4),
-                              Text(
-                                _fmtTime(m['createdAt'] ?? m['at']),
-                                style: GoogleFonts.spaceGrotesk(
-                                  color: _muted.withOpacity(0.8),
-                                  fontSize: 9,
+                                  ],
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       );
+
                     },
                   ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: _low, border: Border(top: BorderSide(color: _muted.withOpacity(0.15)))),
-                child: Column(
-                  children: [
-                    if (_isTyping)
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: _highest.withOpacity(0.7),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Text(
-                          'Vous êtes en train d\'écrire...',
-                          style: GoogleFonts.spaceGrotesk(color: _muted, fontSize: 10),
-                        ),
-                      ),
-                    Row(
-                      children: [
-                        IconButton(
-                          onPressed: _showExtrasOptions,
-                          icon: const Icon(Icons.add_circle_outline, color: _muted),
-                        ),
-                        IconButton(
-                          onPressed: () => _pickAndUploadFile(isImage: false),
-                          icon: const Icon(Icons.description_outlined, color: _muted),
-                        ),
-                        IconButton(
-                          onPressed: () => _pickAndUploadFile(isImage: true),
-                          icon: const Icon(Icons.photo_library_outlined, color: _muted),
-                        ),
-                        Expanded(
-                          child: TextField(
-                            controller: _input,
-                            enabled: _activeRoomId.isNotEmpty,
-                            onChanged: (v) {
-                              if (!mounted) return;
-                              setState(() => _isTyping = v.trim().isNotEmpty);
-                            },
-                            style: GoogleFonts.inter(color: _text),
-                            decoration: InputDecoration(
-                              hintText: _activeRoomId.isEmpty ? 'Sélectionnez une conversation...' : 'Rédiger votre message technique...',
-                              hintStyle: GoogleFonts.inter(color: _muted.withOpacity(0.5)),
-                              filled: true,
-                              fillColor: _highest.withOpacity(0.5),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(color: _muted.withOpacity(0.2)),
+              if (_activeRoomId.isNotEmpty)
+                Container(
+                  color: _header,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  child: _isRecording 
+                    ? Row(
+                        children: [
+                          IconButton(
+                            onPressed: _cancelVoiceRecording,
+                            icon: const Icon(Icons.delete_outline, color: _error, size: 26),
+                            tooltip: 'Supprimer l\'enregistrement',
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: _highest,
+                                borderRadius: BorderRadius.circular(24),
+                                border: Border.all(color: _primary.withOpacity(0.3)),
                               ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(color: _muted.withOpacity(0.2)),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(color: _secondary.withOpacity(0.7)),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.mic, color: _primary, size: 18),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    '${(_recordingDurationSeconds ~/ 60).toString().padLeft(2, '0')}:${(_recordingDurationSeconds % 60).toString().padLeft(2, '0')}',
+                                    style: GoogleFonts.spaceGrotesk(color: _text, fontWeight: FontWeight.bold, fontSize: 16),
+                                  ),
+                                  const Spacer(),
+                                  Text('Enregistrement...', style: GoogleFonts.inter(color: _muted, fontSize: 13, fontStyle: FontStyle.italic)),
+                                ],
                               ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 10),
-                        ElevatedButton(
-                          onPressed: _activeRoomId.isNotEmpty ? _send : null,
-                          style: ElevatedButton.styleFrom(backgroundColor: _activeRoomId.isNotEmpty ? _primary : _muted.withOpacity(0.3)),
-                          child: const Icon(Icons.send, color: Colors.white),
-                        ),
-                      ],
-                    ),
-                  ],
+                          const SizedBox(width: 8),
+                          Container(
+                            decoration: const BoxDecoration(
+                              color: _primary,
+                              shape: BoxShape.circle,
+                            ),
+                            child: IconButton(
+                              onPressed: _stopVoiceRecording,
+                              icon: const Icon(Icons.send, color: Colors.white, size: 22),
+                              tooltip: 'Envoyer le message vocal',
+                            ),
+                          ),
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => _pickAndUploadFile(isImage: true),
+                            icon: const Icon(Icons.image_outlined, color: _muted, size: 24),
+                            tooltip: 'Envoyer une image',
+                          ),
+                          IconButton(
+                            onPressed: _isLocating ? null : _shareRealLocation,
+                            icon: _isLocating
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      color: _accent,
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.location_on_outlined, color: _muted, size: 24),
+                            tooltip: 'Partager ma localisation',
+                          ),
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              decoration: BoxDecoration(
+                                color: _highest,
+                                borderRadius: BorderRadius.circular(24),
+                              ),
+                              child: TextField(
+                                controller: _input,
+                                onChanged: (v) => setState(() => _isTyping = v.trim().isNotEmpty),
+                                style: GoogleFonts.inter(color: _text, fontSize: 15),
+                                decoration: const InputDecoration(
+                                  hintText: 'Taper un message',
+                                  hintStyle: TextStyle(color: _muted),
+                                  border: InputBorder.none,
+                                ),
+                                maxLines: 5,
+                                minLines: 1,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            decoration: const BoxDecoration(
+                              color: _primary,
+                              shape: BoxShape.circle,
+                            ),
+                            child: IconButton(
+                              onPressed: _isTyping ? _send : null,
+                              icon: const Icon(Icons.send, color: Colors.white, size: 22),
+                              tooltip: 'Envoyer',
+                            ),
+                          ),
+                        ],
+                      ),
                 ),
-              )
             ],
           ),
         ),
@@ -1035,6 +1251,28 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                            ],
                          ),
                        )),
+                    const SizedBox(height: 40),
+                    Text('ACTIONS',
+                        style: GoogleFonts.spaceGrotesk(color: _muted, fontSize: 11, letterSpacing: 1.2)),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _deleteConversation,
+                        icon: const Icon(Icons.delete_sweep_outlined, color: Colors.white, size: 18),
+                        label: Text('Effacer la discussion', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent.withOpacity(0.12),
+                          foregroundColor: Colors.redAccent,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(color: Colors.redAccent.withOpacity(0.3)),
+                          ),
+                          elevation: 0,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
         ),
@@ -1074,6 +1312,33 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _avatar({required String name, double size = 40}) {
+    final initials = name.isNotEmpty ? name[0].toUpperCase() : 'C';
+    final colors = [
+      const Color(0xFFF15C6D),
+      const Color(0xFF00A884),
+      const Color(0xFF51A5FE),
+      const Color(0xFFFF6E00),
+      const Color(0xFFA88DFF),
+    ];
+    final color = colors[name.length % colors.length];
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Text(
+          initials,
+          style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold, fontSize: size * 0.4),
+        ),
       ),
     );
   }

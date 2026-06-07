@@ -126,7 +126,7 @@ class _ConceptionListPageState extends State<ConceptionListPage> {
     }
   }
 
-  Widget _concepteurListTile(Map<String, dynamic> r) {
+  Widget _concepteurCard(Map<String, dynamic> r, bool isDesktop) {
     final username = (r['username'] ?? r['nom'] ?? '—').toString();
     final email = (r['email'] ?? '—').toString();
     final location = (r['location'] ?? r['adresse'] ?? '').toString().trim();
@@ -136,111 +136,138 @@ class _ConceptionListPageState extends State<ConceptionListPage> {
         ? username.substring(0, 1).toUpperCase()
         : '?';
 
-    return Dismissible(
-      key: Key('concepteur-$id'),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        decoration: BoxDecoration(
-          color: Colors.red.withOpacity(0.8),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Icon(Icons.delete, color: Colors.white),
-      ),
-      confirmDismiss: (direction) async {
-        await _deleteConcepteur(r);
-        return false; // On gère le rechargement via _reloadConcepteurs
-      },
-      child: Material(
+    return Container(
+      decoration: BoxDecoration(
         color: _surface,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () => _openAddConcepteur(initial: r),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                CircleAvatar(
-                  radius: 24,
-                  backgroundColor: _primary.withValues(alpha: 0.15),
-                  child: Text(
-                    initial,
-                    style: GoogleFonts.spaceGrotesk(
-                      color: _primary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => _openAddConcepteur(initial: r),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Text(
-                        username,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.inter(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: _onSurface,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        email,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.spaceGrotesk(fontSize: 12, color: _onVariant),
-                      ),
-                      if (location.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Icon(Icons.location_on_outlined, size: 13, color: _onVariant.withValues(alpha: 0.8)),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                location,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.spaceGrotesk(fontSize: 11, color: _onVariant.withValues(alpha: 0.85)),
-                              ),
+                      Container(
+                        width: 50,
+                        height: 50,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              _primary,
+                              _primary.withOpacity(0.6),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: _primary.withOpacity(0.3),
+                              blurRadius: 8,
+                              spreadRadius: 1,
                             ),
                           ],
                         ),
-                      ],
-                      if (spec.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: _secondary.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
+                        child: Center(
                           child: Text(
-                            spec,
+                            initial,
                             style: GoogleFonts.spaceGrotesk(
-                              fontSize: 10,
-                              color: _secondary,
-                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 22,
                             ),
                           ),
                         ),
-                      ],
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: () => _deleteConcepteur(r),
+                        icon: Icon(Icons.delete_outline, color: Colors.redAccent.withOpacity(0.6), size: 20),
+                      ),
                     ],
                   ),
-                ),
-                IconButton(
-                  tooltip: 'Modifier',
-                  onPressed: () => _openAddConcepteur(initial: r),
-                  icon: Icon(Icons.edit_outlined, color: _onVariant.withValues(alpha: 0.9), size: 22),
-                ),
-              ],
+                  const SizedBox(height: 20),
+                  Text(
+                    username,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: _onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(Icons.email_outlined, size: 14, color: _onVariant.withOpacity(0.6)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          email,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.spaceGrotesk(fontSize: 13, color: _onVariant.withOpacity(0.7)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Divider(color: Colors.white10),
+                  const SizedBox(height: 12),
+                  if (location.isNotEmpty) ...[
+                    Row(
+                      children: [
+                        Icon(Icons.location_on_outlined, size: 14, color: _secondary),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            location,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.spaceGrotesk(fontSize: 12, color: _onSurface.withOpacity(0.85)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (spec.isNotEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(top: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: _secondary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: _secondary.withOpacity(0.3)),
+                      ),
+                      child: Text(
+                        spec.toUpperCase(),
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 10,
+                          color: _secondary,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -281,69 +308,109 @@ class _ConceptionListPageState extends State<ConceptionListPage> {
             setState(() => _concepteursFuture = f);
             await f;
           },
-          child: CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverPadding(
-                padding: EdgeInsets.fromLTRB(24, 24, 24, isDesktop ? 24 : 100),
+          child: Builder(builder: (context) {
+            final screenWidth = MediaQuery.sizeOf(context).width;
+            final aspect = isDesktop ? 1.4 : (screenWidth < 400 ? 1.15 : 1.4);
+            return CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(24, 24, 24, isDesktop ? 24 : 100),
                 sliver: SliverToBoxAdapter(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'CONCEPTION',
-                                  style: GoogleFonts.spaceGrotesk(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: _primary,
-                                    letterSpacing: 2,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Concepteurs',
-                                  style: GoogleFonts.inter(
-                                    fontSize: isDesktop ? 32 : 26,
-                                    fontWeight: FontWeight.w800,
-                                    color: _onSurface,
-                                    letterSpacing: -0.5,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Comptes chargés de la maintenance et de la conception des machines.',
-                                  style: GoogleFonts.spaceGrotesk(
-                                    fontSize: 13,
-                                    color: _onVariant,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ],
+                      // — Responsive header layout
+                      Builder(builder: (context) {
+                        final w = screenWidth;
+                        final titleFontSize = w < 380 ? 18.0 : w < 600 ? 22.0 : isDesktop ? 32.0 : 26.0;
+                        final subtitleFontSize = w < 380 ? 11.0 : 13.0;
+                        final labelFontSize = w < 380 ? 9.0 : 11.0;
+                        final btnLabel = w < 380 ? 'AJOUTER' : 'NOUVEAU CONCEPTEUR';
+
+                        final titleBlock = Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'CONCEPTION',
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: _primary,
+                                letterSpacing: 2,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Concepteurs',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(
+                                fontSize: titleFontSize,
+                                fontWeight: FontWeight.w800,
+                                color: _onSurface,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Comptes chargés de la maintenance et de la conception des machines.',
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: subtitleFontSize,
+                                color: _onVariant,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        );
+
+                        final addBtn = FilledButton.icon(
+                          onPressed: () => _openAddConcepteur(),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _primary,
+                            foregroundColor: Colors.white,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: w < 380 ? 12 : 20,
+                              vertical: w < 380 ? 10 : 16,
                             ),
                           ),
-                          const SizedBox(width: 16),
-                          FilledButton.icon(
-                            onPressed: () => _openAddConcepteur(),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: _primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                            ),
-                            icon: const Icon(Icons.person_add_alt_1, size: 20),
-                            label: Text(
-                              'NOUVEAU CONCEPTEUR',
-                              style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 1.2),
+                          icon: const Icon(Icons.person_add_alt_1, size: 18),
+                          label: Text(
+                            btnLabel,
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.bold,
+                              fontSize: labelFontSize,
+                              letterSpacing: 1.2,
                             ),
                           ),
-                        ],
-                      ),
+                        );
+
+                        if (w < 600) {
+                          // Mobile: stack vertically
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: titleBlock),
+                                  addBtn,
+                                ],
+                              ),
+                            ],
+                          );
+                        }
+
+                        // Tablet / Desktop: side by side
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: titleBlock),
+                            const SizedBox(width: 16),
+                            addBtn,
+                          ],
+                        );
+                      }),
                       const SizedBox(height: 32),
                       if (rows.isEmpty)
                         _emptyBox(
@@ -352,19 +419,25 @@ class _ConceptionListPageState extends State<ConceptionListPage> {
                           subtitle: 'Créez un compte avec le bouton ci-dessus.',
                         )
                       else
-                        ListView.separated(
+                        GridView.builder(
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
                           itemCount: rows.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 12),
-                          itemBuilder: (context, i) => _concepteurListTile(rows[i]),
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: isDesktop ? 3 : (screenWidth > 600 ? 2 : 1),
+                            crossAxisSpacing: 20,
+                            mainAxisSpacing: 20,
+                            childAspectRatio: aspect,
+                          ),
+                          itemBuilder: (context, i) => _concepteurCard(rows[i], isDesktop),
                         ),
                     ],
                   ),
                 ),
               ),
             ],
-          ),
+          );
+          }),
         );
       },
     );

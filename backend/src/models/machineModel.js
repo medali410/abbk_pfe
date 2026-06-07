@@ -5,10 +5,17 @@ const assignedFilter = {
     companyId: { not: '' },
 };
 
-async function findMany({ catalog = false, includeAll = false, unassigned = false } = {}) {
+async function findMany({ catalog = false, includeAll = false, unassigned = false, concepterId = null } = {}) {
     let where = (catalog || includeAll) ? {} : assignedFilter;
     if (unassigned) {
         where = { companyId: '' };
+    }
+    if (concepterId) {
+        where.concepteurId = String(concepterId);
+    }
+    // If it's a catalog view, only show public machines by default
+    if (catalog && !includeAll) {
+        where.isPublic = { not: false };
     }
     return prisma.machine.findMany({
         where,
@@ -41,6 +48,9 @@ async function create(data) {
             status: String(data.status || 'STOPPED'),
             motorType: String(data.motorType || 'air_cooled'),
             location: String(data.location || ''),
+            imageUrl: String(data.imageUrl || ''),
+            concepteurId: String(data.concepteurId || ''),
+            isPublic: data.isPublic !== false,
             disponible: data.disponible !== false,
         },
     });
@@ -59,4 +69,22 @@ async function remove(machineId) {
     });
 }
 
-module.exports = { findMany, findManyByCompany, findById, create, updateStatus, remove };
+async function update(machineId, data) {
+    const updateData = {};
+    if (data.name !== undefined) updateData.name = String(data.name).trim();
+    if (data.type !== undefined) updateData.type = String(data.type);
+    if (data.status !== undefined) updateData.status = String(data.status);
+    if (data.location !== undefined) updateData.location = String(data.location);
+    if (data.imageUrl !== undefined) updateData.imageUrl = String(data.imageUrl);
+    if (data.isPublic !== undefined) updateData.isPublic = !!data.isPublic;
+    if (data.model3dUrl !== undefined) updateData.model3dUrl = String(data.model3dUrl);
+    if (data.disponible !== undefined) updateData.disponible = !!data.disponible;
+    if (data.companyId !== undefined) updateData.companyId = String(data.companyId);
+
+    return prisma.machine.update({
+        where: { id: String(machineId) },
+        data: updateData,
+    });
+}
+
+module.exports = { findMany, findManyByCompany, findById, create, update, updateStatus, remove };

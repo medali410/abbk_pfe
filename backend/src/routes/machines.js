@@ -7,7 +7,9 @@ const router = express.Router();
 router.get('/', machineController.list);
 router.post('/', requireAuth, requireFleetManager, machineController.create);
 router.get('/:machineId', machineController.getById);
-router.post('/:machineId/stop', machineController.stop);
-router.delete('/:machineId', machineController.remove);
+router.put('/:machineId', requireAuth, requireFleetManager, machineController.update);
+router.post('/:machineId/stop', requireAuth, machineController.stop);
+router.post('/:machineId/start', requireAuth, machineController.start);
+router.delete('/:machineId', requireAuth, requireFleetManager, machineController.remove);
 
 module.exports = router;
