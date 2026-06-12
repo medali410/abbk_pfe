@@ -337,8 +337,8 @@ class ApiService {
     }
     const apiPort = String.fromEnvironment('API_PORT', defaultValue: '3001');
     if (kIsWeb) {
-      // Toujours localhost côté web : même résolution IPv4 que node server.js.
-      return 'http://localhost:$apiPort/api';
+      final host = Uri.base.host.isNotEmpty ? Uri.base.host : 'localhost';
+      return 'http://$host:$apiPort/api';
     }
     return 'http://127.0.0.1:$apiPort/api';
   }
@@ -427,6 +427,19 @@ class ApiService {
       return data.cast<Map<String, dynamic>>();
     } else {
       throw Exception('Erreur de chargement des techniciens du client');
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> getMaintenanceAgentsForClient(String clientId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/clients/$clientId/maintenance-agents'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    } else {
+      throw Exception('Erreur de chargement des agents de maintenance du client');
     }
   }
 
@@ -1106,7 +1119,7 @@ class ApiService {
 
   static Future<Map<String, dynamic>> getMaintenanceWorkspace() async {
     final response = await http.get(
-      Uri.parse('$baseUrl/maintenance/workspace'),
+      Uri.parse('$baseUrl/maintenance-agents/me'),
       headers: await jsonHeadersAuthorized(),
     );
     if (response.statusCode == 200) {
@@ -1115,12 +1128,12 @@ class ApiService {
     _throwApiError(response, 'Chargement espace maintenance impossible');
   }
 
-  /// Profil Mongo de l’agent maintenance connecté — PATCH `/maintenance/me`.
+  /// Profil de l’agent maintenance connecté — PATCH `/maintenance-agents/me`.
   static Future<Map<String, dynamic>> updateMyMaintenanceProfile(
     Map<String, dynamic> data,
   ) async {
     final response = await http.patch(
-      Uri.parse('$baseUrl/maintenance/me'),
+      Uri.parse('$baseUrl/maintenance-agents/me'),
       headers: await jsonHeadersAuthorized(),
       body: json.encode(data),
     );
@@ -1447,6 +1460,41 @@ class ApiService {
     _throwApiError(response, 'Envoi note de coordination refusé');
   }
 
+  static Future<Map<String, dynamic>> getMissionsSidebar() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/missions/me/sidebar'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    _throwApiError(response, 'Erreur de chargement des missions du technicien');
+  }
+
+  static Future<List<Map<String, dynamic>>> getConsultations() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/consultations'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    _throwApiError(response, 'Erreur de chargement des consultations');
+  }
+
+  static Future<Map<String, dynamic>> createConsultation(Map<String, dynamic> body) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/consultations'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode(body),
+    );
+    if (response.statusCode == 201) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    _throwApiError(response, 'Création de la consultation refusée');
+  }
+
   static Future<void> updateMissionStatus(
     String interventionId,
     String noteId,
@@ -1736,6 +1784,20 @@ class ApiService {
     return <Map<String, dynamic>>[];
   }
 
+  static Future<Map<String, dynamic>> postChatMessage(
+    Map<String, dynamic> messageData,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/chat/messages'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode(messageData),
+    );
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    _throwApiError(response, 'Erreur lors de l\'envoi du message');
+  }
+
   static Future<List<Map<String, dynamic>>> getTechnicianConversations(
     String technicianId,
   ) async {
@@ -2017,6 +2079,27 @@ class ApiService {
       return data.cast<Map<String, dynamic>>();
     }
     _throwApiError(response, 'Chargement historique maintenance préventive impossible');
+  }
+
+  static Future<void> configureMachineWifi(
+    String machineId,
+    String ssid,
+    String pass,
+  ) async {
+    final headers = await jsonHeadersAuthorized();
+    final response = await http.post(
+      Uri.parse('$baseUrl/machines/$machineId/config'),
+      headers: headers,
+      body: json.encode({
+        'ssid': ssid,
+        'password': pass,
+      }),
+    ).timeout(const Duration(seconds: 10));
+
+    if (response.statusCode >= 200 && response.statusCode < 400) {
+      return;
+    }
+    _throwApiError(response, 'Erreur de configuration WiFi');
   }
 
 }

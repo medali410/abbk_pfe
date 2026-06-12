@@ -88,9 +88,23 @@ class _AdminMachinesHubPageState extends State<AdminMachinesHubPage> {
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF191934),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF32324E)),
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1E2243).withOpacity(0.95),
+            const Color(0xFF131730).withOpacity(0.85),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
@@ -127,13 +141,23 @@ class _AdminMachinesHubPageState extends State<AdminMachinesHubPage> {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
-            color: active ? const Color(0x22FF6E00) : Colors.transparent,
+            gradient: active
+                ? LinearGradient(
+                    colors: [
+                      const Color(0xFFFF6E00).withOpacity(0.25),
+                      const Color(0xFFFF6E00).withOpacity(0.08),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: active ? const Color(0x55FF6E00) : const Color(0xFF32324E),
+              color: active ? const Color(0xFFFF6E00).withOpacity(0.5) : Colors.transparent,
+              width: 1.5,
             ),
           ),
           child: Row(

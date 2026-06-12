@@ -169,49 +169,238 @@ class MaintenanceProfileContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const surface = Color(0xFF1D1D38);
+    const surfaceHighlight = Color(0xFF272743);
     const text = Color(0xFFE2DFFF);
     const muted = Color(0xFFE2BFB0);
     const accent = Color(0xFFFF6E00);
-    final agent = (data['agent'] as Map?)?.cast<String, dynamic>() ?? {};
-    final machineCount = (data['machines'] as List? ?? const []).length;
+
+    // Support both nested 'agent' object (legacy) and flat structure (SQL backend)
+    final Map<String, dynamic> agent = data.containsKey('agent')
+        ? (data['agent'] as Map).cast<String, dynamic>()
+        : data;
+
+    final String name = agent['name']?.toString().trim().isNotEmpty == true
+        ? agent['name'].toString().trim()
+        : agent['fullName']?.toString().trim().isNotEmpty == true
+            ? agent['fullName'].toString().trim()
+            : 'Agent de Maintenance';
+
+    final String email = agent['email']?.toString().trim().isNotEmpty == true
+        ? agent['email'].toString().trim()
+        : '—';
+
+    final int machineCount = (data['machines'] as List? ?? const []).length;
+    final int requestCount = (data['recentPurchaseRequests'] as List? ?? const []).length;
     String v(dynamic x) => (x ?? '').toString().trim();
 
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
       children: [
+        // --- 1. PREMIUM HEADER BANNER CARD ---
         Container(
-          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(0.06)),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white10),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 15,
+                offset: const Offset(0, 8),
+              )
+            ],
           ),
-          child: Row(
+          child: Column(
             children: [
-              _MaintenanceProfileAvatar(agent: agent, radius: 28, accent: accent),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      v(agent['fullName']).isEmpty ? 'Agent maintenance' : v(agent['fullName']),
-                      style: GoogleFonts.inter(color: text, fontWeight: FontWeight.w700, fontSize: 18),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      v(agent['email']).isEmpty ? '—' : v(agent['email']),
-                      style: GoogleFonts.inter(color: muted, fontSize: 13),
-                    ),
-                  ],
+              // Top Cover Banner Gradient
+              Container(
+                height: 120,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF31102B), Color(0xFFFF6E00)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(24),
+                    topRight: Radius.circular(24),
+                  ),
+                ),
+              ),
+              // Overlapping Avatar and Info
+              Transform.translate(
+                offset: const Offset(0, -50),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    children: [
+                      // Large Circular Avatar
+                      Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: surface, width: 4),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.3),
+                              blurRadius: 12,
+                              spreadRadius: 2,
+                            )
+                          ],
+                        ),
+                        child: _MaintenanceProfileAvatar(
+                          agent: agent,
+                          radius: 48,
+                          accent: accent,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // Agent Name
+                      Text(
+                        name,
+                        style: GoogleFonts.spaceGrotesk(
+                          color: text,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 24,
+                          letterSpacing: 0.5,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 4),
+                      // Email
+                      Text(
+                        email,
+                        style: GoogleFonts.inter(
+                          color: muted,
+                          fontSize: 14,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 14),
+                      // Role Badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: accent.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: accent.withOpacity(0.3)),
+                        ),
+                        child: Text(
+                          'AGENT DE MAINTENANCE',
+                          style: GoogleFonts.spaceGrotesk(
+                            color: accent,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      // Quick Edit Profile Button
+                      OutlinedButton.icon(
+                        onPressed: () => _openMaintenanceProfileEditor(
+                          context,
+                          workspaceData: data,
+                          onSaved: onWorkspaceReload,
+                        ),
+                        icon: const Icon(Icons.edit_outlined, size: 14),
+                        label: Text(
+                          'Modifier le profil',
+                          style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: accent,
+                          side: const BorderSide(color: accent),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 24),
+
+        // --- 2. STATS ROW GRID ---
+        Row(
+          children: [
+            Expanded(
+              child: _buildStatCard(
+                title: 'Machines suivies',
+                value: '$machineCount',
+                icon: Icons.precision_manufacturing_outlined,
+                color: accent,
+                surface: surface,
+                muted: muted,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildStatCard(
+                title: 'Demandes d\'achat',
+                value: '$requestCount',
+                icon: Icons.shopping_cart_outlined,
+                color: const Color(0xFF75D1FF),
+                surface: surface,
+                muted: muted,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+
+        // --- 3. PROFESSIONAL PROFILE FIELDS SECTION ---
+        Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withOpacity(0.06)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Informations Professionnelles',
+                style: GoogleFonts.spaceGrotesk(
+                  color: text,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Divider(color: Colors.white12, height: 1),
+              const SizedBox(height: 16),
+              _maintenanceProfileInfoTile(surfaceHighlight, text, muted, Icons.badge_outlined, 'Identifiant agent', v(agent['maintenanceAgentId'])),
+              _maintenanceProfileInfoTile(surfaceHighlight, text, muted, Icons.corporate_fare, 'Client / société', v(agent['clientId'])),
+              _maintenanceProfileInfoTile(
+                surfaceHighlight,
+                text,
+                muted,
+                Icons.home_work_outlined,
+                'Adresse de rattachement',
+                v(agent['address']).isEmpty ? '—' : v(agent['address']),
+              ),
+              _maintenanceProfileInfoTile(
+                surfaceHighlight,
+                text,
+                muted,
+                Icons.place_outlined,
+                'Lieu / site d’intervention principal',
+                v(agent['location']).isEmpty ? '—' : v(agent['location']),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // --- 4. ACTION BUTTONS ---
         SizedBox(
           width: double.infinity,
+          height: 54,
           child: FilledButton.icon(
             onPressed: () => _openMaintenanceProfileEditor(
               context,
@@ -221,44 +410,70 @@ class MaintenanceProfileContent extends StatelessWidget {
             style: FilledButton.styleFrom(
               backgroundColor: accent,
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 2,
+              shadowColor: accent.withOpacity(0.4),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             ),
             icon: const Icon(Icons.edit_outlined, size: 20),
             label: Text(
               'Modifier le profil',
-              style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 15),
+              style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 16),
             ),
           ),
         ),
-        const SizedBox(height: 14),
-        _maintenanceProfileInfoTile(surface, text, muted, Icons.badge_outlined, 'Identifiant agent', v(agent['maintenanceAgentId'])),
-        _maintenanceProfileInfoTile(surface, text, muted, Icons.corporate_fare, 'Client / société', v(agent['clientId'])),
-        _maintenanceProfileInfoTile(
-          surface,
-          text,
-          muted,
-          Icons.precision_manufacturing_outlined,
-          'Machines suivies',
-          '$machineCount',
-        ),
-        _maintenanceProfileInfoTile(
-          surface,
-          text,
-          muted,
-          Icons.home_work_outlined,
-          'Adresse',
-          v(agent['address']).isEmpty ? '—' : v(agent['address']),
-        ),
-        _maintenanceProfileInfoTile(
-          surface,
-          text,
-          muted,
-          Icons.place_outlined,
-          'Lieu / site d’intervention',
-          v(agent['location']).isEmpty ? '—' : v(agent['location']),
-        ),
       ],
+    );
+  }
+
+  Widget _buildStatCard({
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color color,
+    required Color surface,
+    required Color muted,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 22),
+              ),
+              Text(
+                value,
+                style: GoogleFonts.spaceGrotesk(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            style: GoogleFonts.inter(
+              color: muted,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -267,6 +482,7 @@ bool _isValidMaintenancePhotoField(String raw) {
   final s = raw.trim();
   if (s.isEmpty) return true;
   if (s.startsWith('data:image/')) return s.length <= 2400000;
+  if (s.startsWith('/uploads/')) return true;
   final u = Uri.tryParse(s);
   return u != null &&
       (u.scheme == 'http' || u.scheme == 'https') &&
@@ -287,33 +503,40 @@ Future<void> _openMaintenanceProfileEditor(
   final locationCtrl = TextEditingController(text: (agent['location'] ?? '').toString());
   final passwordCtrl = TextEditingController();
   var obscurePwd = true;
+  var isUploading = false;
 
-  Future<void> pickPhoto() async {
-    final result = await FilePicker.pickFiles(
-      type: FileType.image,
-      withData: true,
-      allowMultiple: false,
-    );
-    if (result == null || result.files.isEmpty) return;
-    final file = result.files.first;
-    final bytes = file.bytes;
-    if (bytes == null) return;
-    if (bytes.length > 900000) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Image trop volumineuse (max. ~900 Ko).'),
-          backgroundColor: Colors.redAccent,
-        ),
+  Future<void> pickPhoto(StateSetter setLocal) async {
+    setLocal(() => isUploading = true);
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.image,
+        withData: true,
+        allowMultiple: false,
       );
-      return;
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        final bytes = file.bytes;
+        if (bytes != null) {
+          final base64Data = base64Encode(bytes);
+          final ext = (file.extension ?? 'png').toLowerCase();
+          final mime = ext == 'jpg' || ext == 'jpeg' ? 'image/jpeg' : 'image/png';
+          
+          final uploadedUrl = await ApiService.uploadFile(
+            base64Data: 'data:$mime;base64,$base64Data',
+            filename: file.name,
+          );
+          if (uploadedUrl != null && uploadedUrl.isNotEmpty) {
+            photoCtrl.text = uploadedUrl;
+          } else {
+            photoCtrl.text = 'data:$mime;base64,$base64Data';
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error picking file: $e');
+    } finally {
+      setLocal(() => isUploading = false);
     }
-    final ext = (file.extension ?? '').toLowerCase();
-    var mime = 'image/jpeg';
-    if (ext == 'png') mime = 'image/png';
-    if (ext == 'gif') mime = 'image/gif';
-    if (ext == 'webp') mime = 'image/webp';
-    photoCtrl.text = 'data:$mime;base64,${base64Encode(bytes)}';
   }
 
   try {
@@ -322,12 +545,19 @@ Future<void> _openMaintenanceProfileEditor(
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setLocal) {
+            final previewUrl = photoCtrl.text.trim();
             return AlertDialog(
               backgroundColor: const Color(0xFF1D1D38),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: Text(
-                'Modifier le profil',
-                style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Colors.white10)),
+              title: Row(
+                children: [
+                  const Icon(Icons.edit_outlined, color: Color(0xFFFF6E00)),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Modifier le profil',
+                    style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700),
+                  ),
+                ],
               ),
               content: SingleChildScrollView(
                 child: SizedBox(
@@ -336,37 +566,72 @@ Future<void> _openMaintenanceProfileEditor(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(
-                        'Photo (URL https ou image importée)',
-                        style: GoogleFonts.inter(color: const Color(0xFFE2BFB0), fontSize: 12),
+                      // Circular Avatar Preview
+                      Center(
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Container(
+                              width: 100,
+                              height: 100,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(color: const Color(0xFFFF6E00), width: 2),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.3),
+                                    blurRadius: 10,
+                                    spreadRadius: 2,
+                                  )
+                                ],
+                              ),
+                              child: _MaintenanceProfileAvatar(
+                                agent: {'imageUrl': previewUrl.isNotEmpty ? previewUrl : _pickMaintenanceAgentPhotoRaw(agent)},
+                                radius: 48,
+                                accent: const Color(0xFFFF6E00),
+                              ),
+                            ),
+                            if (isUploading)
+                              Container(
+                                width: 100,
+                                height: 100,
+                                decoration: BoxDecoration(
+                                  color: Colors.black54,
+                                  borderRadius: BorderRadius.circular(50),
+                                ),
+                                child: const Center(
+                                  child: CircularProgressIndicator(color: Color(0xFFFF6E00)),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 16),
+                      // Image Picker Button
+                      OutlinedButton.icon(
+                        onPressed: isUploading
+                            ? null
+                            : () async {
+                                await pickPhoto(setLocal);
+                                setLocal(() {});
+                              },
+                        icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                        label: Text('Importer une photo', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFFF6E00),
+                          side: const BorderSide(color: Color(0xFFFF6E00)),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
                       TextField(
                         controller: photoCtrl,
                         style: const TextStyle(color: Colors.white),
-                        decoration: InputDecoration(
-                          hintText: 'https://…',
-                          hintStyle: TextStyle(color: Colors.white.withOpacity(0.35)),
-                          filled: true,
-                          fillColor: const Color(0xFF10102B),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
+                        onChanged: (_) => setLocal(() {}),
+                        decoration: _maintenanceDialogFieldDeco('Ou URL de la photo (Optionnel)'),
                       ),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          onPressed: () async {
-                            await pickPhoto();
-                            setLocal(() {});
-                          },
-                          icon: const Icon(Icons.upload_rounded, color: Color(0xFFFF6E00)),
-                          label: Text(
-                            'Importer une image',
-                            style: GoogleFonts.inter(color: const Color(0xFFFF6E00)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 12),
                       TextField(
                         controller: firstCtrl,
                         style: const TextStyle(color: Colors.white),
@@ -420,7 +685,7 @@ Future<void> _openMaintenanceProfileEditor(
                   child: Text('Annuler', style: GoogleFonts.inter(color: const Color(0xFFE2BFB0))),
                 ),
                 FilledButton(
-                  onPressed: () => Navigator.pop(ctx, true),
+                  onPressed: isUploading ? null : () => Navigator.pop(ctx, true),
                   style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF6E00)),
                   child: const Text('Enregistrer'),
                 ),

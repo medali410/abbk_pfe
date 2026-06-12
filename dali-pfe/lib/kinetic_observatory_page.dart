@@ -91,7 +91,7 @@ class _KineticObservatoryPageState extends State<KineticObservatoryPage> {
 
   void _initSocket() {
     _socket = IO.io(ApiService.socketBaseUrl, <String, dynamic>{
-      'transports': ['websocket'],
+      'transports': <String>['websocket'],
       'autoConnect': true,
     });
 

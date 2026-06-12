@@ -14,6 +14,10 @@ function serializeMachine(m) {
         imageUrl: m.imageUrl || '',
         isPublic: m.isPublic !== false,
         concepteurId: m.concepteurId || '',
+        wifiSsid: m.wifiSsid || '',
+        wifiPassword: m.wifiPassword || '',
+        price: m.price || '',
+        stock: m.stock || 0,
         createdAt: m.createdAt,
         updatedAt: m.updatedAt,
     };

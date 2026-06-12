@@ -39,10 +39,14 @@ class MachineDetailAiPage extends StatefulWidget {
   State<MachineDetailAiPage> createState() => _MachineDetailAiPageState();
 }
 
-class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerProviderStateMixin {
+class _MachineDetailAiPageState extends State<MachineDetailAiPage>
+    with TickerProviderStateMixin {
   late io.Socket _socket;
   late String _machineId;
   String? _machineName;
+  bool _socketConnected = false;
+  bool _wifiConnected = false;
+  Timer? _mqttHeartbeatTimer;
   late Set<String> _acceptedMachineIds;
   late Future<List<Map<String, dynamic>>> _historyFuture;
 
@@ -71,7 +75,8 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   double? _iaRulEstime;
   double? _iaRulHeuresIndicatif;
   String _machineIaMotorType = 'EL_M';
-  final TextEditingController _adminRulScaleController = TextEditingController();
+  final TextEditingController _adminRulScaleController =
+      TextEditingController();
   String _adminIaMotor = 'EL_M';
   bool _savingIaProfile = false;
   bool _requiresStop = false;
@@ -83,7 +88,8 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   bool _machineStopped = false;
   bool _isStoppingMachine = false;
 
-  String _sideTab = 'dashboard'; // dashboard | history | maintenance | technicians | maintenance_team
+  String _sideTab =
+      'dashboard'; // dashboard | history | maintenance | technicians | maintenance_team
   String? _companyId;
   Map<String, dynamic>? _activeIntervention;
   bool _forceShowMaintenanceTeam = false;
@@ -112,7 +118,10 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   @override
   void initState() {
     super.initState();
-    _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 700))..repeat(reverse: true);
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    )..repeat(reverse: true);
     _machineId = widget.machineId.trim();
     _machineName = widget.machineName;
     _zone = widget.location ?? 'Zone inconnue';
@@ -123,7 +132,9 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     _loadSidebarMachines();
     _checkActiveIntervention();
     _initSocket();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadMachineIaProfile());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _loadMachineIaProfile(),
+    );
   }
 
   Set<String> _buildAcceptedMachineIds(String baseId, String? machineName) {
@@ -142,12 +153,19 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   }
 
   String _sidebarMachineId(Map<String, dynamic> machine) {
-    return (machine['machineId'] ?? machine['id'] ?? machine['_id'] ?? '').toString().trim();
+    return (machine['machineId'] ?? machine['id'] ?? machine['_id'] ?? '')
+        .toString()
+        .trim();
   }
 
   String _sidebarMachineName(Map<String, dynamic> machine) {
     final mid = _sidebarMachineId(machine);
-    return (machine['name'] ?? machine['model'] ?? machine['machineName'] ?? mid).toString().trim();
+    return (machine['name'] ??
+            machine['model'] ??
+            machine['machineName'] ??
+            mid)
+        .toString()
+        .trim();
   }
 
   Future<void> _loadSidebarMachines() async {
@@ -157,12 +175,14 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     });
     try {
       final clientId = (widget.clientId ?? '').trim();
-      final machines = clientId.isNotEmpty
-          ? await ApiService.getMachinesForClient(clientId)
-          : await ApiService.getMachines();
+      final machines =
+          clientId.isNotEmpty
+              ? await ApiService.getMachinesForClient(clientId)
+              : await ApiService.getMachines();
       if (!mounted) return;
       setState(() {
-        _sidebarMachines = machines.where((m) => _sidebarMachineId(m).isNotEmpty).toList();
+        _sidebarMachines =
+            machines.where((m) => _sidebarMachineId(m).isNotEmpty).toList();
       });
     } catch (e) {
       if (!mounted) return;
@@ -182,7 +202,10 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     _switchMachine(machineId: machineId, machineName: machineName);
   }
 
-  Future<void> _switchMachine({required String machineId, String? machineName}) async {
+  Future<void> _switchMachine({
+    required String machineId,
+    String? machineName,
+  }) async {
     setState(() {
       _machineId = machineId.trim();
       _machineName = machineName;
@@ -205,11 +228,12 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   List<Map<String, dynamic>> get _machinesForCurrentClient {
     final companyId = (_companyId ?? '').trim();
     if (companyId.isEmpty) return _sidebarMachines;
-    final filtered = _sidebarMachines.where((m) {
-      final c1 = (m['companyId'] ?? '').toString().trim();
-      final c2 = (m['clientId'] ?? '').toString().trim();
-      return c1 == companyId || c2 == companyId;
-    }).toList();
+    final filtered =
+        _sidebarMachines.where((m) {
+          final c1 = (m['companyId'] ?? '').toString().trim();
+          final c2 = (m['clientId'] ?? '').toString().trim();
+          return c1 == companyId || c2 == companyId;
+        }).toList();
     return filtered.isNotEmpty ? filtered : _sidebarMachines;
   }
 
@@ -246,11 +270,15 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
         _sideTab = 'maintenance_team';
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Intervention annulee avec succes.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Intervention annulee avec succes.')),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur lors de l\'annulation: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur lors de l\'annulation: $e')),
+        );
       }
     }
   }
@@ -293,17 +321,18 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => KineticObservatoryPage(
-              machineId: _machineId,
-              interventionId: _activeIntervention!['id'].toString(),
-            ),
+            builder:
+                (context) => KineticObservatoryPage(
+                  machineId: _machineId,
+                  interventionId: _activeIntervention!['id'].toString(),
+                ),
           ),
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur d\'assignation : $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erreur d\'assignation : $e')));
     }
   }
 
@@ -314,27 +343,31 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     try {
       // 1. Fixer la decision sur "Panne Reelle"
       await ApiService.setDiagnosticDecision(id, finalDecision: 'REAL_FAILURE');
-      
+
       // 2. Passer l'intervention en statut DONE
       await ApiService.setDiagnosticStatus(id, 'DONE');
-      
+
       // 3. Envoyer un message de confirmation
-      await ApiService.addDiagnosticMessage(id, 'OK - Diagnostic valide (Panne reelle)', authorName: _senderName);
-      
+      await ApiService.addDiagnosticMessage(
+        id,
+        'OK - Diagnostic valide (Panne reelle)',
+        authorName: _senderName,
+      );
+
       // 4. Ouvrir le dashboard complet
       if (mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => MaintenanceModulePage(
-              initialInterventionId: id,
-            ),
+            builder: (_) => MaintenanceModulePage(initialInterventionId: id),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur lors de la validation: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur lors de la validation: $e')),
+        );
       }
     }
   }
@@ -353,46 +386,93 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     } catch (_) {}
   }
 
-  void _applyTelemetry(Map<String, dynamic> data, {bool fromLiveStream = false}) {
+  void _applyTelemetry(
+    Map<String, dynamic> data, {
+    bool fromLiveStream = false,
+  }) {
     if (!mounted) return;
-    final m = data['metrics'] as Map<String, dynamic>?;
-    final fs = data['failureScenario'] as Map<String, dynamic>?;
+    final rawMetrics = data['metrics'];
+    final m = rawMetrics is Map ? Map<String, dynamic>.from(rawMetrics) : null;
+    final rawFs = data['failureScenario'];
+    final fs = rawFs is Map ? Map<String, dynamic>.from(rawFs) : null;
     setState(() {
-      _thermal = _toDouble(data['temperature'] ?? m?['thermal'], _thermal);
-      _pressure = _toDouble(data['pressure'] ?? m?['pressure'], _pressure);
+      _thermal = _toDouble(data['temperature'] ?? data['temp'] ?? m?['thermal'] ?? m?['temp'], _thermal);
+      _pressure = _toDouble(data['pressure'] ?? data['pression'] ?? m?['pressure'] ?? m?['pression'], _pressure);
       _vibration = _toDouble(data['vibration'] ?? m?['vibration'], _vibration);
-      final pw = data['power'] ?? m?['power'];
+      _rpm = _toDouble(data['rpm'] ?? m?['rpm'], _rpm);
+      _torque = _toDouble(data['torque'] ?? m?['torque'], _torque);
+      
+      final pw = data['power'] ?? data['powerConsumption'] ?? m?['power'] ?? m?['powerConsumption'];
       if (pw != null) {
         final rp = _toDouble(pw, 0);
         _powerRawW = rp;
-        // Le backend envoie souvent couple×rpm en « unités grandes » (> ~3000) : affichage kW.
+        _power = rp > 3000 ? rp / 1000.0 : rp;
+      } else {
+        // Compute power = torque * rpm as a fallback
+        final rp = _torque * _rpm;
+        _powerRawW = rp;
         _power = rp > 3000 ? rp / 1000.0 : rp;
       }
-      _rpm = _toDouble(data['rpm'] ?? m?['rpm'], _rpm);
-      _torque = _toDouble(data['torque'] ?? m?['torque'], _torque);
+
       _toolWear = _toDouble(
-          data['tool_wear'] ?? data['toolWear'] ?? m?['tool_wear'] ?? m?['toolWear'], _toolWear);
-      _ultrasonic = _toDouble(data['ultrasonic'] ?? m?['ultrasonic'], _ultrasonic);
+        data['tool_wear'] ??
+            data['toolWear'] ??
+            m?['tool_wear'] ??
+            m?['toolWear'],
+        _toolWear,
+      );
+      _ultrasonic = _toDouble(
+        data['ultrasonic'] ?? m?['ultrasonic'],
+        _ultrasonic,
+      );
       _presence = _toDouble(data['presence'] ?? m?['presence'], _presence);
-      _magnetic = _toDouble(data['magnetic'] ?? m?['magnetic'], _magnetic);
+      _magnetic = _toDouble(data['magnetic'] ?? data['magnet'] ?? m?['magnetic'] ?? m?['magnet'], _magnetic);
       _infrared = _toDouble(data['infrared'] ?? m?['infrared'], _infrared);
-      _wifiRssi = _toDouble(data['wifiRssi'] ?? m?['wifiRssi'], _wifiRssi.toDouble()).round();
+      _wifiRssi =
+          _toDouble(
+            data['wifiRssi'] ?? m?['wifiRssi'],
+            _wifiRssi.toDouble(),
+          ).round();
       _zone = (data['zone'] ?? data['locationZone'] ?? _zone).toString();
+
+      final rawWifi = data['wifi'] ?? data['wifiConnected'] ?? data['wifi_connected'] ?? data['wifi_status'] ?? data['wifiStatus'] ?? m?['wifi'] ?? m?['wifiConnected'] ?? m?['wifi_connected'] ?? m?['wifi_status'] ?? m?['wifiStatus'];
+      if (rawWifi != null) {
+        final str = rawWifi.toString().toLowerCase().trim();
+        _wifiConnected = str == 'true' || str == '1' || str == 'connected' || str == 'connecter' || str == 'oui' || str == 'yes' || str == 'connecte';
+      }
+
       if (fromLiveStream) {
         _lastMqttPacketAt = DateTime.now();
         _mqttPacketCount += 1;
       }
 
-      final prob = data['prob_panne'] ?? data['panne_probability'] ?? data['scenarioProbPanne'] ?? fs?['scenarioProbPanne'];
+      final prob =
+          data['prob_panne'] ??
+          data['panne_probability'] ??
+          data['scenarioProbPanne'] ??
+          fs?['scenarioProbPanne'];
       if (prob != null) {
         final p = _toDouble(prob, 0);
-        _iaProbPanne = p <= 1 ? (p * 100).round().clamp(0, 100) : p.round().clamp(0, 100);
+        _iaProbPanne =
+            p <= 1 ? (p * 100).round().clamp(0, 100) : p.round().clamp(0, 100);
       }
-      _iaNiveau = (data['niveau'] ??
-              (_iaProbPanne >= 70 ? 'CRITIQUE' : _iaProbPanne >= 40 ? 'SURVEILLANCE' : 'NORMAL'))
-          .toString();
-      _iaPanneType = (data['panne_type'] ?? data['scenarioLabel'] ?? fs?['scenarioLabel'] ?? _iaPanneType).toString();
-      final expl = (data['scenarioExplanation'] ?? fs?['scenarioExplanation'])?.toString();
+      _iaNiveau =
+          (data['niveau'] ??
+                  (_iaProbPanne >= 70
+                      ? 'CRITIQUE'
+                      : _iaProbPanne >= 40
+                      ? 'SURVEILLANCE'
+                      : 'NORMAL'))
+              .toString();
+      _iaPanneType =
+          (data['panne_type'] ??
+                  data['scenarioLabel'] ??
+                  fs?['scenarioLabel'] ??
+                  _iaPanneType)
+              .toString();
+      final expl =
+          (data['scenarioExplanation'] ?? fs?['scenarioExplanation'])
+              ?.toString();
       if (expl != null && expl.isNotEmpty) {
         _scenarioExplanation = expl;
       }
@@ -415,7 +495,10 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
       _requiresStop = (data['requires_stop'] == true) || _iaProbPanne >= 75;
       _notificationMessage = (data['notification_message'] ?? '').toString();
 
-      final status = (data['status'] ?? data['machineStatus'] ?? '').toString().toUpperCase();
+      final status =
+          (data['status'] ?? data['machineStatus'] ?? '')
+              .toString()
+              .toUpperCase();
       if (status.isNotEmpty) {
         _machineStopped = status == 'STOPPED';
       }
@@ -426,9 +509,10 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   void _checkAutoAlert() {
     if (_iaProbPanne >= 60 && !_panneAlertSent) {
       _panneAlertSent = true;
-      final alertText = _iaProbPanne >= 75
-          ? '[ALERTE CRITIQUE] Machine $_machineId : PANNE IMMINENTE (risque $_iaProbPanne%). Arrêt immédiat recommandé.'
-          : '[ALERTE CRITIQUE] Machine $_machineId : risque de panne $_iaProbPanne%. Intervention recommandée sous 24h.';
+      final alertText =
+          _iaProbPanne >= 75
+              ? '[ALERTE CRITIQUE] Machine $_machineId : PANNE IMMINENTE (risque $_iaProbPanne%). Arrêt immédiat recommandé.'
+              : '[ALERTE CRITIQUE] Machine $_machineId : risque de panne $_iaProbPanne%. Intervention recommandée sous 24h.';
 
       _socket.emit('panne_alert', {
         'machineId': _machineId,
@@ -450,12 +534,18 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
             duration: const Duration(seconds: 6),
             content: Row(
               children: [
-                const Icon(Icons.warning_amber_rounded, color: Color(0xFFFFDAD6)),
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Color(0xFFFFDAD6),
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     alertText,
-                    style: GoogleFonts.inter(color: const Color(0xFFFFDAD6), fontSize: 12),
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFFFFDAD6),
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ],
@@ -470,22 +560,59 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   }
 
   void _initSocket() {
+    debugPrint('🔌 Initialisation Socket.io pour la machine $_machineId');
     _socket = io.io(ApiService.socketBaseUrl, <String, dynamic>{
-      'transports': ['websocket'],
+      'transports': <String>['websocket', 'polling'],
       'autoConnect': true,
     });
     _socket.on('nouvelle_prediction', (raw) {
       try {
+        debugPrint('📡 Socket reçu nouvelle_prediction: $raw');
         final d = raw is String ? jsonDecode(raw) : raw;
         if (d is! Map) return;
         final data = Map<String, dynamic>.from(d);
         final incomingId = (data['machineId'] ?? data['id'] ?? '').toString();
-        if (!_acceptedMachineIds.contains(incomingId)) return;
+        if (!_acceptedMachineIds.contains(incomingId)) {
+          debugPrint('⚠️ Ignoré: incomingId $incomingId non accepté dans $_acceptedMachineIds');
+          return;
+        }
+        _mqttHeartbeatTimer?.cancel();
+        if (mounted) {
+          setState(() {
+            _socketConnected = true;
+          });
+        }
+        _mqttHeartbeatTimer = Timer(const Duration(seconds: 6), () {
+          if (mounted) {
+            setState(() {
+              _socketConnected = false;
+            });
+          }
+        });
         _applyTelemetry(data, fromLiveStream: true);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('❌ Erreur parsing nouvelle_prediction: $e');
+      }
     });
     _socket.onConnect((_) {
+      debugPrint('✅ Socket CONNECTÉ à ${ApiService.socketBaseUrl}');
+      if (mounted) {
+        setState(() {
+          _socketConnected = true;
+        });
+      }
       _socket.emit('join_chat_room', {'roomId': _teamRoomId});
+    });
+    _socket.onDisconnect((_) {
+      debugPrint('❌ Socket DÉCONNECTÉ');
+      if (mounted) {
+        setState(() {
+          _socketConnected = false;
+        });
+      }
+    });
+    _socket.onConnectError((err) {
+      debugPrint('❌ Erreur connexion Socket: $err');
     });
   }
 
@@ -493,23 +620,24 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   void dispose() {
     _pulseCtrl.dispose();
     _adminRulScaleController.dispose();
+    _mqttHeartbeatTimer?.cancel();
     _socket.dispose();
     super.dispose();
   }
 
   PanneUiHints get _panneHints => computePanneUiHints(
-        probPanne: _iaProbPanne,
-        panneType: _iaPanneType,
-        scenarioLabel: _scenarioLabel,
-        scenarioExplanation: _scenarioExplanation,
-        thermal: _thermal,
-        pressure: _pressure,
-        vibration: _vibration,
-        power: _powerRawW,
-        magnetic: _magnetic,
-        infrared: _infrared,
-        ultrasonic: _ultrasonic,
-      );
+    probPanne: _iaProbPanne,
+    panneType: _iaPanneType,
+    scenarioLabel: _scenarioLabel,
+    scenarioExplanation: _scenarioExplanation,
+    thermal: _thermal,
+    pressure: _pressure,
+    vibration: _vibration,
+    power: _powerRawW,
+    magnetic: _magnetic,
+    infrared: _infrared,
+    ultrasonic: _ultrasonic,
+  );
 
   Future<void> _loadMachineIaProfile() async {
     try {
@@ -525,7 +653,9 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
         _adminIaMotor = mt;
         _machineStopped = (status == 'STOPPED');
         _adminRulScaleController.text =
-            scale != null && scale.toString().trim().isNotEmpty ? scale.toString() : '';
+            scale != null && scale.toString().trim().isNotEmpty
+                ? scale.toString()
+                : '';
       });
     } catch (_) {}
   }
@@ -545,7 +675,10 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Profil IA machine enregistré', style: GoogleFonts.inter()),
+            content: Text(
+              'Profil IA machine enregistré',
+              style: GoogleFonts.inter(),
+            ),
             backgroundColor: const Color(0xFF1B5E20),
           ),
         );
@@ -637,39 +770,55 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     if (_isStoppingMachine) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: _panel2,
-        title: Row(
-          children: [
-            const Icon(Icons.warning_amber_rounded, color: Color(0xFFFFDAD6), size: 24),
-            const SizedBox(width: 10),
-            Text(
-              'ARRÊT D\'URGENCE',
-              style: GoogleFonts.inter(color: _text, fontWeight: FontWeight.w900, fontSize: 18),
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: _panel2,
+            title: Row(
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Color(0xFFFFDAD6),
+                  size: 24,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'ARRÊT D\'URGENCE',
+                  style: GoogleFonts.inter(
+                    color: _text,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-        content: Text(
-          'Voulez-vous vraiment arrêter la machine $_machineId ?\n\n'
-          'Cette action enverra un signal d\'arrêt immédiat au moteur. '
-          'Seul un technicien sur site pourra redémarrer la machine.',
-          style: GoogleFonts.inter(color: _muted, fontSize: 13, height: 1.5),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Annuler', style: GoogleFonts.inter(color: _muted)),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFD32F2F),
-              foregroundColor: Colors.white,
+            content: Text(
+              'Voulez-vous vraiment arrêter la machine $_machineId ?\n\n'
+              'Cette action enverra un signal d\'arrêt immédiat au moteur. '
+              'Seul un technicien sur site pourra redémarrer la machine.',
+              style: GoogleFonts.inter(
+                color: _muted,
+                fontSize: 13,
+                height: 1.5,
+              ),
             ),
-            child: Text('CONFIRMER L\'ARRÊT', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text('Annuler', style: GoogleFonts.inter(color: _muted)),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFD32F2F),
+                  foregroundColor: Colors.white,
+                ),
+                child: Text(
+                  'CONFIRMER L\'ARRÊT',
+                  style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
     );
 
     if (confirmed != true || !mounted) return;
@@ -693,7 +842,8 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
         'roomId': _teamRoomId,
         'from': _senderRole,
         'senderName': 'Système',
-        'text': '⚠️ ARRÊT D\'URGENCE déclenché par $_senderName ($_senderRole). '
+        'text':
+            '⚠️ ARRÊT D\'URGENCE déclenché par $_senderName ($_senderRole). '
             'Machine $_machineId arrêtée. Risque de panne: $_iaProbPanne%.',
       });
 
@@ -737,7 +887,10 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     }
   }
 
-  Color get _riskColor => _iaProbPanne >= 70 ? _red : (_iaProbPanne >= 40 ? const Color(0xFFFFD166) : _green);
+  Color get _riskColor =>
+      _iaProbPanne >= 70
+          ? _red
+          : (_iaProbPanne >= 40 ? const Color(0xFFFFD166) : _green);
 
   String get _riskLabelFr {
     if (_iaProbPanne >= 70) return 'RISQUE ÉLEVÉ';
@@ -770,75 +923,81 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   @override
   Widget build(BuildContext context) {
     final inner = SafeArea(
-        child: Padding(
-          padding: EdgeInsets.all(widget.embedded ? 12 : 20),
-          child: Column(
-            children: [
-              _topNav(),
-              const SizedBox(height: 16),
-              Expanded(
-                child: _sideTab == 'technicians'
-                    ? _technicianListPanel()
-                    : _sideTab == 'maintenance'
-                        ? _maintenancePanel()
-                        : _sideTab == 'maintenance_team'
-                            ? _maintenanceTeamPanel()
-                        : _sideTab == 'history'
-                            ? _historyTabBody()
-                            : LayoutBuilder(
-                                builder: (context, outer) {
-                                  return SingleChildScrollView(
-                                    physics: const AlwaysScrollableScrollPhysics(),
-                                    child: ConstrainedBox(
-                                      constraints: BoxConstraints(minWidth: outer.maxWidth),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                                        children: [
-                                          _motor3dSection(),
-                                          const SizedBox(height: 16),
-                                          LayoutBuilder(
-                                            builder: (context, c) {
-                                              final wide = c.maxWidth > 1150;
-                                              if (wide) {
-                                                return Row(
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                                  children: [
-                                                    Expanded(flex: 100, child: _sensorsPanel()),
-                                                  ],
-                                                );
-                                              }
-                                              return Column(
-                                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                                children: [
-                                                  _sensorsPanel(),
-                                                ],
-                                              );
-                                            },
-                                          ),
-                                          const SizedBox(height: 16),
-                                          MachineControlCalendarPanel(
-                                            machineId: _machineId,
-                                            machineName: _machineName ?? '',
-                                            panelColor: _panel2,
-                                            accentOrange: _orange,
-                                            accentCyan: _cyan,
-                                            textColor: _text,
-                                            mutedColor: _muted,
-                                          ),
-                                          const SizedBox(height: 16),
-                                          _historyPanel(),
-                                          const SizedBox(height: 24),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                },
+      child: Padding(
+        padding: EdgeInsets.all(widget.embedded ? 12 : 20),
+        child: Column(
+          children: [
+            _topNav(),
+            const SizedBox(height: 16),
+            Expanded(
+              child:
+                  _sideTab == 'technicians'
+                      ? _technicianListPanel()
+                      : _sideTab == 'maintenance'
+                      ? _maintenancePanel()
+                      : _sideTab == 'maintenance_team'
+                      ? _maintenanceTeamPanel()
+                      : _sideTab == 'history'
+                      ? _historyTabBody()
+                      : LayoutBuilder(
+                        builder: (context, outer) {
+                          return SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                minWidth: outer.maxWidth,
                               ),
-              ),
-            ],
-          ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _motor3dSection(),
+                                  const SizedBox(height: 16),
+                                  LayoutBuilder(
+                                    builder: (context, c) {
+                                      final wide = c.maxWidth > 1150;
+                                      if (wide) {
+                                        return Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(
+                                              flex: 100,
+                                              child: _sensorsPanel(),
+                                            ),
+                                          ],
+                                        );
+                                      }
+                                      return Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [_sensorsPanel()],
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(height: 16),
+                                  MachineControlCalendarPanel(
+                                    machineId: _machineId,
+                                    machineName: _machineName ?? '',
+                                    panelColor: _panel2,
+                                    accentOrange: _orange,
+                                    accentCyan: _cyan,
+                                    textColor: _text,
+                                    mutedColor: _muted,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  _historyPanel(),
+                                  const SizedBox(height: 24),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+            ),
+          ],
         ),
-      );
+      ),
+    );
 
     if (widget.embedded) {
       return ColoredBox(color: _bg, child: inner);
@@ -847,20 +1006,25 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   }
 
   Widget _topNav() {
-    final unitTitle = (_machineName != null && _machineName!.trim().isNotEmpty)
-        ? _machineName!.trim().toUpperCase()
-        : 'MACHINE ${_machineId.length > 6 ? _machineId.substring(_machineId.length - 6) : _machineId}';
+    final unitTitle =
+        (_machineName != null && _machineName!.trim().isNotEmpty)
+            ? _machineName!.trim().toUpperCase()
+            : 'MACHINE ${_machineId.length > 6 ? _machineId.substring(_machineId.length - 6) : _machineId}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (widget.onBack != null) ...[
+            if (widget.onBack != null || Navigator.of(context).canPop()) ...[
               IconButton(
-                onPressed: widget.onBack,
-                icon: const Icon(Icons.arrow_back_ios_new, color: _orange, size: 20),
-                tooltip: 'Retour au parc machines',
+                onPressed: widget.onBack ?? () => Navigator.of(context).pop(),
+                icon: const Icon(
+                  Icons.arrow_back_ios_new,
+                  color: _orange,
+                  size: 20,
+                ),
+                tooltip: 'Retour',
               ),
               const SizedBox(width: 4),
             ],
@@ -890,7 +1054,11 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                   const SizedBox(height: 4),
                   Text(
                     'S/N: $_machineId · STATUS: ${_machineStopped ? 'ARRÊT' : (_iaProbPanne >= 70 ? 'INSTABLE' : 'OPÉRATIONNEL')}',
-                    style: GoogleFonts.inter(fontSize: 10, color: _text.withOpacity(0.45), fontWeight: FontWeight.w500),
+                    style: GoogleFonts.inter(
+                      fontSize: 10,
+                      color: _text.withOpacity(0.45),
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ],
               ),
@@ -945,7 +1113,6 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     );
   }
 
-
   Widget _leftNav() {
     final machines = _sidebarMachines;
     return Container(
@@ -960,11 +1127,24 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('KINETIC.OS', style: GoogleFonts.spaceGrotesk(fontSize: 18, fontWeight: FontWeight.w900, color: _orange, letterSpacing: 0.5)),
+                Text(
+                  'KINETIC.OS',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: _orange,
+                    letterSpacing: 0.5,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 Text(
                   'PRECISION PREDICTIVE',
-                  style: GoogleFonts.spaceGrotesk(fontSize: 8, color: _text.withOpacity(0.55), letterSpacing: 1.6, fontWeight: FontWeight.w600),
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 8,
+                    color: _text.withOpacity(0.55),
+                    letterSpacing: 1.6,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
@@ -974,7 +1154,11 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Row(
               children: [
-                Icon(Icons.precision_manufacturing_outlined, size: 16, color: _orange),
+                Icon(
+                  Icons.precision_manufacturing_outlined,
+                  size: 16,
+                  color: _orange,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   'LISTE MACHINES',
@@ -989,84 +1173,124 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
             ),
           ),
           Expanded(
-            child: _loadingSidebarMachines
-                ? Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: _orange)))
-                : _sidebarMachinesError != null
+            child:
+                _loadingSidebarMachines
                     ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          child: Text(
-                            'Erreur de chargement',
-                            style: GoogleFonts.inter(fontSize: 11, color: _red),
-                            textAlign: TextAlign.center,
-                          ),
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: _orange,
                         ),
-                      )
+                      ),
+                    )
+                    : _sidebarMachinesError != null
+                    ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        child: Text(
+                          'Erreur de chargement',
+                          style: GoogleFonts.inter(fontSize: 11, color: _red),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
                     : ListView.builder(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        itemCount: machines.length,
-                        itemBuilder: (context, index) {
-                          final machine = machines[index];
-                          final machineId = _sidebarMachineId(machine);
-                          final machineName = _sidebarMachineName(machine);
-                          final active = machineId == _machineId;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 0),
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () => _openMachineFromSidebar(machine),
-                                child: IntrinsicHeight(
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                                    children: [
-                                      AnimatedContainer(
-                                        duration: const Duration(milliseconds: 180),
-                                        width: 3,
-                                        decoration: BoxDecoration(
-                                          color: active ? _orange : Colors.transparent,
-                                          borderRadius: const BorderRadius.horizontal(right: Radius.circular(2)),
+                      padding: const EdgeInsets.only(bottom: 8),
+                      itemCount: machines.length,
+                      itemBuilder: (context, index) {
+                        final machine = machines[index];
+                        final machineId = _sidebarMachineId(machine);
+                        final machineName = _sidebarMachineName(machine);
+                        final active = machineId == _machineId;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 0),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () => _openMachineFromSidebar(machine),
+                              child: IntrinsicHeight(
+                                child: Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    AnimatedContainer(
+                                      duration: const Duration(
+                                        milliseconds: 180,
+                                      ),
+                                      width: 3,
+                                      decoration: BoxDecoration(
+                                        color:
+                                            active
+                                                ? _orange
+                                                : Colors.transparent,
+                                        borderRadius:
+                                            const BorderRadius.horizontal(
+                                              right: Radius.circular(2),
+                                            ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          14,
+                                          10,
+                                          16,
+                                          10,
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              machineName.toUpperCase(),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: GoogleFonts.spaceGrotesk(
+                                                fontSize: 10,
+                                                letterSpacing: 1.05,
+                                                fontWeight:
+                                                    active
+                                                        ? FontWeight.w800
+                                                        : FontWeight.w600,
+                                                color:
+                                                    active
+                                                        ? _text
+                                                        : _muted.withOpacity(
+                                                          0.78,
+                                                        ),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              machineId,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: GoogleFonts.inter(
+                                                fontSize: 9,
+                                                color:
+                                                    active
+                                                        ? _orange.withOpacity(
+                                                          0.95,
+                                                        )
+                                                        : _text.withOpacity(
+                                                          0.4,
+                                                        ),
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                      Expanded(
-                                        child: Padding(
-                                          padding: const EdgeInsets.fromLTRB(14, 10, 16, 10),
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                machineName.toUpperCase(),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: GoogleFonts.spaceGrotesk(
-                                                  fontSize: 10,
-                                                  letterSpacing: 1.05,
-                                                  fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-                                                  color: active ? _text : _muted.withOpacity(0.78),
-                                                ),
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                machineId,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: GoogleFonts.inter(
-                                                  fontSize: 9,
-                                                  color: active ? _orange.withOpacity(0.95) : _text.withOpacity(0.4),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                        );
+                      },
+                    ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
@@ -1077,7 +1301,10 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                 borderRadius: BorderRadius.circular(10),
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 14,
+                    horizontal: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF0A0B12),
                     borderRadius: BorderRadius.circular(10),
@@ -1093,7 +1320,10 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: (_lastMqttPacketAt != null ? _green : _orange).withOpacity(0.45),
+                              color: (_lastMqttPacketAt != null
+                                      ? _green
+                                      : _orange)
+                                  .withOpacity(0.45),
                               blurRadius: 8,
                             ),
                           ],
@@ -1106,11 +1336,23 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                           children: [
                             Text(
                               'SYSTEM LIVE',
-                              style: GoogleFonts.spaceGrotesk(fontSize: 11, color: _orange, fontWeight: FontWeight.w800, letterSpacing: 1.4),
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 11,
+                                color: _orange,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.4,
+                              ),
                             ),
                             Text(
-                              _machineStopped ? 'Arrêt' : (_lastMqttPacketAt != null ? 'Flux MQTT' : 'Veille'),
-                              style: GoogleFonts.inter(fontSize: 9, color: _text.withOpacity(0.65)),
+                              _machineStopped
+                                  ? 'Arrêt'
+                                  : (_lastMqttPacketAt != null
+                                      ? 'Flux MQTT'
+                                      : 'Veille'),
+                              style: GoogleFonts.inter(
+                                fontSize: 9,
+                                color: _text.withOpacity(0.65),
+                              ),
                             ),
                           ],
                         ),
@@ -1147,7 +1389,9 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                   width: 3,
                   decoration: BoxDecoration(
                     color: active ? _orange : Colors.transparent,
-                    borderRadius: const BorderRadius.horizontal(right: Radius.circular(2)),
+                    borderRadius: const BorderRadius.horizontal(
+                      right: Radius.circular(2),
+                    ),
                   ),
                 ),
                 Expanded(
@@ -1155,7 +1399,11 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                     padding: const EdgeInsets.fromLTRB(14, 10, 16, 10),
                     child: Row(
                       children: [
-                        Icon(icon, size: 18, color: active ? _orange : _muted.withOpacity(0.45)),
+                        Icon(
+                          icon,
+                          size: 18,
+                          color: active ? _orange : _muted.withOpacity(0.45),
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
@@ -1163,7 +1411,8 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                             style: GoogleFonts.spaceGrotesk(
                               fontSize: 10,
                               letterSpacing: 1.15,
-                              fontWeight: active ? FontWeight.w800 : FontWeight.w500,
+                              fontWeight:
+                                  active ? FontWeight.w800 : FontWeight.w500,
                               color: active ? _text : _muted.withOpacity(0.75),
                             ),
                           ),
@@ -1194,14 +1443,20 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
           final kind = (member['directoryKind'] ?? '').toString();
           // On garde tout le monde du répertoire, on filtrera par machineId dans la vue
           final rawMap = member['raw'];
-          final raw = rawMap is Map ? Map<String, dynamic>.from(rawMap) : <String, dynamic>{};
-          
+          final raw =
+              rawMap is Map
+                  ? Map<String, dynamic>.from(rawMap)
+                  : <String, dynamic>{};
+
           filtered.add({
             ...raw,
             'directoryKind': kind,
             'name': member['name'] ?? raw['name'] ?? '',
             'email': member['email'] ?? raw['email'] ?? '',
-            'specialty': member['specialization'] ?? raw['specialization'] ?? 'Generaliste',
+            'specialty':
+                member['specialization'] ??
+                raw['specialization'] ??
+                'Generaliste',
             'technicianId': raw['technicianId'] ?? member['id'] ?? '',
           });
         }
@@ -1210,7 +1465,9 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
       // 2. Personnel de Maintenance (Maintenance Man) - Afficher TOUT
       try {
         final agents = await ApiService.getMaintenanceAgents();
-        debugPrint('Agents maintenance recus de l\'API: ${agents.length} membres');
+        debugPrint(
+          'Agents maintenance recus de l\'API: ${agents.length} membres',
+        );
         for (final agent in agents) {
           filtered.add({
             ...agent,
@@ -1226,18 +1483,28 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
       }
 
       debugPrint('Total techniciens filtres: ${filtered.length}');
-      if (mounted) setState(() { _techniciansForMachine = filtered; _loadingTechnicians = false; });
+      if (mounted)
+        setState(() {
+          _techniciansForMachine = filtered;
+          _loadingTechnicians = false;
+        });
     } catch (e) {
-      if (mounted) setState(() { _techniciansForMachine = []; _loadingTechnicians = false; });
+      if (mounted)
+        setState(() {
+          _techniciansForMachine = [];
+          _loadingTechnicians = false;
+        });
     }
   }
 
   Widget _motor3dSection() {
     final rendement = (100 - _iaProbPanne * 0.82).clamp(38.0, 99.2);
-    final alerteCritique = _machineStopped || _requiresStop || _iaProbPanne >= 70;
-    final motorTitle = (_machineName != null && _machineName!.trim().isNotEmpty)
-        ? _machineName!.trim().toUpperCase()
-        : 'MOTEUR INDUSTRIEL';
+    final alerteCritique =
+        _machineStopped || _requiresStop || _iaProbPanne >= 70;
+    final motorTitle =
+        (_machineName != null && _machineName!.trim().isNotEmpty)
+            ? _machineName!.trim().toUpperCase()
+            : 'MOTEUR INDUSTRIEL';
     return ClipRRect(
       borderRadius: BorderRadius.circular(18),
       child: Container(
@@ -1255,7 +1522,11 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
             Positioned(
               right: -40,
               top: -30,
-              child: Icon(Icons.blur_circular, size: 180, color: _orange.withOpacity(0.06)),
+              child: Icon(
+                Icons.blur_circular,
+                size: 180,
+                color: _orange.withOpacity(0.06),
+              ),
             ),
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1286,7 +1557,12 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                           child: Image.asset(
                             _motor3dAsset,
                             fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => Icon(Icons.precision_manufacturing, size: 100, color: _muted.withOpacity(0.25)),
+                            errorBuilder:
+                                (_, __, ___) => Icon(
+                                  Icons.precision_manufacturing,
+                                  size: 100,
+                                  color: _muted.withOpacity(0.25),
+                                ),
                           ),
                         ),
                       ),
@@ -1294,19 +1570,35 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                         top: 16,
                         right: 16,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
                             color: _panel2.withOpacity(0.92),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.white.withOpacity(0.08)),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.08),
+                            ),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              Text('RENDEMENT', style: GoogleFonts.spaceGrotesk(fontSize: 8, color: _muted.withOpacity(0.8), letterSpacing: 1.2)),
+                              Text(
+                                'RENDEMENT',
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 8,
+                                  color: _muted.withOpacity(0.8),
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
                               Text(
                                 '${rendement.toStringAsFixed(1)}%',
-                                style: GoogleFonts.spaceGrotesk(fontSize: 20, color: _cyan, fontWeight: FontWeight.w900),
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 20,
+                                  color: _cyan,
+                                  fontWeight: FontWeight.w900,
+                                ),
                               ),
                             ],
                           ),
@@ -1330,11 +1622,17 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                                         width: 10,
                                         height: 10,
                                         decoration: BoxDecoration(
-                                          color: alerteCritique ? const Color(0xFFFF3B3B) : _green,
+                                          color:
+                                              alerteCritique
+                                                  ? const Color(0xFFFF3B3B)
+                                                  : _green,
                                           shape: BoxShape.circle,
                                           boxShadow: [
                                             BoxShadow(
-                                              color: (alerteCritique ? const Color(0xFFFF3B3B) : _green).withOpacity(0.55),
+                                              color: (alerteCritique
+                                                      ? const Color(0xFFFF3B3B)
+                                                      : _green)
+                                                  .withOpacity(0.55),
                                               blurRadius: 10,
                                             ),
                                           ],
@@ -1342,10 +1640,15 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                                       ),
                                       const SizedBox(width: 8),
                                       Text(
-                                        alerteCritique ? 'ALERTE CRITIQUE' : 'NOMINAL',
+                                        alerteCritique
+                                            ? 'ALERTE CRITIQUE'
+                                            : 'NOMINAL',
                                         style: GoogleFonts.spaceGrotesk(
                                           fontSize: 10,
-                                          color: alerteCritique ? const Color(0xFFFF3B3B) : _green,
+                                          color:
+                                              alerteCritique
+                                                  ? const Color(0xFFFF3B3B)
+                                                  : _green,
                                           fontWeight: FontWeight.w800,
                                           letterSpacing: 1.1,
                                         ),
@@ -1355,11 +1658,19 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                                   const SizedBox(height: 6),
                                   Text(
                                     motorTitle,
-                                    style: GoogleFonts.spaceGrotesk(fontSize: 20, color: _text, fontWeight: FontWeight.w900, letterSpacing: -0.3),
+                                    style: GoogleFonts.spaceGrotesk(
+                                      fontSize: 20,
+                                      color: _text,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: -0.3,
+                                    ),
                                   ),
                                   Text(
                                     'S/N: $_machineId',
-                                    style: GoogleFonts.inter(fontSize: 10, color: _text.withOpacity(0.5)),
+                                    style: GoogleFonts.inter(
+                                      fontSize: 10,
+                                      color: _text.withOpacity(0.5),
+                                    ),
                                   ),
                                 ],
                               ),
@@ -1380,9 +1691,20 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.power_off, color: Color(0xFFFF8A80), size: 44),
+                                  const Icon(
+                                    Icons.power_off,
+                                    color: Color(0xFFFF8A80),
+                                    size: 44,
+                                  ),
                                   const SizedBox(height: 8),
-                                  Text('MOTEUR ARRÊTÉ', style: GoogleFonts.spaceGrotesk(color: const Color(0xFFFF8A80), fontSize: 14, fontWeight: FontWeight.w800)),
+                                  Text(
+                                    'MOTEUR ARRÊTÉ',
+                                    style: GoogleFonts.spaceGrotesk(
+                                      color: const Color(0xFFFF8A80),
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -1395,7 +1717,9 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                   padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
                   decoration: BoxDecoration(
                     color: _panel2.withOpacity(0.65),
-                    border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
+                    border: Border(
+                      top: BorderSide(color: Colors.white.withOpacity(0.05)),
+                    ),
                   ),
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -1405,11 +1729,24 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                         const SizedBox(width: 8),
                         _motorInfoChip('Zone', _zone, _orange),
                         const SizedBox(width: 8),
-                        _motorInfoChip('Temp.', '${_thermal.toStringAsFixed(1)}°C', _thermal >= 75 ? _red : _green, panneKey: 'thermal'),
+                        _motorInfoChip(
+                          'Temp.',
+                          '${_thermal.toStringAsFixed(1)}°C',
+                          _thermal >= 75 ? _red : _green,
+                          panneKey: 'thermal',
+                        ),
                         const SizedBox(width: 8),
-                        _motorInfoChip('Risque IA', '$_iaProbPanne%', _riskColor),
+                        _motorInfoChip(
+                          'Risque IA',
+                          '$_iaProbPanne%',
+                          _riskColor,
+                        ),
                         const SizedBox(width: 8),
-                        _motorInfoChip('Statut', _machineStopped ? 'ARRÊTÉ' : 'EN MARCHE', _machineStopped ? _red : _green),
+                        _motorInfoChip(
+                          'Statut',
+                          _machineStopped ? 'ARRÊTÉ' : 'EN MARCHE',
+                          _machineStopped ? _red : _green,
+                        ),
                       ],
                     ),
                   ),
@@ -1436,7 +1773,14 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
           children: [
             const Icon(Icons.power_off, size: 16, color: _red),
             const SizedBox(width: 6),
-            Text('ARRÊTÉ', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: _red)),
+            Text(
+              'ARRÊTÉ',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: _red,
+              ),
+            ),
           ],
         ),
       );
@@ -1445,9 +1789,17 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     final isUrgent = _iaProbPanne >= 70;
     return ElevatedButton.icon(
       onPressed: _isStoppingMachine ? null : _emergencyStopMachine,
-      icon: _isStoppingMachine
-          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-          : const Icon(Icons.power_settings_new, size: 18),
+      icon:
+          _isStoppingMachine
+              ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+              : const Icon(Icons.power_settings_new, size: 18),
       label: Text(
         isUrgent ? 'ARRÊT D\'URGENCE' : 'ARRÊTER MACHINE',
         style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700),
@@ -1462,8 +1814,14 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     );
   }
 
-  Widget _motorInfoChip(String label, String value, Color accent, {String? panneKey}) {
-    final stress = panneKey != null && _panneHints.highlightMetrics.contains(panneKey);
+  Widget _motorInfoChip(
+    String label,
+    String value,
+    Color accent, {
+    String? panneKey,
+  }) {
+    final stress =
+        panneKey != null && _panneHints.highlightMetrics.contains(panneKey);
     return AnimatedBuilder(
       animation: _pulseCtrl,
       builder: (_, __) {
@@ -1473,26 +1831,45 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
             color: _panel,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: stress
-                  ? const Color(0xFFFF7B7B).withOpacity(0.55 + 0.4 * _pulseCtrl.value)
-                  : accent.withOpacity(0.3),
+              color:
+                  stress
+                      ? const Color(
+                        0xFFFF7B7B,
+                      ).withOpacity(0.55 + 0.4 * _pulseCtrl.value)
+                      : accent.withOpacity(0.3),
               width: stress ? 2.2 : 1,
             ),
-            boxShadow: stress
-                ? [BoxShadow(color: const Color(0xFFFF7B7B).withOpacity(0.22 * _pulseCtrl.value), blurRadius: 8)]
-                : null,
+            boxShadow:
+                stress
+                    ? [
+                      BoxShadow(
+                        color: const Color(
+                          0xFFFF7B7B,
+                        ).withOpacity(0.22 * _pulseCtrl.value),
+                        blurRadius: 8,
+                      ),
+                    ]
+                    : null,
           ),
           child: Column(
             children: [
-              Text(label,
-                  style: GoogleFonts.spaceGrotesk(
-                      fontSize: 9, color: _muted, letterSpacing: 1)),
+              Text(
+                label,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 9,
+                  color: _muted,
+                  letterSpacing: 1,
+                ),
+              ),
               const SizedBox(height: 2),
-              Text(value,
-                  style: GoogleFonts.inter(
-                      fontSize: 13,
-                      color: stress ? const Color(0xFFFFB4AB) : accent,
-                      fontWeight: FontWeight.w800)),
+              Text(
+                value,
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  color: stress ? const Color(0xFFFFB4AB) : accent,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ],
           ),
         );
@@ -1500,9 +1877,12 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     );
   }
 
-
   Widget _sensorsPanel() {
-    final irLabel = _infrared <= 0 ? 'N/A' : (_infrared < 1.5 ? 'FAIBLE' : 'ACTIF');
+    final irLabel =
+        _infrared <= 0 ? 'N/A' : '${_infrared.toStringAsFixed(1)} °C';
+    final pressureStr = _pressure > 0 && _pressure < 2
+        ? '${_pressure.toStringAsFixed(3)} BAR'
+        : '${_pressure.toStringAsFixed(1)} BAR';
     return Container(
       decoration: BoxDecoration(
         color: _panel2,
@@ -1517,17 +1897,53 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Icon(Icons.sensors_rounded, size: 18, color: _orange.withOpacity(0.9)),
+              Icon(
+                Icons.sensors_rounded,
+                size: 18,
+                color: _orange.withOpacity(0.9),
+              ),
               const SizedBox(width: 10),
               Text(
                 'TÉLÉMÉTRIE LIVE',
-                style: GoogleFonts.spaceGrotesk(fontSize: 11, fontWeight: FontWeight.w800, color: _text, letterSpacing: 1.4),
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: _text,
+                  letterSpacing: 1.4,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: _socketConnected ? Colors.greenAccent : Colors.orangeAccent,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                _socketConnected ? 'CONNECTÉ' : 'DÉCONNECTÉ',
+                style: GoogleFonts.inter(
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  color: _socketConnected ? Colors.greenAccent : Colors.orangeAccent,
+                ),
               ),
               const SizedBox(width: 10),
               const Spacer(),
+              Icon(
+                Icons.wifi_rounded,
+                size: 11,
+                color: _wifiConnected ? Colors.greenAccent : const Color(0xFFFF5252),
+              ),
+              const SizedBox(width: 4),
               Text(
                 '$_wifiRssi dBm · $_zone',
-                style: GoogleFonts.inter(fontSize: 9, color: _text.withOpacity(0.4)),
+                style: GoogleFonts.inter(
+                  fontSize: 9,
+                  color: _wifiConnected ? Colors.greenAccent : const Color(0xFFFF5252),
+                ),
               ),
             ],
           ),
@@ -1547,12 +1963,51 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                 mainAxisSpacing: 12,
                 childAspectRatio: childAspectRatio,
                 children: [
-                  _sensorTile('THERMIQUE', '${_thermal.toStringAsFixed(1)} °C', Icons.thermostat_rounded, _thermal >= 75 ? _red : _cyan, panneKey: 'thermal'),
-                  _sensorTile('PRESSION', '${_pressure.toStringAsFixed(1)} BAR', Icons.speed_rounded, _cyan, panneKey: 'pressure'),
-                  _sensorTile('PUISSANCE', '${_power.toStringAsFixed(1)} kW', Icons.bolt_rounded, const Color(0xFFFFD54F), panneKey: 'power'),
-                  _sensorTile('VIBRATION', '${_vibration.toStringAsFixed(2)} mm/s', Icons.vibration_rounded, _vibration >= 4 ? _red : _cyan, panneKey: 'vibration'),
-                  _sensorTile('MAGNÉTIQUE', '${_magnetic.toStringAsFixed(2)} mT', Icons.explore_rounded, const Color(0xFF90CAF9)),
-                  _sensorTile('INFRA-ROUGE', irLabel, Icons.local_fire_department_outlined, const Color(0xFFFFAB91)),
+                  _sensorTile(
+                    'THERMIQUE',
+                    '${_thermal.toStringAsFixed(1)} °C',
+                    Icons.thermostat_rounded,
+                    _thermal >= 75 ? _red : _cyan,
+                    panneKey: 'thermal',
+                    isZeroError: _thermal == 0,
+                  ),
+                  _sensorTile(
+                    'PRESSION',
+                    pressureStr,
+                    Icons.speed_rounded,
+                    _cyan,
+                    panneKey: 'pressure',
+                    isZeroError: _pressure == 0,
+                  ),
+                  _sensorTile(
+                    'PUISSANCE',
+                    '${_power.toStringAsFixed(1)} kW',
+                    Icons.bolt_rounded,
+                    const Color(0xFFFFD54F),
+                    panneKey: 'power',
+                    isZeroError: _power == 0,
+                  ),
+                  _sensorTile(
+                    'VIBRATION',
+                    '${_vibration.toStringAsFixed(2)} mm/s',
+                    Icons.vibration_rounded,
+                    _vibration >= 4 ? _red : _cyan,
+                    panneKey: 'vibration',
+                    isZeroError: _vibration == 0,
+                  ),
+                  _sensorTile(
+                    'MAGNÉTIQUE',
+                    '${_magnetic.toStringAsFixed(2)} mT',
+                    Icons.explore_rounded,
+                    const Color(0xFF90CAF9),
+                    isZeroError: _magnetic == 0,
+                  ),
+                  _sensorTile(
+                    'INFRA-ROUGE',
+                    irLabel,
+                    Icons.local_fire_department_outlined,
+                    const Color(0xFFFFAB91),
+                  ),
                 ],
               );
             },
@@ -1562,16 +2017,27 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     );
   }
 
-  Widget _sensorTile(String label, String value, IconData icon, Color accent, {String panneKey = ''}) {
-    final hasPanne = panneKey.isNotEmpty && _panneHints.highlightMetrics.contains(panneKey);
-    final themeColor = hasPanne ? _red : accent;
-    
+  Widget _sensorTile(
+    String label,
+    String value,
+    IconData icon,
+    Color accent, {
+    String panneKey = '',
+    bool isZeroError = false,
+  }) {
+    final hasPanne =
+        panneKey.isNotEmpty && _panneHints.highlightMetrics.contains(panneKey);
+    final themeColor = (hasPanne || isZeroError) ? const Color(0xFFFF5252) : accent;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: _panel.withOpacity(0.4),
+        color: isZeroError ? const Color(0xFFFF5252).withOpacity(0.08) : _panel.withOpacity(0.4),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: themeColor.withOpacity(hasPanne ? 0.4 : 0.08)),
+        border: Border.all(
+          color: themeColor.withOpacity(isZeroError ? 0.8 : (hasPanne ? 0.4 : 0.08)),
+          width: isZeroError ? 1.5 : 1.0,
+        ),
       ),
       child: Stack(
         children: [
@@ -1584,7 +2050,11 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                   color: themeColor.withOpacity(0.12),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, size: 14, color: themeColor),
+                child: Icon(
+                  isZeroError ? Icons.warning_amber_rounded : icon,
+                  size: 14,
+                  color: themeColor,
+                ),
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -1597,45 +2067,68 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 8,
                         fontWeight: FontWeight.w700,
-                        color: _text.withOpacity(0.4),
+                        color: isZeroError ? const Color(0xFFFF5252) : _text.withOpacity(0.4),
                         letterSpacing: 0.6,
                       ),
                     ),
                     const SizedBox(height: 1),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Text(
-                          value.split(' ')[0],
-                          style: GoogleFonts.spaceGrotesk(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w900,
-                            color: _text,
-                            letterSpacing: -0.2,
-                          ),
+                    if (isZeroError)
+                      Text(
+                        'PANNE CAPTEUR',
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFFFF5252),
                         ),
-                        const SizedBox(width: 3),
-                        Text(
-                          value.contains(' ') ? value.split(' ')[1] : '',
-                          style: GoogleFonts.inter(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                            color: themeColor.withOpacity(0.7),
+                      )
+                    else
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            value.split(' ')[0],
+                            style: GoogleFonts.spaceGrotesk(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w900,
+                              color: _text,
+                              letterSpacing: -0.2,
+                            ),
                           ),
+                          const SizedBox(width: 3),
+                          Text(
+                            value.contains(' ') ? value.split(' ')[1] : '',
+                            style: GoogleFonts.inter(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: themeColor.withOpacity(0.7),
+                            ),
+                          ),
+                        ],
+                      ),
+                    if (isZeroError) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Attention : Problème de capteur ${label.toLowerCase()}',
+                        style: GoogleFonts.inter(
+                          fontSize: 7.5,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFFFF8A80),
                         ),
-                      ],
-                    ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
-          if (hasPanne)
+          if (hasPanne || isZeroError)
             Positioned(
               top: 0,
               right: 0,
-              child: Icon(Icons.warning_amber_rounded, size: 12, color: _red),
+              child: Icon(Icons.warning_amber_rounded, size: 12, color: themeColor),
             ),
         ],
       ),
@@ -1644,43 +2137,98 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
 
   Widget _technicianListPanel() {
     if (_loadingTechnicians) {
-      return const Center(child: Padding(padding: EdgeInsets.all(60), child: CircularProgressIndicator(color: _orange)));
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(60),
+          child: CircularProgressIndicator(color: _orange),
+        ),
+      );
     }
     final allTechs = _techniciansForMachine ?? [];
-    
+
     // Filtre par machineId
-    final techs = allTechs.where((t) {
-      final List? assigned = t['machineIds'] is List ? t['machineIds'] as List : null;
-      if (assigned == null) return false;
-      return assigned.map((e) => e.toString().toUpperCase()).contains(_machineId.toUpperCase());
-    }).toList();
+    final techs =
+        allTechs.where((t) {
+          final List? assigned =
+              t['machineIds'] is List ? t['machineIds'] as List : null;
+          if (assigned == null) return false;
+          return assigned
+              .map((e) => e.toString().toUpperCase())
+              .contains(_machineId.toUpperCase());
+        }).toList();
     return ListView(
       padding: const EdgeInsets.all(4),
       children: [
-        Row(children: [
-          Container(width: 3, height: 18, decoration: BoxDecoration(color: _orange, borderRadius: BorderRadius.circular(2))),
-          const SizedBox(width: 8),
-          Text('ÉQUIPE MACHINE', style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: _text, letterSpacing: 1.0)),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(color: _panel2, borderRadius: BorderRadius.circular(12)),
-            child: Text('${techs.length}', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: _orange)),
-          ),
-          const Spacer(),
-        ]),
+        Row(
+          children: [
+            Container(
+              width: 3,
+              height: 18,
+              decoration: BoxDecoration(
+                color: _orange,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'ÉQUIPE MACHINE',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: _text,
+                letterSpacing: 1.0,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: _panel2,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '${techs.length}',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: _orange,
+                ),
+              ),
+            ),
+            const Spacer(),
+          ],
+        ),
         const SizedBox(height: 12),
         if (techs.isEmpty)
           Container(
             padding: const EdgeInsets.all(40),
-            decoration: BoxDecoration(color: _panel, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white10)),
-            child: Column(children: [
-              const Icon(Icons.engineering_rounded, size: 40, color: _panel3),
-              const SizedBox(height: 12),
-              Text('Aucun technicien/maintenance assigné', style: GoogleFonts.inter(fontSize: 13, color: _muted, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 4),
-              Text('Ajoutez un membre équipe pour cette machine', style: GoogleFonts.spaceGrotesk(fontSize: 11, color: _muted.withOpacity(0.6))),
-            ]),
+            decoration: BoxDecoration(
+              color: _panel,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: Column(
+              children: [
+                const Icon(Icons.engineering_rounded, size: 40, color: _panel3),
+                const SizedBox(height: 12),
+                Text(
+                  'Aucun technicien/maintenance assigné',
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    color: _muted,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Ajoutez un membre équipe pour cette machine',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 11,
+                    color: _muted.withOpacity(0.6),
+                  ),
+                ),
+              ],
+            ),
           )
         else
           ...techs.map((t) => _technicianCard(t)),
@@ -1694,7 +2242,9 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     final name = tech['name']?.toString() ?? 'Sans nom';
     final email = tech['email']?.toString() ?? '';
     final phone = tech['phone']?.toString() ?? '';
-    final specialty = tech['specialty']?.toString() ?? (isMaintenance ? 'Maintenance' : 'Généraliste');
+    final specialty =
+        tech['specialty']?.toString() ??
+        (isMaintenance ? 'Maintenance' : 'Généraliste');
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -1708,68 +2258,139 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => MaintenanceAgentDetailPage(
-                  member: {
-                    ...tech,
-                    'directoryKind': 'maintenance',
-                    'displayId': tech['maintenanceAgentId'] ?? tech['id'] ?? '',
-                  },
-                ),
+                builder:
+                    (_) => MaintenanceAgentDetailPage(
+                      member: {
+                        ...tech,
+                        'directoryKind': 'maintenance',
+                        'displayId':
+                            tech['maintenanceAgentId'] ?? tech['id'] ?? '',
+                      },
+                    ),
               ),
             );
             return;
           }
-          Navigator.push(context, MaterialPageRoute(
-            builder: (_) => const TechnicianProfilePage(),
-            settings: RouteSettings(arguments: {
-              'viewerRole': 'superadmin',
-              'name': tech['name'] ?? '',
-              'id': tech['technicianId'] ?? tech['_id'] ?? '',
-              'email': tech['email'] ?? '',
-              'phone': tech['phone'] ?? '',
-              'specialization': tech['specialty'] ?? 'Technicien',
-              'status': 'EN SERVICE',
-              'machineIds': tech['machineIds'] ?? [],
-              'loginPassword': tech['loginPassword'] ?? '********',
-              'location': tech['location'] ?? '',
-            }),
-          ));
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const TechnicianProfilePage(),
+              settings: RouteSettings(
+                arguments: {
+                  'viewerRole': 'superadmin',
+                  'name': tech['name'] ?? '',
+                  'id': tech['technicianId'] ?? tech['_id'] ?? '',
+                  'email': tech['email'] ?? '',
+                  'phone': tech['phone'] ?? '',
+                  'specialization': tech['specialty'] ?? 'Technicien',
+                  'status': 'EN SERVICE',
+                  'machineIds': tech['machineIds'] ?? [],
+                  'loginPassword': tech['loginPassword'] ?? '********',
+                  'location': tech['location'] ?? '',
+                },
+              ),
+            ),
+          );
         },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(14),
-          child: Row(children: [
-            Container(
-              width: 42, height: 42,
-              decoration: BoxDecoration(color: _cyan.withOpacity(0.10), borderRadius: BorderRadius.circular(12)),
-              child: Center(child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w800, color: _cyan))),
-            ),
-            const SizedBox(width: 14),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(name, style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700, color: _text)),
-              const SizedBox(height: 3),
-              Row(children: [
-                Icon(Icons.work_rounded, size: 11, color: _muted.withOpacity(0.5)),
-                const SizedBox(width: 4),
-                Text(specialty, style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _muted.withOpacity(0.7))),
-                if (email.isNotEmpty) ...[
-                  const SizedBox(width: 12),
-                  Icon(Icons.email_rounded, size: 11, color: _muted.withOpacity(0.5)),
-                  const SizedBox(width: 4),
-                  Flexible(child: Text(email, style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _muted.withOpacity(0.7)), overflow: TextOverflow.ellipsis)),
-                ],
-              ]),
-              if (phone.isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Row(children: [
-                  Icon(Icons.phone_rounded, size: 11, color: _muted.withOpacity(0.5)),
-                  const SizedBox(width: 4),
-                  Text(phone, style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _muted.withOpacity(0.7))),
-                ]),
-              ],
-            ])),
-            const Icon(Icons.chevron_right_rounded, size: 20, color: _panel3),
-          ]),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: _cyan.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Text(
+                    name.isNotEmpty ? name[0].toUpperCase() : '?',
+                    style: GoogleFonts.inter(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: _cyan,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: _text,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.work_rounded,
+                          size: 11,
+                          color: _muted.withOpacity(0.5),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          specialty,
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 10,
+                            color: _muted.withOpacity(0.7),
+                          ),
+                        ),
+                        if (email.isNotEmpty) ...[
+                          const SizedBox(width: 12),
+                          Icon(
+                            Icons.email_rounded,
+                            size: 11,
+                            color: _muted.withOpacity(0.5),
+                          ),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              email,
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 10,
+                                color: _muted.withOpacity(0.7),
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (phone.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.phone_rounded,
+                            size: 11,
+                            color: _muted.withOpacity(0.5),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            phone,
+                            style: GoogleFonts.spaceGrotesk(
+                              fontSize: 10,
+                              color: _muted.withOpacity(0.7),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, size: 20, color: _panel3),
+            ],
+          ),
         ),
       ),
     );
@@ -1823,29 +2444,31 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     });
     try {
       final all = await ApiService.getMaintenanceOrders();
-      final filtered = all.where((o) {
-        final mid = (o['machineId'] ?? '').toString();
-        return mid == _machineId || _acceptedMachineIds.contains(mid);
-      }).toList();
-      final mapped = filtered.map((o) {
-        final status = _maintenanceUiStatus((o['status'] ?? '').toString());
-        final typeRaw = (o['type'] ?? '').toString().trim();
-        final type = typeRaw.isEmpty ? 'Corrective' : typeRaw;
-        return <String, dynamic>{
-          'id': (o['id'] ?? '').toString(),
-          'type': type,
-          'priority': (o['priority'] ?? 'MEDIUM').toString().toUpperCase(),
-          'statusRaw': (o['status'] ?? 'PENDING').toString().toUpperCase(),
-          'status': status,
-          'date': _fmtDate(o['createdAt']),
-          'desc': (o['description'] ?? '').toString(),
-          'tech': (o['technicianId'] ?? 'Intervention').toString(),
-          'rootCause': (o['rootCause'] ?? '').toString(),
-          'actionTaken': (o['actionTaken'] ?? '').toString(),
-          'downtimeMinutes': o['downtimeMinutes'],
-          'closeNote': (o['closeNote'] ?? '').toString(),
-        };
-      }).toList();
+      final filtered =
+          all.where((o) {
+            final mid = (o['machineId'] ?? '').toString();
+            return mid == _machineId || _acceptedMachineIds.contains(mid);
+          }).toList();
+      final mapped =
+          filtered.map((o) {
+            final status = _maintenanceUiStatus((o['status'] ?? '').toString());
+            final typeRaw = (o['type'] ?? '').toString().trim();
+            final type = typeRaw.isEmpty ? 'Corrective' : typeRaw;
+            return <String, dynamic>{
+              'id': (o['id'] ?? '').toString(),
+              'type': type,
+              'priority': (o['priority'] ?? 'MEDIUM').toString().toUpperCase(),
+              'statusRaw': (o['status'] ?? 'PENDING').toString().toUpperCase(),
+              'status': status,
+              'date': _fmtDate(o['createdAt']),
+              'desc': (o['description'] ?? '').toString(),
+              'tech': (o['technicianId'] ?? 'Intervention').toString(),
+              'rootCause': (o['rootCause'] ?? '').toString(),
+              'actionTaken': (o['actionTaken'] ?? '').toString(),
+              'downtimeMinutes': o['downtimeMinutes'],
+              'closeNote': (o['closeNote'] ?? '').toString(),
+            };
+          }).toList();
       if (!mounted) return;
       setState(() {
         _maintenanceOrders = mapped;
@@ -1870,90 +2493,105 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
 
     final created = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: _panel2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Nouvelle maintenance corrective', style: GoogleFonts.inter(color: _text, fontWeight: FontWeight.w800)),
-        content: SizedBox(
-          width: 430,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: descCtrl,
-                style: GoogleFonts.inter(color: _text),
-                maxLines: 3,
-                decoration: InputDecoration(
-                  labelText: 'Description panne',
-                  labelStyle: GoogleFonts.inter(color: _muted),
-                ),
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: _panel2,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Text(
+              'Nouvelle maintenance corrective',
+              style: GoogleFonts.inter(
+                color: _text,
+                fontWeight: FontWeight.w800,
               ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: techCtrl,
-                style: GoogleFonts.inter(color: _text),
-                decoration: InputDecoration(
-                  labelText: 'Technicien (optionnel)',
-                  labelStyle: GoogleFonts.inter(color: _muted),
-                ),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                value: priority,
-                dropdownColor: _panel2,
-                style: GoogleFonts.inter(color: _text),
-                items: const [
-                  DropdownMenuItem(value: 'LOW', child: Text('LOW')),
-                  DropdownMenuItem(value: 'MEDIUM', child: Text('MEDIUM')),
-                  DropdownMenuItem(value: 'HIGH', child: Text('HIGH')),
-                  DropdownMenuItem(value: 'CRITICAL', child: Text('CRITICAL')),
+            ),
+            content: SizedBox(
+              width: 430,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: descCtrl,
+                    style: GoogleFonts.inter(color: _text),
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      labelText: 'Description panne',
+                      labelStyle: GoogleFonts.inter(color: _muted),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: techCtrl,
+                    style: GoogleFonts.inter(color: _text),
+                    decoration: InputDecoration(
+                      labelText: 'Technicien (optionnel)',
+                      labelStyle: GoogleFonts.inter(color: _muted),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    value: priority,
+                    dropdownColor: _panel2,
+                    style: GoogleFonts.inter(color: _text),
+                    items: const [
+                      DropdownMenuItem(value: 'LOW', child: Text('LOW')),
+                      DropdownMenuItem(value: 'MEDIUM', child: Text('MEDIUM')),
+                      DropdownMenuItem(value: 'HIGH', child: Text('HIGH')),
+                      DropdownMenuItem(
+                        value: 'CRITICAL',
+                        child: Text('CRITICAL'),
+                      ),
+                    ],
+                    onChanged: (v) => priority = (v ?? 'MEDIUM'),
+                    decoration: InputDecoration(
+                      labelText: 'Priorité',
+                      labelStyle: GoogleFonts.inter(color: _muted),
+                    ),
+                  ),
                 ],
-                onChanged: (v) => priority = (v ?? 'MEDIUM'),
-                decoration: InputDecoration(
-                  labelText: 'Priorité',
-                  labelStyle: GoogleFonts.inter(color: _muted),
-                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text('Annuler', style: GoogleFonts.inter(color: _muted)),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final desc = descCtrl.text.trim();
+                  if (desc.isEmpty) return;
+                  try {
+                    final info = await ApiService.getMachineInfo(_machineId);
+                    final companyId =
+                        (info['companyId'] ?? info['company_id'] ?? '')
+                            .toString();
+                    if (companyId.isEmpty) {
+                      throw Exception('CompanyId machine introuvable');
+                    }
+                    final payload = <String, dynamic>{
+                      'machineId': _machineId,
+                      'companyId': companyId,
+                      'description': desc,
+                      'priority': priority,
+                      'type': 'Corrective',
+                      if (techCtrl.text.trim().isNotEmpty)
+                        'technicianId': techCtrl.text.trim(),
+                    };
+                    await ApiService.createMaintenanceOrder(payload);
+                    if (!mounted) return;
+                    Navigator.pop(ctx, true);
+                  } catch (e) {
+                    if (!ctx.mounted) return;
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      SnackBar(content: Text('Création impossible: $e')),
+                    );
+                  }
+                },
+                child: const Text('Créer'),
               ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Annuler', style: GoogleFonts.inter(color: _muted)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final desc = descCtrl.text.trim();
-              if (desc.isEmpty) return;
-              try {
-                final info = await ApiService.getMachineInfo(_machineId);
-                final companyId = (info['companyId'] ?? info['company_id'] ?? '').toString();
-                if (companyId.isEmpty) {
-                  throw Exception('CompanyId machine introuvable');
-                }
-                final payload = <String, dynamic>{
-                  'machineId': _machineId,
-                  'companyId': companyId,
-                  'description': desc,
-                  'priority': priority,
-                  'type': 'Corrective',
-                  if (techCtrl.text.trim().isNotEmpty) 'technicianId': techCtrl.text.trim(),
-                };
-                await ApiService.createMaintenanceOrder(payload);
-                if (!mounted) return;
-                Navigator.pop(ctx, true);
-              } catch (e) {
-                if (!ctx.mounted) return;
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  SnackBar(content: Text('Création impossible: $e')),
-                );
-              }
-            },
-            child: const Text('Créer'),
-          ),
-        ],
-      ),
     );
     if (created == true) {
       await _loadMaintenanceOrders();
@@ -1961,111 +2599,131 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   }
 
   Future<void> _showCloseCorrectiveDialog(Map<String, dynamic> order) async {
-    final rootCauseCtrl = TextEditingController(text: (order['rootCause'] ?? '').toString());
-    final actionCtrl = TextEditingController(text: (order['actionTaken'] ?? '').toString());
-    final downtimeCtrl = TextEditingController(
-      text: order['downtimeMinutes'] == null ? '' : '${order['downtimeMinutes']}',
+    final rootCauseCtrl = TextEditingController(
+      text: (order['rootCause'] ?? '').toString(),
     );
-    final noteCtrl = TextEditingController(text: (order['closeNote'] ?? '').toString());
+    final actionCtrl = TextEditingController(
+      text: (order['actionTaken'] ?? '').toString(),
+    );
+    final downtimeCtrl = TextEditingController(
+      text:
+          order['downtimeMinutes'] == null ? '' : '${order['downtimeMinutes']}',
+    );
+    final noteCtrl = TextEditingController(
+      text: (order['closeNote'] ?? '').toString(),
+    );
 
     final closed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: _panel2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Clôture corrective', style: GoogleFonts.inter(color: _text, fontWeight: FontWeight.w800)),
-        content: SizedBox(
-          width: 430,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: rootCauseCtrl,
-                  style: GoogleFonts.inter(color: _text),
-                  maxLines: 2,
-                  decoration: InputDecoration(
-                    labelText: 'Cause racine *',
-                    labelStyle: GoogleFonts.inter(color: _muted),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: actionCtrl,
-                  style: GoogleFonts.inter(color: _text),
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    labelText: 'Action réalisée *',
-                    labelStyle: GoogleFonts.inter(color: _muted),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: downtimeCtrl,
-                  style: GoogleFonts.inter(color: _text),
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: 'Durée arrêt (minutes)',
-                    labelStyle: GoogleFonts.inter(color: _muted),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: noteCtrl,
-                  style: GoogleFonts.inter(color: _text),
-                  maxLines: 2,
-                  decoration: InputDecoration(
-                    labelText: 'Note de clôture',
-                    labelStyle: GoogleFonts.inter(color: _muted),
-                  ),
-                ),
-              ],
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: _panel2,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
             ),
+            title: Text(
+              'Clôture corrective',
+              style: GoogleFonts.inter(
+                color: _text,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            content: SizedBox(
+              width: 430,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: rootCauseCtrl,
+                      style: GoogleFonts.inter(color: _text),
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: 'Cause racine *',
+                        labelStyle: GoogleFonts.inter(color: _muted),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: actionCtrl,
+                      style: GoogleFonts.inter(color: _text),
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: 'Action réalisée *',
+                        labelStyle: GoogleFonts.inter(color: _muted),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: downtimeCtrl,
+                      style: GoogleFonts.inter(color: _text),
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'Durée arrêt (minutes)',
+                        labelStyle: GoogleFonts.inter(color: _muted),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: noteCtrl,
+                      style: GoogleFonts.inter(color: _text),
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: 'Note de clôture',
+                        labelStyle: GoogleFonts.inter(color: _muted),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text('Annuler', style: GoogleFonts.inter(color: _muted)),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final rootCause = rootCauseCtrl.text.trim();
+                  final actionTaken = actionCtrl.text.trim();
+                  if (rootCause.isEmpty || actionTaken.isEmpty) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Cause racine et action sont obligatoires.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+                  try {
+                    final extra = <String, dynamic>{
+                      'rootCause': rootCause,
+                      'actionTaken': actionTaken,
+                      'closeNote': noteCtrl.text.trim(),
+                    };
+                    final d = int.tryParse(downtimeCtrl.text.trim());
+                    if (d != null && d >= 0) {
+                      extra['downtimeMinutes'] = d;
+                    }
+                    await ApiService.updateMaintenanceOrderStatus(
+                      (order['id'] ?? '').toString(),
+                      'COMPLETED',
+                      extraPayload: extra,
+                    );
+                    if (!mounted) return;
+                    Navigator.pop(ctx, true);
+                  } catch (e) {
+                    if (!ctx.mounted) return;
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      SnackBar(content: Text('Clôture impossible: $e')),
+                    );
+                  }
+                },
+                child: const Text('Clôturer'),
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Annuler', style: GoogleFonts.inter(color: _muted)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final rootCause = rootCauseCtrl.text.trim();
-              final actionTaken = actionCtrl.text.trim();
-              if (rootCause.isEmpty || actionTaken.isEmpty) {
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(content: Text('Cause racine et action sont obligatoires.')),
-                );
-                return;
-              }
-              try {
-                final extra = <String, dynamic>{
-                  'rootCause': rootCause,
-                  'actionTaken': actionTaken,
-                  'closeNote': noteCtrl.text.trim(),
-                };
-                final d = int.tryParse(downtimeCtrl.text.trim());
-                if (d != null && d >= 0) {
-                  extra['downtimeMinutes'] = d;
-                }
-                await ApiService.updateMaintenanceOrderStatus(
-                  (order['id'] ?? '').toString(),
-                  'COMPLETED',
-                  extraPayload: extra,
-                );
-                if (!mounted) return;
-                Navigator.pop(ctx, true);
-              } catch (e) {
-                if (!ctx.mounted) return;
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  SnackBar(content: Text('Clôture impossible: $e')),
-                );
-              }
-            },
-            child: const Text('Clôturer'),
-          ),
-        ],
-      ),
     );
     if (closed == true) {
       await _loadMaintenanceOrders();
@@ -2075,7 +2733,8 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   Future<void> _openConfigureMaintenanceMan() async {
     try {
       final info = await ApiService.getMachineInfo(_machineId);
-      final companyId = (info['companyId'] ?? info['company_id'] ?? '').toString();
+      final companyId =
+          (info['companyId'] ?? info['company_id'] ?? '').toString();
       if (!mounted) return;
       if (companyId.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2086,12 +2745,13 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
       final ok = await Navigator.push<bool>(
         context,
         MaterialPageRoute(
-          builder: (_) => AddMaintenanceAgentPage(
-            initialData: {
-              'clientId': companyId,
-              'machineIds': [_machineId],
-            },
-          ),
+          builder:
+              (_) => AddMaintenanceAgentPage(
+                initialData: {
+                  'clientId': companyId,
+                  'machineIds': [_machineId],
+                },
+              ),
         ),
       );
       if (ok == true && mounted) {
@@ -2108,55 +2768,99 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   }
 
   Widget _maintenancePanel() {
-    final maintenanceList = _maintenanceOrders.where((m) {
-      final s = (m['statusRaw'] ?? '').toString().toUpperCase();
-      final p = (m['priority'] ?? '').toString().toUpperCase();
-      final matchStatus = _maintenanceFilterStatus == 'ALL' || s == _maintenanceFilterStatus;
-      final matchPriority = _maintenanceFilterPriority == 'ALL' || p == _maintenanceFilterPriority;
-      return matchStatus && matchPriority;
-    }).toList();
-    final inProgressCount = maintenanceList
-        .where((m) => m['status'] == 'Planifiée' || m['status'] == 'En cours')
-        .length;
+    final maintenanceList =
+        _maintenanceOrders.where((m) {
+          final s = (m['statusRaw'] ?? '').toString().toUpperCase();
+          final p = (m['priority'] ?? '').toString().toUpperCase();
+          final matchStatus =
+              _maintenanceFilterStatus == 'ALL' ||
+              s == _maintenanceFilterStatus;
+          final matchPriority =
+              _maintenanceFilterPriority == 'ALL' ||
+              p == _maintenanceFilterPriority;
+          return matchStatus && matchPriority;
+        }).toList();
+    final inProgressCount =
+        maintenanceList
+            .where(
+              (m) => m['status'] == 'Planifiée' || m['status'] == 'En cours',
+            )
+            .length;
 
     return ListView(
       padding: const EdgeInsets.all(4),
       children: [
-        Row(children: [
-          Container(width: 3, height: 18, decoration: BoxDecoration(color: _orange, borderRadius: BorderRadius.circular(2))),
-          const SizedBox(width: 8),
-          Text('MAINTENANCE', style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: _text, letterSpacing: 1.0)),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(color: _panel2, borderRadius: BorderRadius.circular(12)),
-            child: Text('${maintenanceList.length}', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: _orange)),
-          ),
-          const Spacer(),
-          IconButton(
-            tooltip: 'Rafraîchir',
-            onPressed: _loadingMaintenance ? null : _loadMaintenanceOrders,
-            icon: Icon(Icons.refresh_rounded, color: _muted.withOpacity(0.9)),
-          ),
-          ElevatedButton.icon(
-            onPressed: _showCreateCorrectiveDialog,
-            icon: const Icon(Icons.add_task_rounded, size: 16),
-            label: Text('Corrective', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _orange,
-              foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        Row(
+          children: [
+            Container(
+              width: 3,
+              height: 18,
+              decoration: BoxDecoration(
+                color: _orange,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
-          ),
-          if (ApiService.isSuperAdmin) ...[
             const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: _openConfigureMaintenanceMan,
-              icon: const Icon(Icons.engineering_rounded, size: 16),
-              label: Text('Maint. Man', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+            Text(
+              'MAINTENANCE',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: _text,
+                letterSpacing: 1.0,
+              ),
             ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: _panel2,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '${maintenanceList.length}',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: _orange,
+                ),
+              ),
+            ),
+            const Spacer(),
+            IconButton(
+              tooltip: 'Rafraîchir',
+              onPressed: _loadingMaintenance ? null : _loadMaintenanceOrders,
+              icon: Icon(Icons.refresh_rounded, color: _muted.withOpacity(0.9)),
+            ),
+            ElevatedButton.icon(
+              onPressed: _showCreateCorrectiveDialog,
+              icon: const Icon(Icons.add_task_rounded, size: 16),
+              label: Text(
+                'Corrective',
+                style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _orange,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+              ),
+            ),
+            if (ApiService.isSuperAdmin) ...[
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: _openConfigureMaintenanceMan,
+                icon: const Icon(Icons.engineering_rounded, size: 16),
+                label: Text(
+                  'Maint. Man',
+                  style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
           ],
-        ]),
+        ),
         const SizedBox(height: 12),
         Row(
           children: [
@@ -2168,14 +2872,22 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                 items: const [
                   DropdownMenuItem(value: 'ALL', child: Text('Tous statuts')),
                   DropdownMenuItem(value: 'PENDING', child: Text('Planifiée')),
-                  DropdownMenuItem(value: 'IN_PROGRESS', child: Text('En cours')),
+                  DropdownMenuItem(
+                    value: 'IN_PROGRESS',
+                    child: Text('En cours'),
+                  ),
                   DropdownMenuItem(value: 'COMPLETED', child: Text('Terminée')),
                 ],
-                onChanged: (v) => setState(() => _maintenanceFilterStatus = v ?? 'ALL'),
+                onChanged:
+                    (v) =>
+                        setState(() => _maintenanceFilterStatus = v ?? 'ALL'),
                 decoration: InputDecoration(
                   isDense: true,
                   labelText: 'Filtre statut',
-                  labelStyle: GoogleFonts.inter(color: _muted.withOpacity(0.9), fontSize: 11),
+                  labelStyle: GoogleFonts.inter(
+                    color: _muted.withOpacity(0.9),
+                    fontSize: 11,
+                  ),
                 ),
               ),
             ),
@@ -2186,17 +2898,25 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                 dropdownColor: _panel2,
                 style: GoogleFonts.inter(color: _text),
                 items: const [
-                  DropdownMenuItem(value: 'ALL', child: Text('Toutes priorités')),
+                  DropdownMenuItem(
+                    value: 'ALL',
+                    child: Text('Toutes priorités'),
+                  ),
                   DropdownMenuItem(value: 'LOW', child: Text('LOW')),
                   DropdownMenuItem(value: 'MEDIUM', child: Text('MEDIUM')),
                   DropdownMenuItem(value: 'HIGH', child: Text('HIGH')),
                   DropdownMenuItem(value: 'CRITICAL', child: Text('CRITICAL')),
                 ],
-                onChanged: (v) => setState(() => _maintenanceFilterPriority = v ?? 'ALL'),
+                onChanged:
+                    (v) =>
+                        setState(() => _maintenanceFilterPriority = v ?? 'ALL'),
                 decoration: InputDecoration(
                   isDense: true,
                   labelText: 'Filtre priorité',
-                  labelStyle: GoogleFonts.inter(color: _muted.withOpacity(0.9), fontSize: 11),
+                  labelStyle: GoogleFonts.inter(
+                    color: _muted.withOpacity(0.9),
+                    fontSize: 11,
+                  ),
                 ),
               ),
             ),
@@ -2226,18 +2946,41 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
           mainAxisSpacing: 8,
           childAspectRatio: 2.8,
           children: [
-            _maintenanceStat('Total', '${maintenanceList.length}', Icons.assignment_rounded, _cyan),
-            _maintenanceStat('En cours', '$inProgressCount', Icons.schedule_rounded, const Color(0xFFFFD54F)),
-            _maintenanceStat('Terminées', '${maintenanceList.where((m) => m['status'] == 'Terminée').length}', Icons.check_circle_rounded, _green),
+            _maintenanceStat(
+              'Total',
+              '${maintenanceList.length}',
+              Icons.assignment_rounded,
+              _cyan,
+            ),
+            _maintenanceStat(
+              'En cours',
+              '$inProgressCount',
+              Icons.schedule_rounded,
+              const Color(0xFFFFD54F),
+            ),
+            _maintenanceStat(
+              'Terminées',
+              '${maintenanceList.where((m) => m['status'] == 'Terminée').length}',
+              Icons.check_circle_rounded,
+              _green,
+            ),
           ],
         ),
         const SizedBox(height: 14),
         if (_loadingMaintenance)
-          const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator())),
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(8),
+              child: CircularProgressIndicator(),
+            ),
+          ),
         if (!_loadingMaintenance && maintenanceList.isEmpty)
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: _panel, borderRadius: BorderRadius.circular(12)),
+            decoration: BoxDecoration(
+              color: _panel,
+              borderRadius: BorderRadius.circular(12),
+            ),
             child: Text(
               'Aucun ordre corrective pour cette machine.',
               style: GoogleFonts.inter(color: _muted),
@@ -2248,90 +2991,217 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     );
   }
 
-  Widget _maintenanceStat(String label, String value, IconData icon, Color accent) {
+  Widget _maintenanceStat(
+    String label,
+    String value,
+    IconData icon,
+    Color accent,
+  ) {
     return Container(
-      decoration: BoxDecoration(color: _panel, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withOpacity(0.06))),
+      decoration: BoxDecoration(
+        color: _panel,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Row(children: [
-        Container(
-          width: 34, height: 34,
-          decoration: BoxDecoration(color: accent.withOpacity(0.10), borderRadius: BorderRadius.circular(10)),
-          child: Icon(icon, size: 16, color: accent),
-        ),
-        const SizedBox(width: 10),
-        Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-          Text(label, style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _muted.withOpacity(0.6), fontWeight: FontWeight.w500)),
-          Text(value, style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w800, color: _text)),
-        ]),
-      ]),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: accent.withOpacity(0.10),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 16, color: accent),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 10,
+                  color: _muted.withOpacity(0.6),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                value,
+                style: GoogleFonts.inter(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _text,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
   Widget _maintenanceCard(Map<String, dynamic> m) {
     final statusRaw = (m['statusRaw'] ?? '').toString().toUpperCase();
     final isActive = statusRaw == 'PENDING' || statusRaw == 'IN_PROGRESS';
-    final typeColor = m['type'] == 'Corrective' ? _red
-        : m['type'] == 'Prédictive' ? const Color(0xFFB39DDB)
-        : _cyan;
+    final typeColor =
+        m['type'] == 'Corrective'
+            ? _red
+            : m['type'] == 'Prédictive'
+            ? const Color(0xFFB39DDB)
+            : _cyan;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: _panel,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: isActive ? _orange.withOpacity(0.3) : Colors.white.withOpacity(0.06)),
+        border: Border.all(
+          color:
+              isActive
+                  ? _orange.withOpacity(0.3)
+                  : Colors.white.withOpacity(0.06),
+        ),
       ),
       child: InkWell(
         onTap: () => _showMaintenanceDetail(m),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(14),
-          child: Row(children: [
-            Container(
-              width: 42, height: 42,
-              decoration: BoxDecoration(color: typeColor.withOpacity(0.10), borderRadius: BorderRadius.circular(12)),
-              child: Icon(
-                m['type'] == 'Corrective' ? Icons.build_rounded
-                    : m['type'] == 'Prédictive' ? Icons.psychology_rounded
-                    : Icons.event_rounded,
-                size: 20, color: typeColor,
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: typeColor.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  m['type'] == 'Corrective'
+                      ? Icons.build_rounded
+                      : m['type'] == 'Prédictive'
+                      ? Icons.psychology_rounded
+                      : Icons.event_rounded,
+                  size: 20,
+                  color: typeColor,
+                ),
               ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                  decoration: BoxDecoration(color: typeColor.withOpacity(0.12), borderRadius: BorderRadius.circular(4)),
-                  child: Text((m['type'] ?? '').toString(), style: GoogleFonts.spaceGrotesk(fontSize: 9, color: typeColor, fontWeight: FontWeight.w700)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: typeColor.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            (m['type'] ?? '').toString(),
+                            style: GoogleFonts.spaceGrotesk(
+                              fontSize: 9,
+                              color: typeColor,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: (isActive ? _orange : _green).withOpacity(
+                              0.12,
+                            ),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            (m['status'] ?? '').toString(),
+                            style: GoogleFonts.spaceGrotesk(
+                              fontSize: 9,
+                              color: isActive ? _orange : _green,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _panel3,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            (m['priority'] ?? 'MEDIUM').toString(),
+                            style: GoogleFonts.spaceGrotesk(
+                              fontSize: 9,
+                              color: _muted,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      (m['desc'] ?? '').toString(),
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: _text,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.calendar_today_rounded,
+                          size: 10,
+                          color: _muted.withOpacity(0.5),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          (m['date'] ?? '—').toString(),
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 10,
+                            color: _muted.withOpacity(0.7),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Icon(
+                          Icons.label_rounded,
+                          size: 10,
+                          color: _muted.withOpacity(0.5),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          (m['tech'] ?? '—').toString(),
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 10,
+                            color: _muted.withOpacity(0.7),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                  decoration: BoxDecoration(color: (isActive ? _orange : _green).withOpacity(0.12), borderRadius: BorderRadius.circular(4)),
-                  child: Text((m['status'] ?? '').toString(), style: GoogleFonts.spaceGrotesk(fontSize: 9, color: isActive ? _orange : _green, fontWeight: FontWeight.w700)),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                  decoration: BoxDecoration(color: _panel3, borderRadius: BorderRadius.circular(4)),
-                  child: Text((m['priority'] ?? 'MEDIUM').toString(), style: GoogleFonts.spaceGrotesk(fontSize: 9, color: _muted, fontWeight: FontWeight.w700)),
-                ),
-              ]),
-              const SizedBox(height: 5),
-              Text((m['desc'] ?? '').toString(), style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: _text)),
-              const SizedBox(height: 3),
-              Row(children: [
-                Icon(Icons.calendar_today_rounded, size: 10, color: _muted.withOpacity(0.5)),
-                const SizedBox(width: 4),
-                Text((m['date'] ?? '—').toString(), style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _muted.withOpacity(0.7))),
-                const SizedBox(width: 12),
-                Icon(Icons.label_rounded, size: 10, color: _muted.withOpacity(0.5)),
-                const SizedBox(width: 4),
-                Text((m['tech'] ?? '—').toString(), style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _muted.withOpacity(0.7))),
-              ]),
-            ])),
-            const Icon(Icons.chevron_right_rounded, size: 20, color: _panel3),
-          ]),
+              ),
+              const Icon(Icons.chevron_right_rounded, size: 20, color: _panel3),
+            ],
+          ),
         ),
       ),
     );
@@ -2340,84 +3210,163 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
   void _showMaintenanceDetail(Map<String, dynamic> m) {
     final statusRaw = (m['statusRaw'] ?? '').toString().toUpperCase();
     final isActive = statusRaw == 'PENDING' || statusRaw == 'IN_PROGRESS';
-    final typeColor = m['type'] == 'Corrective' ? _red
-        : m['type'] == 'Prédictive' ? const Color(0xFFB39DDB)
-        : _cyan;
+    final typeColor =
+        m['type'] == 'Corrective'
+            ? _red
+            : m['type'] == 'Prédictive'
+            ? const Color(0xFFB39DDB)
+            : _cyan;
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: _panel2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(children: [
-          Icon(Icons.build_circle_rounded, color: typeColor, size: 22),
-          const SizedBox(width: 10),
-          Text('Détail maintenance', style: GoogleFonts.inter(color: _text, fontWeight: FontWeight.w800, fontSize: 16)),
-        ]),
-        content: SizedBox(
-          width: 420,
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            _detailRow('Type', (m['type'] ?? '').toString(), typeColor),
-            _detailRow('Statut', (m['status'] ?? '').toString(), isActive ? _orange : _green),
-            _detailRow('Date', (m['date'] ?? '—').toString(), _text),
-            _detailRow('Description', (m['desc'] ?? '').toString(), _text),
-            _detailRow('Source', (m['tech'] ?? '').toString(), _muted),
-            _detailRow('Priorité', (m['priority'] ?? 'MEDIUM').toString(), _muted),
-            const SizedBox(height: 16),
-            if (statusRaw == 'PENDING')
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    try {
-                      await ApiService.updateMaintenanceOrderStatus(
-                        (m['id'] ?? '').toString(),
-                        'IN_PROGRESS',
-                      );
-                      if (!mounted) return;
-                      Navigator.pop(ctx);
-                      await _loadMaintenanceOrders();
-                    } catch (e) {
-                      if (!ctx.mounted) return;
-                      ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('Action impossible: $e')));
-                    }
-                  },
-                  icon: const Icon(Icons.play_arrow_rounded, size: 16),
-                  label: Text('Démarrer intervention', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
-                  style: ElevatedButton.styleFrom(backgroundColor: _orange, foregroundColor: Colors.black, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), padding: const EdgeInsets.symmetric(vertical: 12)),
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: _panel2,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: [
+                Icon(Icons.build_circle_rounded, color: typeColor, size: 22),
+                const SizedBox(width: 10),
+                Text(
+                  'Détail maintenance',
+                  style: GoogleFonts.inter(
+                    color: _text,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
                 ),
+              ],
+            ),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _detailRow('Type', (m['type'] ?? '').toString(), typeColor),
+                  _detailRow(
+                    'Statut',
+                    (m['status'] ?? '').toString(),
+                    isActive ? _orange : _green,
+                  ),
+                  _detailRow('Date', (m['date'] ?? '—').toString(), _text),
+                  _detailRow(
+                    'Description',
+                    (m['desc'] ?? '').toString(),
+                    _text,
+                  ),
+                  _detailRow('Source', (m['tech'] ?? '').toString(), _muted),
+                  _detailRow(
+                    'Priorité',
+                    (m['priority'] ?? 'MEDIUM').toString(),
+                    _muted,
+                  ),
+                  const SizedBox(height: 16),
+                  if (statusRaw == 'PENDING')
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          try {
+                            await ApiService.updateMaintenanceOrderStatus(
+                              (m['id'] ?? '').toString(),
+                              'IN_PROGRESS',
+                            );
+                            if (!mounted) return;
+                            Navigator.pop(ctx);
+                            await _loadMaintenanceOrders();
+                          } catch (e) {
+                            if (!ctx.mounted) return;
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              SnackBar(content: Text('Action impossible: $e')),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.play_arrow_rounded, size: 16),
+                        label: Text(
+                          'Démarrer intervention',
+                          style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _orange,
+                          foregroundColor: Colors.black,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  if (statusRaw == 'IN_PROGRESS') ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          await _showCloseCorrectiveDialog(m);
+                        },
+                        icon: const Icon(Icons.check_circle_rounded, size: 16),
+                        label: Text(
+                          'Clôturer corrective',
+                          style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _green,
+                          foregroundColor: Colors.black,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
-            if (statusRaw == 'IN_PROGRESS') ...[
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    Navigator.pop(ctx);
-                    await _showCloseCorrectiveDialog(m);
-                  },
-                  icon: const Icon(Icons.check_circle_rounded, size: 16),
-                  label: Text('Clôturer corrective', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
-                  style: ElevatedButton.styleFrom(backgroundColor: _green, foregroundColor: Colors.black, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), padding: const EdgeInsets.symmetric(vertical: 12)),
-                ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('Fermer', style: GoogleFonts.inter(color: _muted)),
               ),
             ],
-          ]),
-        ),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Fermer', style: GoogleFonts.inter(color: _muted)))],
-      ),
+          ),
     );
   }
 
   Widget _detailRow(String label, String value, Color valueColor) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SizedBox(width: 90, child: Text(label, style: GoogleFonts.spaceGrotesk(fontSize: 11, color: _muted.withOpacity(0.6), fontWeight: FontWeight.w600))),
-        Expanded(child: Text(value, style: GoogleFonts.inter(fontSize: 12, color: valueColor, fontWeight: FontWeight.w600))),
-      ]),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 90,
+            child: Text(
+              label,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 11,
+                color: _muted.withOpacity(0.6),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: valueColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
-
 
   Widget _historyTabBody() {
     final isDesktop = MediaQuery.sizeOf(context).width > 900;
@@ -2430,10 +3379,19 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
               onPressed: () => setState(() => _sideTab = 'dashboard'),
-              icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 14, color: _orange),
+              icon: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                size: 14,
+                color: _orange,
+              ),
               label: Text(
                 'Retour au terminal',
-                style: GoogleFonts.spaceGrotesk(color: _orange, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.6),
+                style: GoogleFonts.spaceGrotesk(
+                  color: _orange,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                  letterSpacing: 0.6,
+                ),
               ),
             ),
           ),
@@ -2484,10 +3442,20 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
               TextButton(
                 onPressed: () {
                   setState(() {
-                    _historyFuture = ApiService.getTelemetryHistory(_machineId, limit: 20);
+                    _historyFuture = ApiService.getTelemetryHistory(
+                      _machineId,
+                      limit: 20,
+                    );
                   });
                 },
-                child: Text('Actualiser', style: GoogleFonts.spaceGrotesk(color: _orange, fontWeight: FontWeight.w700, fontSize: 11)),
+                child: Text(
+                  'Actualiser',
+                  style: GoogleFonts.spaceGrotesk(
+                    color: _orange,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                  ),
+                ),
               ),
             ],
           ),
@@ -2498,7 +3466,12 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
               future: _historyFuture,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator(strokeWidth: 2, color: _orange));
+                  return const Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: _orange,
+                    ),
+                  );
                 }
                 if (snapshot.hasError) {
                   return Text(
@@ -2522,8 +3495,15 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                     child: SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: DataTable(
-                        headingTextStyle: GoogleFonts.spaceGrotesk(color: _muted, fontSize: 10, fontWeight: FontWeight.w700),
-                        dataTextStyle: GoogleFonts.inter(color: _text, fontSize: 11),
+                        headingTextStyle: GoogleFonts.spaceGrotesk(
+                          color: _muted,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        dataTextStyle: GoogleFonts.inter(
+                          color: _text,
+                          fontSize: 11,
+                        ),
                         columns: const [
                           DataColumn(label: Text('Heure')),
                           DataColumn(label: Text('Temp °C')),
@@ -2531,23 +3511,37 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                           DataColumn(label: Text('Puissance')),
                           DataColumn(label: Text('Risque IA %')),
                         ],
-                        rows: rows.map((m) {
-                          final ts = (m['createdAt'] ?? '').toString();
-                          final t = _formatTimestamp(ts);
-                          final temp = _toDouble(m['temperature'] ?? m['thermal']);
-                          final pressure = _toDouble(m['pressure']);
-                          final power = _toDouble(m['power']);
-                          final riskRaw = m['prob_panne'] ?? m['panne_probability'] ?? m['scenarioProbPanne'] ?? 0;
-                          final riskNum = riskRaw is num ? riskRaw.toDouble() : double.tryParse(riskRaw.toString()) ?? 0;
-                          final risk = riskNum <= 1 ? (riskNum * 100) : riskNum;
-                          return DataRow(cells: [
-                            DataCell(Text(t)),
-                            DataCell(Text(temp.toStringAsFixed(1))),
-                            DataCell(Text(pressure.toStringAsFixed(2))),
-                            DataCell(Text(power.toStringAsFixed(2))),
-                            DataCell(Text(risk.toStringAsFixed(0))),
-                          ]);
-                        }).toList(),
+                        rows:
+                            rows.map((m) {
+                              final ts = (m['createdAt'] ?? '').toString();
+                              final t = _formatTimestamp(ts);
+                              final temp = _toDouble(
+                                m['temperature'] ?? m['thermal'],
+                              );
+                              final pressure = _toDouble(m['pressure']);
+                              final power = _toDouble(m['power']);
+                              final riskRaw =
+                                  m['prob_panne'] ??
+                                  m['panne_probability'] ??
+                                  m['scenarioProbPanne'] ??
+                                  0;
+                              final riskNum =
+                                  riskRaw is num
+                                      ? riskRaw.toDouble()
+                                      : double.tryParse(riskRaw.toString()) ??
+                                          0;
+                              final risk =
+                                  riskNum <= 1 ? (riskNum * 100) : riskNum;
+                              return DataRow(
+                                cells: [
+                                  DataCell(Text(t)),
+                                  DataCell(Text(temp.toStringAsFixed(1))),
+                                  DataCell(Text(pressure.toStringAsFixed(2))),
+                                  DataCell(Text(power.toStringAsFixed(2))),
+                                  DataCell(Text(risk.toStringAsFixed(0))),
+                                ],
+                              );
+                            }).toList(),
                       ),
                     ),
                   ),
@@ -2608,10 +3602,17 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
           const SizedBox(height: 6),
           Text(
             'Type actif (télémétrie) : $_machineIaMotorType',
-            style: GoogleFonts.inter(fontSize: 10, color: _cyan.withOpacity(0.9), fontWeight: FontWeight.w600),
+            style: GoogleFonts.inter(
+              fontSize: 10,
+              color: _cyan.withOpacity(0.9),
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 10),
-          Text('Famille IA', style: GoogleFonts.spaceGrotesk(fontSize: 9, color: _muted)),
+          Text(
+            'Famille IA',
+            style: GoogleFonts.spaceGrotesk(fontSize: 9, color: _muted),
+          ),
           const SizedBox(height: 4),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -2631,12 +3632,13 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                   DropdownMenuItem(value: 'EL_M', child: Text('EL_M (M)')),
                   DropdownMenuItem(value: 'EL_L', child: Text('EL_L (H)')),
                 ],
-                onChanged: _savingIaProfile
-                    ? null
-                    : (v) {
-                        if (v == null) return;
-                        setState(() => _adminIaMotor = v);
-                      },
+                onChanged:
+                    _savingIaProfile
+                        ? null
+                        : (v) {
+                          if (v == null) return;
+                          setState(() => _adminIaMotor = v);
+                        },
               ),
             ),
           ),
@@ -2657,7 +3659,9 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
               fillColor: _panel2,
               hintText: 'ex: 0.05',
               hintStyle: GoogleFonts.inter(color: _muted.withOpacity(0.5)),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -2670,13 +3674,17 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                 foregroundColor: const Color(0xFF0A1628),
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
-              child: _savingIaProfile
-                  ? const SizedBox(
-                      height: 18,
-                      width: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text('Enregistrer profil IA', style: GoogleFonts.inter(fontWeight: FontWeight.w800)),
+              child:
+                  _savingIaProfile
+                      ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : Text(
+                        'Enregistrer profil IA',
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w800),
+                      ),
             ),
           ),
         ],
@@ -2695,7 +3703,11 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: _green.withOpacity(0.6)),
         boxShadow: [
-          BoxShadow(color: _green.withOpacity(0.15), blurRadius: 12, spreadRadius: 1),
+          BoxShadow(
+            color: _green.withOpacity(0.15),
+            blurRadius: 12,
+            spreadRadius: 1,
+          ),
         ],
       ),
       child: Row(
@@ -2760,7 +3772,6 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     );
   }
 
-
   String _hhmmss(DateTime d) =>
       '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}:${d.second.toString().padLeft(2, '0')}';
 
@@ -2773,36 +3784,61 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
       return _activeInterventionView();
     }
 
-    final techs = (_techniciansForMachine ?? []).where((t) {
-      final kind = (t['directoryKind'] ?? 'technician').toString();
-      
-      // On accepte tous les types de techniciens/agents
-      final isTechProfile = kind == 'maintenance' || kind == 'technician' || kind == 'maintenance_agent';
-      if (!isTechProfile) return false;
+    final techs =
+        (_techniciansForMachine ?? []).where((t) {
+          final kind = (t['directoryKind'] ?? 'technician').toString();
 
-      // On filtre par ID de machine assigné
-      final List? assigned = t['machineIds'] is List ? t['machineIds'] as List : null;
-      if (assigned == null) return false;
-      
-      return assigned.map((e) => e.toString().toUpperCase()).contains(_machineId.toUpperCase());
-    }).toList();
+          // On accepte tous les types de techniciens/agents
+          final isTechProfile =
+              kind == 'maintenance' ||
+              kind == 'technician' ||
+              kind == 'maintenance_agent';
+          if (!isTechProfile) return false;
+
+          // On filtre par ID de machine assigné
+          final List? assigned =
+              t['machineIds'] is List ? t['machineIds'] as List : null;
+          if (assigned == null) return false;
+
+          return assigned
+              .map((e) => e.toString().toUpperCase())
+              .contains(_machineId.toUpperCase());
+        }).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(children: [
-          Container(width: 3, height: 18, decoration: BoxDecoration(color: _orange, borderRadius: BorderRadius.circular(2))),
-          const SizedBox(width: 8),
-          Text('SELECTION TECHNICIEN MAINTENANCE',
-              style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: _text, letterSpacing: 1.0)),
-        ]),
+        Row(
+          children: [
+            Container(
+              width: 3,
+              height: 18,
+              decoration: BoxDecoration(
+                color: _orange,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'SELECTION TECHNICIEN MAINTENANCE',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: _text,
+                letterSpacing: 1.0,
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 16),
         if (techs.isEmpty)
           Center(
             child: Padding(
               padding: const EdgeInsets.all(40),
-              child: Text('Aucun technicien de maintenance assigne a cette machine.',
-                  style: GoogleFonts.inter(color: _muted)),
+              child: Text(
+                'Aucun technicien de maintenance assigne a cette machine.',
+                style: GoogleFonts.inter(color: _muted),
+              ),
             ),
           )
         else
@@ -2826,18 +3862,33 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
       decoration: BoxDecoration(
         color: _panel,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: isAgent ? _cyan.withOpacity(0.3) : Colors.white.withOpacity(0.06)),
+        border: Border.all(
+          color:
+              isAgent ? _cyan.withOpacity(0.3) : Colors.white.withOpacity(0.06),
+        ),
       ),
       child: ListTile(
         onTap: () => _assignTechnician(tech),
         leading: CircleAvatar(
           backgroundColor: (isAgent ? _cyan : _orange).withOpacity(0.2),
-          child: Icon(isAgent ? Icons.manage_accounts_rounded : Icons.engineering, color: isAgent ? _cyan : _orange),
+          child: Icon(
+            isAgent ? Icons.manage_accounts_rounded : Icons.engineering,
+            color: isAgent ? _cyan : _orange,
+          ),
         ),
-        title: Text(tech['name'] ?? 'Sans nom', style: GoogleFonts.inter(color: _text, fontWeight: FontWeight.bold)),
+        title: Text(
+          tech['name'] ?? 'Sans nom',
+          style: GoogleFonts.inter(color: _text, fontWeight: FontWeight.bold),
+        ),
         subtitle: Text(
-          isAgent ? '${tech['email'] ?? ''} • MAINTENANCE LEAD' : (tech['email'] ?? ''),
-          style: GoogleFonts.inter(color: isAgent ? _cyan.withOpacity(0.7) : _muted, fontSize: 11, fontWeight: isAgent ? FontWeight.bold : FontWeight.normal),
+          isAgent
+              ? '${tech['email'] ?? ''} • MAINTENANCE LEAD'
+              : (tech['email'] ?? ''),
+          style: GoogleFonts.inter(
+            color: isAgent ? _cyan.withOpacity(0.7) : _muted,
+            fontSize: 11,
+            fontWeight: isAgent ? FontWeight.bold : FontWeight.normal,
+          ),
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
@@ -2848,10 +3899,23 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                 backgroundColor: _cyan.withOpacity(0.15),
                 foregroundColor: _cyan,
                 elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: _cyan.withOpacity(0.3))),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(color: _cyan.withOpacity(0.3)),
+                ),
               ),
-              child: Text('CHAT', style: GoogleFonts.spaceGrotesk(fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1)),
+              child: Text(
+                'CHAT',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1,
+                ),
+              ),
             ),
             const SizedBox(width: 12),
             const Icon(Icons.arrow_forward_ios, size: 14, color: _muted),
@@ -2861,7 +3925,6 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     );
   }
 
-
   Widget _activeInterventionView() {
     final status = _activeIntervention!['status'];
     final decision = _activeIntervention!['finalDecision'];
@@ -2869,14 +3932,37 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(children: [
-          Container(width: 3, height: 18, decoration: BoxDecoration(color: _green, borderRadius: BorderRadius.circular(2))),
-          const SizedBox(width: 8),
-          Text('INTERVENTION ACTIVE',
-              style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: _green, letterSpacing: 1.0)),
-          const Spacer(),
-          Text(status ?? '', style: GoogleFonts.spaceGrotesk(color: _green, fontSize: 12, fontWeight: FontWeight.bold)),
-        ]),
+        Row(
+          children: [
+            Container(
+              width: 3,
+              height: 18,
+              decoration: BoxDecoration(
+                color: _green,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'INTERVENTION ACTIVE',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: _green,
+                letterSpacing: 1.0,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              status ?? '',
+              style: GoogleFonts.spaceGrotesk(
+                color: _green,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 24),
         Container(
           padding: const EdgeInsets.all(16),
@@ -2888,29 +3974,61 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('TECHNICIEN ASSIGNE', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _muted, letterSpacing: 1)),
+              Text(
+                'TECHNICIEN ASSIGNE',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 10,
+                  color: _muted,
+                  letterSpacing: 1,
+                ),
+              ),
               const SizedBox(height: 4),
-              Text(_activeIntervention!['technicianName'] ?? 'Inconnu',
-                  style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: _text)),
+              Text(
+                _activeIntervention!['technicianName'] ?? 'Inconnu',
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: _text,
+                ),
+              ),
               const Divider(height: 32, color: Colors.white12),
-              Text('DECISION & VALIDATION', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _muted, letterSpacing: 1)),
+              Text(
+                'DECISION & VALIDATION',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 10,
+                  color: _muted,
+                  letterSpacing: 1,
+                ),
+              ),
               const SizedBox(height: 8),
               Row(
                 children: [
                   Icon(
-                    decision == 'REAL_FAILURE' ? Icons.error_outline : (decision == 'FALSE_ALARM' ? Icons.check_circle_outline : Icons.hourglass_empty),
-                    color: decision == 'REAL_FAILURE' ? _red : (decision == 'FALSE_ALARM' ? _green : _orange),
+                    decision == 'REAL_FAILURE'
+                        ? Icons.error_outline
+                        : (decision == 'FALSE_ALARM'
+                            ? Icons.check_circle_outline
+                            : Icons.hourglass_empty),
+                    color:
+                        decision == 'REAL_FAILURE'
+                            ? _red
+                            : (decision == 'FALSE_ALARM' ? _green : _orange),
                     size: 20,
                   ),
                   const SizedBox(width: 8),
                   Text(
                     decision == 'REAL_FAILURE'
                         ? 'Confirme : Panne Reelle'
-                        : (decision == 'FALSE_ALARM' ? 'Confirme : Fausse Alerte' : 'En attente de diagnostic...'),
+                        : (decision == 'FALSE_ALARM'
+                            ? 'Confirme : Fausse Alerte'
+                            : 'En attente de diagnostic...'),
                     style: GoogleFonts.inter(
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
-                      color: decision == 'REAL_FAILURE' ? _red : (decision == 'FALSE_ALARM' ? _green : _orange),
+                      color:
+                          decision == 'REAL_FAILURE'
+                              ? _red
+                              : (decision == 'FALSE_ALARM' ? _green : _orange),
                     ),
                   ),
                 ],
@@ -2939,7 +4057,11 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
               ),
               child: ElevatedButton.icon(
                 onPressed: _validateDiagnosticIntervention,
-                icon: const Icon(Icons.verified_rounded, color: Colors.white, size: 20),
+                icon: const Icon(
+                  Icons.verified_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
                 label: Text(
                   'VALIDER LE DIAGNOSTIC',
                   style: GoogleFonts.spaceGrotesk(
@@ -2953,7 +4075,9 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                   backgroundColor: Colors.transparent,
                   shadowColor: Colors.transparent,
                   elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ),
@@ -2965,14 +4089,17 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () => setState(() => _forceShowMaintenanceTeam = true),
+                  onPressed:
+                      () => setState(() => _forceShowMaintenanceTeam = true),
                   icon: const Icon(Icons.edit_note, size: 18),
                   label: const Text('REASSIGNER'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _cyan,
                     side: BorderSide(color: _cyan.withOpacity(0.5)),
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
               ),
@@ -2986,7 +4113,9 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
                     foregroundColor: _red,
                     side: BorderSide(color: _red.withOpacity(0.5)),
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
               ),
@@ -3001,20 +4130,26 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage> with TickerPr
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => KineticObservatoryPage(
-                    machineId: _machineId,
-                    interventionId: _activeIntervention!['id'].toString(),
-                  ),
+                  builder:
+                      (context) => KineticObservatoryPage(
+                        machineId: _machineId,
+                        interventionId: _activeIntervention!['id'].toString(),
+                      ),
                 ),
               );
             },
             icon: const Icon(Icons.analytics_outlined, color: Colors.black),
-            label: Text('OUVRIR L\'OBSERVATOIRE', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+            label: Text(
+              'OUVRIR L\'OBSERVATOIRE',
+              style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+            ),
             style: ElevatedButton.styleFrom(
               backgroundColor: _cyan,
               foregroundColor: Colors.black,
               padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
         ),

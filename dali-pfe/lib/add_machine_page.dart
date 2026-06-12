@@ -27,6 +27,8 @@ class _AddMachinePageState extends State<AddMachinePage> {
   final _nameController = TextEditingController();
   final _model3dController = TextEditingController();
   final _imageUrlController = TextEditingController();
+  final _priceController = TextEditingController();
+  final _stockController = TextEditingController(text: '0');
 
   String _type = 'pompe_centrifuge';
   String _motorType = 'air_cooled';
@@ -100,6 +102,8 @@ class _AddMachinePageState extends State<AddMachinePage> {
     _nameController.dispose();
     _model3dController.dispose();
     _imageUrlController.dispose();
+    _priceController.dispose();
+    _stockController.dispose();
     super.dispose();
   }
 
@@ -208,6 +212,8 @@ class _AddMachinePageState extends State<AddMachinePage> {
       "motorType": _motorType,
       "model3dUrl": _model3dController.text.trim(),
       "imageUrl": normalizedImage,
+      "price": _priceController.text.trim(),
+      "stock": int.tryParse(_stockController.text.trim()) ?? 0,
       "isPublic": _isPublic,
       "seuilsControle": _seuilsControle,
     };
@@ -436,6 +442,21 @@ class _AddMachinePageState extends State<AddMachinePage> {
             controller: _model3dController,
             icon: Icons.view_in_ar_outlined,
             validator: (v) => v == null || v.trim().isEmpty ? 'Champ obligatoire' : null,
+          ),
+          const SizedBox(height: 24),
+          _buildTextField(
+            label: 'PRIX DE LA MACHINE',
+            hint: 'ex: 1500',
+            controller: _priceController,
+            icon: Icons.monetization_on_outlined,
+          ),
+          const SizedBox(height: 24),
+          _buildTextField(
+            label: 'STOCK INITIAL',
+            hint: 'ex: 5',
+            controller: _stockController,
+            icon: Icons.pin_outlined,
+            keyboardType: TextInputType.number,
           ),
           const SizedBox(height: 24),
           _buildMachinePhotoField(),

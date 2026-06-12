@@ -382,7 +382,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
   void _initSocket() {
     final baseUrl = ApiService.baseUrl.replaceFirst('/api', '');
     _socket = IO.io(baseUrl, <String, dynamic>{
-      'transports': ['websocket'],
+      'transports': <String>['websocket'],
       'autoConnect': true,
     });
 
@@ -921,10 +921,6 @@ class _MissionControlPageState extends State<MissionControlPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.cyanAccent),
-            onPressed: () => Navigator.pop(context),
-          ),
           Tooltip(
             message: 'Vider le fil d’affichage (historique local uniquement).',
             child: IconButton(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'maintenance_ai_analysis_content.dart';
+import 'maintenance_home_dashboard_content.dart';
 import 'maintenance_machine_hub_page.dart';
 import 'maintenance_mission_history_content.dart';
 import 'maintenance_profile_page.dart';
@@ -20,8 +21,8 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
   late Future<Map<String, dynamic>> _future;
   IO.Socket? _socket;
 
-  /// Vue shell : `profile` · `machineDetail` · `missionHistory` · `aiAnalysis` (défaut : profil).
-  String _shellNav = 'profile';
+  /// Vue shell : `dashboard` · `profile` · `machineDetail` · `missionHistory` · `aiAnalysis` (défaut : dashboard).
+  String _shellNav = 'dashboard';
 
   /// Incrémenté à chaque `_reload()` pour rafraîchir l’historique des missions.
   int _workspaceReloadNonce = 0;
@@ -36,7 +37,7 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
   void _initSocket() {
     try {
       _socket = IO.io(ApiService.socketBaseUrl, <String, dynamic>{
-        'transports': ['websocket'],
+        'transports': <String>['websocket'],
         'autoConnect': true,
       });
 
@@ -411,13 +412,15 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
       backgroundColor: bg,
       appBar: AppBar(
         title: Text(
-          _shellNav == 'machineDetail'
-              ? 'Détail machine'
-              : _shellNav == 'missionHistory'
-                  ? 'Historique maintenance'
-                  : _shellNav == 'aiAnalysis'
-                      ? 'Analyse IA'
-                      : 'Profil',
+          _shellNav == 'dashboard'
+              ? 'Tableau de bord'
+              : _shellNav == 'machineDetail'
+                  ? 'Détail machine'
+                  : _shellNav == 'missionHistory'
+                      ? 'Historique maintenance'
+                      : _shellNav == 'aiAnalysis'
+                          ? 'Analyse IA'
+                          : 'Profil',
           style: GoogleFonts.inter(fontWeight: FontWeight.w700),
         ),
         backgroundColor: bg,
@@ -499,6 +502,13 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
                   );
                 }
                 final data = snap.data ?? const <String, dynamic>{};
+                if (_shellNav == 'dashboard') {
+                  return MaintenanceHomeDashboardContent(
+                    data: data,
+                    onTabSelect: (id) => setState(() => _shellNav = id),
+                    onWorkspaceReload: _reload,
+                  );
+                }
                 if (_shellNav == 'profile') {
                   return MaintenanceProfileContent(
                     data: data,
@@ -539,7 +549,7 @@ class _MaintenanceTopNav extends StatelessWidget {
 
   final Color mutedColor;
   final Color accentColor;
-  /// `profile` · `machineDetail` · `missionHistory` · `aiAnalysis`
+  /// `dashboard` · `profile` · `machineDetail` · `missionHistory` · `aiAnalysis`
   final String selectedShellId;
   final ValueChanged<String> onShellSelect;
 
@@ -560,6 +570,14 @@ class _MaintenanceTopNav extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
+              _MaintenanceTopNavItem(
+                icon: Icons.dashboard_outlined,
+                label: 'TABLEAU DE BORD',
+                selected: selectedShellId == 'dashboard',
+                accentColor: accentColor,
+                mutedColor: mutedColor,
+                onTap: () => onShellSelect('dashboard'),
+              ),
               _MaintenanceTopNavItem(
                 icon: Icons.person_outline_rounded,
                 label: 'PROFIL',

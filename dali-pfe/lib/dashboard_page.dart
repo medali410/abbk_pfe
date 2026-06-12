@@ -596,15 +596,37 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1D1D38),
-        borderRadius: BorderRadius.circular(12),
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF1E2243).withOpacity(0.95),
+            const Color(0xFF131730).withOpacity(0.85),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.4),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            color: const Color(0xFF272743),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: Colors.white.withOpacity(0.08),
+                  width: 1,
+                ),
+              ),
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -658,7 +680,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           color: Colors.white,
                           colorBlendMode: BlendMode.saturation,
                           errorBuilder: (_, __, ___) => const ColoredBox(
-                            color: Color(0xFF272743),
+                            color: Color(0xFF131730),
                           ),
                         ),
                       ),
@@ -1670,7 +1692,7 @@ class _SidebarMenuTileState extends State<_SidebarMenuTile> {
 }
 
 // KPI Card Widget
-class _KPICard extends StatelessWidget {
+class _KPICard extends StatefulWidget {
   final IconData icon;
   final String label;
   final String value;
@@ -1678,111 +1700,233 @@ class _KPICard extends StatelessWidget {
   final Color color;
   final bool hasIndicator;
 
-  const _KPICard({required this.icon, required this.label, required this.value, required this.title, required this.color, this.hasIndicator = false});
+  const _KPICard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.title,
+    required this.color,
+    this.hasIndicator = false,
+  });
+
+  @override
+  State<_KPICard> createState() => _KPICardState();
+}
+
+class _KPICardState extends State<_KPICard> {
+  bool _isHovered = false;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF191934),
-        borderRadius: BorderRadius.circular(12),
-        border: hasIndicator ? const Border(left: BorderSide(color: Color(0xFFFF6E00), width: 4)) : null,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Icon(icon, color: color, size: 24),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.end,
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: 8,
-                    color: color,
-                    letterSpacing: -0.5,
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        transform: _isHovered ? (Matrix4.identity()..translate(0, -6, 0)) : Matrix4.identity(),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              const Color(0xFF1E2243).withOpacity(0.95),
+              const Color(0xFF131730).withOpacity(0.85),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _isHovered ? widget.color.withOpacity(0.6) : (widget.hasIndicator ? const Color(0xFFFF6E00) : widget.color.withOpacity(0.18)),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: _isHovered ? widget.color.withOpacity(0.2) : Colors.black.withOpacity(0.3),
+              blurRadius: _isHovered ? 24 : 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: widget.color.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(widget.icon, color: widget.color, size: 22),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: widget.color.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: widget.color.withOpacity(0.25), width: 1),
+                    ),
+                    child: Text(
+                      widget.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.end,
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: widget.color,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
                   ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                widget.value,
+                style: GoogleFonts.inter(
+                  fontSize: 34,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                  letterSpacing: -1,
+                  shadows: [
+                    Shadow(
+                      color: widget.color.withOpacity(0.4),
+                      blurRadius: 10,
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              value,
-              style: GoogleFonts.inter(
-                fontSize: 28,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              widget.title.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 10,
+                color: const Color(0xFFA98A7C).withOpacity(0.85),
                 fontWeight: FontWeight.bold,
+                letterSpacing: 1.5,
               ),
             ),
-          ),
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.inter(
-              fontSize: 10,
-              color: const Color(0xFFA98A7C),
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.5,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
 // Simple Metric Row
-class _MetricRow extends StatelessWidget {
+class _MetricRow extends StatefulWidget {
   final String label;
   final String value;
   final IconData icon;
   final Color color;
 
-  const _MetricRow({required this.label, required this.value, required this.icon, required this.color});
+  const _MetricRow({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  State<_MetricRow> createState() => _MetricRowState();
+}
+
+class _MetricRowState extends State<_MetricRow> {
+  bool _isHovered = false;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF191934),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.1)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.inter(fontSize: 10, color: const Color(0xFFA98A7C), letterSpacing: 1.5),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: color),
-                ),
-              ],
-            ),
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        transform: _isHovered ? (Matrix4.identity()..translate(4, 0, 0)) : Matrix4.identity(),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              const Color(0xFF1E2243).withOpacity(0.95),
+              const Color(0xFF131730).withOpacity(0.85),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-          const SizedBox(width: 8),
-          Icon(icon, color: color.withOpacity(0.4), size: 36),
-        ],
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _isHovered ? widget.color.withOpacity(0.5) : widget.color.withOpacity(0.18),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: _isHovered ? widget.color.withOpacity(0.1) : Colors.black.withOpacity(0.2),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.label.toUpperCase(),
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 10,
+                      color: const Color(0xFFA98A7C),
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    widget.value,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      color: widget.color,
+                      shadows: [
+                        Shadow(
+                          color: widget.color.withOpacity(0.3),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: widget.color.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(widget.icon, color: widget.color, size: 26),
+            ),
+          ],
+        ),
       ),
     );
   }

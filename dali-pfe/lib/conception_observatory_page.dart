@@ -351,7 +351,8 @@ class _ConceptionObservatoryPageState extends State<ConceptionObservatoryPage> w
       Map<String, dynamic>? pred;
       try {
         if (latest != null) {
-          final m = latest['metrics'] as Map<String, dynamic>?;
+          final rawMetrics = latest['metrics'];
+          final m = rawMetrics is Map ? Map<String, dynamic>.from(rawMetrics) : null;
           pred = await ApiService.predictMachine(
             {
               'temperature': latest['temperature'] ?? m?['thermal'] ?? 0,

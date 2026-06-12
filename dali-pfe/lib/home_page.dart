@@ -1583,6 +1583,37 @@ class _MachineCardState extends State<_MachineCard> {
     if (ok && mounted) action();
   }
 
+  Widget _buildCustomTextField({
+    required TextEditingController controller,
+    required String labelText,
+    required IconData icon,
+    bool requiredField = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: TextField(
+        controller: controller,
+        style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
+        decoration: InputDecoration(
+          labelText: labelText + (requiredField ? ' *' : ''),
+          labelStyle: GoogleFonts.inter(color: const Color(0xFFA7B1C6), fontSize: 12),
+          prefixIcon: Icon(icon, color: const Color(0xFFFF6E00), size: 18),
+          filled: true,
+          fillColor: const Color(0x22111A2F),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: Color(0x22FFFFFF)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: Color(0xFFFF6E00)),
+          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        ),
+      ),
+    );
+  }
+
   bool _looksLikeNetworkImage(String value) {
     final v = value.trim().toLowerCase();
     return v.startsWith('http://') || v.startsWith('https://');
@@ -1875,61 +1906,129 @@ class _MachineCardState extends State<_MachineCard> {
     final approved = await showDialog<bool>(
       context: context,
       builder:
-          (ctx) => AlertDialog(
-            title: const Text('Demande d\'achat'),
-            content: SizedBox(
-              width: 430,
-              child: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: nameCtrl,
-                      decoration: const InputDecoration(labelText: 'Nom complet'),
-                    ),
-                    TextField(
-                      controller: emailCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Email (optionnel)',
+          (ctx) => Dialog(
+            backgroundColor: const Color(0xFF111A2F),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                width: 450,
+                decoration: BoxDecoration(
+                  border: Border.all(color: const Color(0x33FFFFFF)),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                padding: const EdgeInsets.all(22),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.shopping_cart_checkout_rounded, color: Color(0xFFFF6E00), size: 24),
+                          const SizedBox(width: 10),
+                          Text(
+                            "Demande d'achat",
+                            style: GoogleFonts.inter(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    TextField(
-                      controller: phoneCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Telephone (optionnel)',
+                      const SizedBox(height: 6),
+                      Text(
+                        "Soumettre une demande d'acquisition pour cet équipement",
+                        style: GoogleFonts.inter(
+                          color: const Color(0xFFA7B1C6),
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
-                    TextField(
-                      controller: locationCtrl,
-                      decoration: const InputDecoration(
+                      const SizedBox(height: 18),
+                      _buildCustomTextField(
+                        controller: nameCtrl,
+                        labelText: 'Nom complet',
+                        icon: Icons.person_outline_rounded,
+                        requiredField: true,
+                      ),
+                      _buildCustomTextField(
+                        controller: emailCtrl,
+                        labelText: 'Email',
+                        icon: Icons.email_outlined,
+                      ),
+                      _buildCustomTextField(
+                        controller: phoneCtrl,
+                        labelText: 'Téléphone',
+                        icon: Icons.phone_android_rounded,
+                      ),
+                      _buildCustomTextField(
+                        controller: locationCtrl,
                         labelText: 'Localisation',
+                        icon: Icons.location_on_outlined,
+                        requiredField: true,
                       ),
-                    ),
-                    TextField(
-                      controller: mapCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Lien Google Maps (optionnel)',
+                      _buildCustomTextField(
+                        controller: mapCtrl,
+                        labelText: 'Lien Google Maps',
+                        icon: Icons.map_outlined,
                       ),
-                    ),
-                    TextField(
-                      controller: noteCtrl,
-                      minLines: 2,
-                      maxLines: 3,
-                      decoration: const InputDecoration(labelText: 'Note'),
-                    ),
-                  ],
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12.0),
+                        child: TextField(
+                          controller: noteCtrl,
+                          minLines: 2,
+                          maxLines: 3,
+                          style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
+                          decoration: InputDecoration(
+                            labelText: 'Note ou message particulier',
+                            labelStyle: GoogleFonts.inter(color: const Color(0xFFA7B1C6), fontSize: 12),
+                            prefixIcon: const Icon(Icons.note_alt_outlined, color: Color(0xFFFF6E00), size: 18),
+                            filled: true,
+                            fillColor: const Color(0x22111A2F),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(color: Color(0x22FFFFFF)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(color: Color(0xFFFF6E00)),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            style: TextButton.styleFrom(
+                              foregroundColor: const Color(0xFFD7E7FF),
+                            ),
+                            child: const Text('Annuler'),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFFF6E00),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                            ),
+                            child: const Text('Envoyer'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Annuler'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Envoyer'),
-              ),
-            ],
           ),
     );
 

@@ -8,6 +8,7 @@ const { serializeConcepteurProfileDashboard } = require('../views/concepteurProf
 const { createUserWithProfile, hashPassword, getAuthUserId } = require('../lib/auth');
 const { sendWelcomeEmail } = require('../lib/emailService');
 const { prisma } = require('../lib/prisma');
+const { validateConcepteurProfileUpdate, validateCreateConcepteur } = require('../lib/validators');
 
 async function listConcepteurs(req, res) {
     try {
@@ -25,8 +26,9 @@ async function createConcepteur(req, res) {
     let createdUserId = null;
     try {
         const { email, username, password, location } = req.body;
-        if (!email || !username || !password) {
-            return res.status(400).json({ error: 'Email, nom et mot de passe obligatoires' });
+        const validationErrors = validateCreateConcepteur(req.body);
+        if (validationErrors.length > 0) {
+            return res.status(400).json({ error: validationErrors.join(' | '), errors: validationErrors });
         }
         const { user, profile } = await createUserWithProfile(
             'conception',
@@ -161,7 +163,102 @@ async function listTechnicians(req, res) {
     try {
         const rows = await ActorModel.listTechnicians();
         return res.json(
-            rows.map((p) => mergeUserProfile(p.user, p, { technicianId: p.technicianId })),
+            rows.map((p) => mergeUserProfile(p.user, p, {
+                technicianId: p.technicianId,
+                firstName: p.firstName,
+                lastName: p.lastName,
+                name: `${p.firstName} ${p.lastName}`.trim() || p.user.nom,
+            })),
+        );
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+async function createTechnician(req, res) {
+    let createdUserId = null;
+    try {
+        const { email, password, name, firstName, lastName, address, location, companyId, machineIds, specialization, status } = req.body;
+        
+        const { user, profile } = await createUserWithProfile(
+            'technician',
+            { email, nom: name, password, adresse: address || location },
+            { 
+                firstName: firstName || '', 
+                lastName: lastName || '', 
+                companyId: companyId || '',
+                specialization: specialization || 'Vibration',
+                status: status || 'Disponible',
+                machineIds: Array.isArray(machineIds) ? JSON.stringify(machineIds) : '[]'
+            }
+        );
+        createdUserId = user.id;
+
+        const credentialsEmail = await sendWelcomeEmail(email, `${firstName || ''} ${lastName || ''}`.trim() || name || user.nom, password, 'Technicien');
+
+        return res.status(201).json({
+            ...mergeUserProfile(user, profile, {
+                technicianId: profile.technicianId,
+                firstName: profile.firstName,
+                lastName: profile.lastName,
+                name: `${profile.firstName} ${profile.lastName}`.trim() || user.nom,
+            }),
+            credentialsEmail
+        });
+    } catch (err) {
+        if (createdUserId) {
+            try {
+                await prisma.user.delete({ where: { id: createdUserId } });
+            } catch (e) {}
+        }
+        return res.status(err.status || 500).json({ error: err.message });
+    }
+}
+
+async function updateTechnician(req, res) {
+    try {
+        const { id } = req.params;
+        const { email, password, name, firstName, lastName, address, location, companyId, machineIds, specialization, status } = req.body;
+
+        const tid = parseInt(id, 10) || 0;
+        let existing = await prisma.technician.findFirst({
+            where: {
+                OR: [{ id: tid }, { technicianId: id }]
+            },
+            include: { user: true }
+        });
+
+        if (!existing) return res.status(404).json({ error: 'Technicien introuvable' });
+
+        const userData = {};
+        if (email) userData.email = email;
+        if (name) userData.nom = name;
+        if (password) userData.password = await hashPassword(password);
+        if (address || location) userData.adresse = address || location;
+
+        const updatedUser = Object.keys(userData).length > 0 
+            ? await prisma.user.update({ where: { id: existing.userId }, data: userData })
+            : existing.user;
+
+        const profileData = {};
+        if (firstName !== undefined) profileData.firstName = firstName;
+        if (lastName !== undefined) profileData.lastName = lastName;
+        if (companyId !== undefined) profileData.companyId = companyId;
+        if (specialization !== undefined) profileData.specialization = specialization;
+        if (status !== undefined) profileData.status = status;
+        if (machineIds !== undefined) profileData.machineIds = Array.isArray(machineIds) ? JSON.stringify(machineIds) : '[]';
+
+        const updatedProfile = Object.keys(profileData).length > 0
+            ? await prisma.technician.update({ where: { id: existing.id }, data: profileData })
+            : existing;
+
+        return res.json(
+            mergeUserProfile(updatedUser, updatedProfile, {
+                technicianId: updatedProfile.technicianId,
+                firstName: updatedProfile.firstName,
+                lastName: updatedProfile.lastName,
+                name: `${updatedProfile.firstName} ${updatedProfile.lastName}`.trim() || updatedUser.nom,
+            })
         );
     } catch (err) {
         return res.status(500).json({ error: err.message });
@@ -219,6 +316,11 @@ async function updateMyConcepteurProfile(req, res) {
             return res.status(404).json({ error: 'Profil concepteur introuvable' });
         }
 
+        const validationErrors = validateConcepteurProfileUpdate(req.body);
+        if (validationErrors.length > 0) {
+            return res.status(400).json({ error: validationErrors.join(' | '), errors: validationErrors });
+        }
+
         const { userData, profileData, password } = buildConcepteurProfileUpdate(req.body);
         if (password) {
             userData.password = await hashPassword(password);
@@ -251,6 +353,92 @@ async function updateMyConcepteurProfile(req, res) {
     }
 }
 
+async function createMaintenanceAgent(req, res) {
+    let createdUserId = null;
+    try {
+        const { email, password, name, firstName, lastName, address, location, clientId, machineIds } = req.body;
+        
+        const { user, profile } = await createUserWithProfile(
+            'maintenance',
+            { email, nom: name, password, adresse: address || location },
+            { 
+                firstName: firstName || '', 
+                lastName: lastName || '', 
+                clientId: clientId || '',
+                machineIds: Array.isArray(machineIds) ? JSON.stringify(machineIds) : '[]'
+            }
+        );
+        createdUserId = user.id;
+
+        const credentialsEmail = await sendWelcomeEmail(email, `${firstName || ''} ${lastName || ''}`.trim() || name || user.nom, password, 'Agent de Maintenance');
+
+        return res.status(201).json({
+            ...mergeUserProfile(user, profile, {
+                maintenanceAgentId: profile.maintenanceAgentId,
+                firstName: profile.firstName,
+                lastName: profile.lastName,
+                name: `${profile.firstName} ${profile.lastName}`.trim(),
+            }),
+            credentialsEmail
+        });
+    } catch (err) {
+        if (createdUserId) {
+            try {
+                await prisma.user.delete({ where: { id: createdUserId } });
+            } catch (e) {}
+        }
+        return res.status(err.status || 500).json({ error: err.message });
+    }
+}
+
+async function updateMaintenanceAgent(req, res) {
+    try {
+        const { id } = req.params;
+        const { email, password, name, firstName, lastName, address, location, clientId, machineIds } = req.body;
+
+        const mntId = parseInt(id, 10) || 0;
+        let existing = await prisma.maintenanceAgent.findFirst({
+            where: {
+                OR: [{ id: mntId }, { maintenanceAgentId: id }]
+            },
+            include: { user: true }
+        });
+
+        if (!existing) return res.status(404).json({ error: 'Maintenance agent introuvable' });
+
+        const userData = {};
+        if (email) userData.email = email;
+        if (name) userData.nom = name;
+        if (password) userData.password = await hashPassword(password);
+        if (address || location) userData.adresse = address || location;
+
+        const updatedUser = Object.keys(userData).length > 0 
+            ? await prisma.user.update({ where: { id: existing.userId }, data: userData })
+            : existing.user;
+
+        const profileData = {};
+        if (firstName !== undefined) profileData.firstName = firstName;
+        if (lastName !== undefined) profileData.lastName = lastName;
+        if (clientId !== undefined) profileData.clientId = clientId;
+        if (machineIds !== undefined) profileData.machineIds = Array.isArray(machineIds) ? JSON.stringify(machineIds) : '[]';
+
+        const updatedProfile = Object.keys(profileData).length > 0
+            ? await prisma.maintenanceAgent.update({ where: { id: existing.id }, data: profileData })
+            : existing;
+
+        return res.json(
+            mergeUserProfile(updatedUser, updatedProfile, {
+                maintenanceAgentId: updatedProfile.maintenanceAgentId,
+                firstName: updatedProfile.firstName,
+                lastName: updatedProfile.lastName,
+                name: `${updatedProfile.firstName} ${updatedProfile.lastName}`.trim(),
+            })
+        );
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
 module.exports = {
     listConcepteurs,
     createConcepteur,
@@ -259,5 +447,9 @@ module.exports = {
     getMyConcepteurProfile,
     updateMyConcepteurProfile,
     listTechnicians,
+    createTechnician,
+    updateTechnician,
     listMaintenanceAgents,
+    createMaintenanceAgent,
+    updateMaintenanceAgent,
 };

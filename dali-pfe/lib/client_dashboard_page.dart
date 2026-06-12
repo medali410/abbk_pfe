@@ -69,10 +69,13 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
 
   // Real-time telemetry
   late IO.Socket _socket;
+  final List<Map<String, String>> _clientNotifications = [];
+  int _unreadNotifications = 0;
   final Map<String, double> _realtimeTemps = {};
   final Map<String, double> _realtimeVibrations = {};
   final Map<String, double> _realtimeFrictions = {};
   final Map<String, double> _realtimePressures = {};
+  final Map<String, DateTime> _lastTelemetryTime = {};
   Timer? _controlTicker;
   Timer? _machinesAutoRefreshTimer;
 
@@ -134,12 +137,15 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     if (cId.isNotEmpty) {
       setState(() {
         _machinesFuture = ApiService.getMachinesForClient(cId);
-        _techniciansFuture = ApiService.getTechniciansForClient(cId);
+        _techniciansFuture = Future.wait([
+          ApiService.getTechniciansForClient(cId),
+          ApiService.getMaintenanceAgentsForClient(cId)
+        ]).then((results) => [...results[0], ...results[1]]);
         _isLoadingStats = true;
       });
       
       try {
-        final clientTechs = await ApiService.getTechniciansForClient(cId);
+        final clientTechs = await _techniciansFuture!;
         if (mounted) {
           setState(() {
             _techCount = clientTechs.length;
@@ -176,7 +182,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       final machines = await ApiService.getMachinesForClient(cId);
       if (!mounted) return;
       setState(() {
-        _machineSelectedMachine = machines.isNotEmpty ? machines.first : null;
+        _machineSelectedMachine = null; // Let the user see the list first
         _navIndex = 1;
       });
     } catch (_) {
@@ -210,7 +216,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       if (!mounted) return;
       setState(() {
         _iaNoMachinesAssigned = machines.isEmpty;
-        _iaSelectedMachine = machines.isNotEmpty ? machines.first : null;
+        _iaSelectedMachine = null; // Let the user see the list first
         _navIndex = 2;
       });
     } catch (_) {
@@ -293,12 +299,33 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   void _initSocket() {
     debugPrint('🔌 ClientDashboard: Initialisation Socket.io');
     _socket = IO.io(ApiService.socketBaseUrl, <String, dynamic>{
-      'transports': ['websocket'],
+      'transports': <String>['websocket'],
       'autoConnect': true,
     });
 
     _socket.onConnect((_) => debugPrint('✅ ClientDashboard: Connecté au serveur Socket.io'));
     _socket.onDisconnect((_) => debugPrint('❌ ClientDashboard: Déconnecté du serveur'));
+
+    _socket.on('controle_notification', (data) {
+      if (!mounted) return;
+      setState(() {
+        _clientNotifications.insert(0, {
+          'title': data['title']?.toString() ?? 'Nouveau Contrôle',
+          'body': data['body']?.toString() ?? 'Détails du contrôle non disponibles.',
+        });
+        if (_clientNotifications.length > 50) {
+          _clientNotifications.removeLast();
+        }
+        _unreadNotifications++;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(data['body']?.toString() ?? 'Nouveau contrôle enregistré.'),
+          backgroundColor: _primary,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    });
 
     _socket.on('nouvelle_prediction', (raw) {
       try {
@@ -308,7 +335,8 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         final String mId = (data['machineId'] ?? data['id'] ?? '').toString();
         if (mId.isEmpty || !mounted) return;
 
-        final metrics = data['metrics'] as Map<String, dynamic>?;
+        final rawMetrics = data['metrics'];
+        final metrics = rawMetrics is Map ? Map<String, dynamic>.from(rawMetrics) : null;
         final temp = _toDouble(data['temperature'] ?? metrics?['thermal'], 0.0);
         final vibration = _toDouble(data['vibration'] ?? metrics?['vibration'], 0.0);
         final friction = _toDouble(data['friction'] ?? metrics?['friction'], 0.0);
@@ -319,6 +347,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           _realtimeVibrations[mId] = vibration;
           _realtimeFrictions[mId] = friction;
           _realtimePressures[mId] = pressure;
+          _lastTelemetryTime[mId] = DateTime.now();
         });
       } catch (_) {
         // ignore malformed payloads
@@ -531,140 +560,280 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     return _buildMachineListSection(isDesktop);
   }
 
-  Widget _buildProfileSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'PROFIL CLIENT',
-          style: GoogleFonts.spaceGrotesk(
-            fontSize: 9,
-            fontWeight: FontWeight.w900,
-            color: _secondary,
-            letterSpacing: 2.5,
+  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _surfaceContainerLow.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.25), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Informations de votre compte',
-          style: GoogleFonts.inter(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: _onSurface,
-            letterSpacing: -0.5,
-          ),
-        ),
-        const SizedBox(height: 20),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                const Color(0xFF171A36),
-                const Color(0xFF11142B),
-              ],
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              shape: BoxShape.circle,
             ),
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.28),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
+            child: Icon(icon, color: color, size: 20),
           ),
-          child: Center(
+          const SizedBox(width: 14),
+          Expanded(
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                _buildClientProfileAvatar(),
-                const SizedBox(height: 12),
                 Text(
-                  _currentClientName,
+                  title,
                   style: GoogleFonts.inter(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: _onSurface,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  _currentClientEmail.isEmpty
-                      ? 'Email non renseigné'
-                      : _currentClientEmail,
-                  style: GoogleFonts.inter(
-                    fontSize: 13,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                     color: _onSurfaceVariant,
                   ),
-                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  _currentClientLocation,
-                  style: GoogleFonts.inter(
-                    fontSize: 13,
-                    color: _onSurfaceVariant.withOpacity(0.9),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 14),
-                OutlinedButton.icon(
-                  onPressed: _openProfileSettingsDialog,
-                  icon: const Icon(Icons.edit_outlined, size: 16),
-                  label: const Text('Modifier le profil'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _primaryLight,
-                    side: BorderSide(
-                      color: _outlineVariant.withOpacity(0.45),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
+                  value,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: _onSurface,
                   ),
                 ),
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 16),
-        _buildProfileStatsSection(),
-        const SizedBox(height: 16),
-        _buildProfileClientMachinesSection(),
-        const SizedBox(height: 16),
-        _buildProfileTechniciansSection(),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildProfileStatsSection() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: _surfaceContainerLow.withOpacity(0.45),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _outlineVariant.withOpacity(0.2)),
-      ),
+  Widget _buildProfileSection() {
+    final isDesktop = MediaQuery.sizeOf(context).width > 900;
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'STATISTIQUES',
+            'PROFIL CLIENT',
             style: GoogleFonts.spaceGrotesk(
               fontSize: 10,
-              letterSpacing: 1.6,
-              fontWeight: FontWeight.w700,
-              color: _onSurfaceVariant,
+              fontWeight: FontWeight.w900,
+              color: _secondary,
+              letterSpacing: 2.5,
             ),
           ),
-          const SizedBox(height: 10),
-          _buildSidebarStats(),
+          const SizedBox(height: 6),
+          Text(
+            'Informations de votre compte',
+            style: GoogleFonts.inter(
+              fontSize: 26,
+              fontWeight: FontWeight.w800,
+              color: _onSurface,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: _surfaceContainerLow,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: _outlineVariant.withOpacity(0.12)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 15,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                GestureDetector(
+                  onTap: _openProfileBackgroundDialog,
+                  child: Container(
+                    height: 120,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(20),
+                        topRight: Radius.circular(20),
+                      ),
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          const Color(0xFF1E293B),
+                          _secondary.withOpacity(0.8),
+                        ],
+                      ),
+                      image: _profileBackgroundDecorationImage(),
+                    ),
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          right: 16,
+                          top: 16,
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.5),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.camera_alt_outlined, color: Colors.white, size: 18),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Transform.translate(
+                  offset: const Offset(0, -36),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: _bg,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: _secondary.withOpacity(0.25),
+                              blurRadius: 12,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: _buildClientProfileAvatar(),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _currentClientName,
+                        style: GoogleFonts.inter(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: _onSurface,
+                          letterSpacing: -0.2,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.mail_outline_rounded, color: _onSurfaceVariant.withOpacity(0.7), size: 14),
+                          const SizedBox(width: 6),
+                          Text(
+                            _currentClientEmail.isEmpty ? 'Email non renseigné' : _currentClientEmail,
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: _onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Icon(Icons.location_on_outlined, color: _onSurfaceVariant.withOpacity(0.7), size: 14),
+                          const SizedBox(width: 6),
+                          Text(
+                            _currentClientLocation,
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: _onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      ElevatedButton.icon(
+                        onPressed: _openProfileSettingsDialog,
+                        icon: const Icon(Icons.edit_rounded, size: 16),
+                        label: Text('Modifier le profil', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _secondary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _machinesFuture,
+            builder: (context, snapshot) {
+              final machines = snapshot.data ?? const <Map<String, dynamic>>[];
+              final totalMachines = machines.length;
+              final maintenanceCount = machines.where((m) {
+                final active = m['maintenanceControlActive'] == true;
+                final state = (m['state'] ?? m['status'] ?? '').toString().toLowerCase();
+                return active || state.contains('maintenance') || state.contains('mainten');
+              }).length;
+
+              return isDesktop
+                  ? Row(
+                      children: [
+                        Expanded(child: _buildStatCard('Total Machines', totalMachines.toString(), Icons.precision_manufacturing_rounded, _secondary)),
+                        const SizedBox(width: 16),
+                        Expanded(child: _buildStatCard('Total Techniciens', _isLoadingStats ? '..' : _techCount.toString(), Icons.groups_rounded, const Color(0xFFA88DFF))),
+                        const SizedBox(width: 16),
+                        Expanded(child: _buildStatCard('En Maintenance', maintenanceCount.toString(), Icons.build_circle_rounded, const Color(0xFFF15C6D))),
+                      ],
+                    )
+                  : Column(
+                      children: [
+                        _buildStatCard('Total Machines', totalMachines.toString(), Icons.precision_manufacturing_rounded, _secondary),
+                        const SizedBox(height: 12),
+                        _buildStatCard('Total Techniciens', _isLoadingStats ? '..' : _techCount.toString(), Icons.groups_rounded, const Color(0xFFA88DFF)),
+                        const SizedBox(height: 12),
+                        _buildStatCard('En Maintenance', maintenanceCount.toString(), Icons.build_circle_rounded, const Color(0xFFF15C6D)),
+                      ],
+                    );
+            },
+          ),
+          const SizedBox(height: 24),
+
+          isDesktop
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 6,
+                      child: _buildProfileClientMachinesSection(),
+                    ),
+                    const SizedBox(width: 24),
+                    Expanded(
+                      flex: 4,
+                      child: _buildProfileTechniciansSection(),
+                    ),
+                  ],
+                )
+              : Column(
+                  children: [
+                    _buildProfileClientMachinesSection(),
+                    const SizedBox(height: 24),
+                    _buildProfileTechniciansSection(),
+                  ],
+                ),
+          const SizedBox(height: 48),
         ],
       ),
     );
@@ -1235,6 +1404,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         _buildClientCatalogSectionHeader(
           title: 'CATALOGUE DES SYSTEMES',
           subtitle: 'Unites de surveillance haute precision',
+          isDesktop: isDesktop,
           trailing: FutureBuilder<List<Map<String, dynamic>>>(
             future: _publicCatalogFuture,
             builder: (context, snapshot) {
@@ -1292,7 +1462,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 crossAxisCount: crossAxisCount,
                 crossAxisSpacing: 14,
                 mainAxisSpacing: 14,
-                childAspectRatio: crossAxisCount == 1 ? 1.18 : 1.02,
+                childAspectRatio: crossAxisCount == 1 ? 0.92 : 1.02,
               ),
               itemBuilder: (context, i) {
                 final machine = filtered[i];
@@ -1316,10 +1486,11 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   }
 
   Widget _buildClientCatalogHero({required int total, required bool isDesktop}) {
+    final heroHeight = isDesktop ? 280.0 : 250.0;
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
-      child: SizedBox(
-        height: isDesktop ? 280 : 240,
+      child: Container(
+        height: heroHeight,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -1339,51 +1510,51 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               ),
             ),
             Padding(
-              padding: EdgeInsets.all(isDesktop ? 24 : 18),
-              child: SizedBox(
-                width: isDesktop ? 560 : double.infinity,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'Catalogue machines',
-                      style: GoogleFonts.inter(
-                        color: const Color(0xFFFFB87A),
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.6,
-                      ),
+              padding: EdgeInsets.all(isDesktop ? 24 : 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Catalogue machines',
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFFFFB87A),
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.6,
+                      fontSize: isDesktop ? 14 : 12,
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'L\'efficacite predite par l\'IA',
-                      style: GoogleFonts.inter(
-                        color: Colors.white,
-                        fontSize: isDesktop ? 38 : 28,
-                        fontWeight: FontWeight.w800,
-                        height: 1.15,
-                      ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'L\'efficacite predite par l\'IA',
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontSize: isDesktop ? 38 : 22,
+                      fontWeight: FontWeight.w800,
+                      height: 1.15,
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Visualisez les equipements critiques en temps reel et accedez aux machines disponibles depuis la base.',
-                      style: GoogleFonts.inter(
-                        color: const Color(0xFFD5DCEE),
-                        fontSize: 14,
-                        height: 1.35,
-                      ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Visualisez les equipements critiques en temps reel.',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      color: const Color(0xFFD5DCEE),
+                      fontSize: isDesktop ? 14 : 12,
+                      height: 1.35,
                     ),
-                    const SizedBox(height: 14),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _buildClientCatalogChip(Icons.precision_manufacturing_rounded, '$total machines'),
-                        _buildClientCatalogChip(Icons.update_rounded, 'Temps reel'),
-                      ],
-                    ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildClientCatalogChip(Icons.precision_manufacturing_rounded, '$total machines'),
+                      _buildClientCatalogChip(Icons.update_rounded, 'Temps reel'),
+                    ],
+                  ),
+                ],
               ),
             ),
           ],
@@ -1502,29 +1673,50 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                                   CatalogToolbarPanel.sort ||
                               _publicCatalogSort != null,
                         ),
+                      ] else ...[
+                        IconButton(
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          icon: Icon(
+                            Icons.filter_alt_outlined,
+                            color: _hasPublicCatalogFilters ? const Color(0xFFFFB87A) : const Color(0xFFA7B1C6),
+                            size: 20,
+                          ),
+                          onPressed: _togglePublicCatalogFilterPanel,
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          icon: Icon(
+                            Icons.tune,
+                            color: _publicCatalogSort != null ? const Color(0xFFFFB87A) : const Color(0xFFA7B1C6),
+                            size: 20,
+                          ),
+                          onPressed: _togglePublicCatalogSortPanel,
+                        ),
                       ],
                     ],
                   ),
                 ),
               ),
             ),
-            if (showCatalogActions)
-              CatalogFilterSortPanel(
-                panel: _publicCatalogPanel,
-                brands: distinctCatalogBrands(allMachines),
-                statusFilter: _publicCatalogStatusFilter,
-                brandFilter: _publicCatalogBrandFilter,
-                sort: _publicCatalogSort,
-                onStatusChanged: (status) {
-                  setState(() => _publicCatalogStatusFilter = status);
-                },
-                onBrandChanged: (brand) {
-                  setState(() => _publicCatalogBrandFilter = brand);
-                },
-                onSortChanged: (sort) {
-                  setState(() => _publicCatalogSort = sort);
-                },
-              ),
+            CatalogFilterSortPanel(
+              panel: _publicCatalogPanel,
+              brands: distinctCatalogBrands(allMachines),
+              statusFilter: _publicCatalogStatusFilter,
+              brandFilter: _publicCatalogBrandFilter,
+              sort: _publicCatalogSort,
+              onStatusChanged: (status) {
+                setState(() => _publicCatalogStatusFilter = status);
+              },
+              onBrandChanged: (brand) {
+                setState(() => _publicCatalogBrandFilter = brand);
+              },
+              onSortChanged: (sort) {
+                setState(() => _publicCatalogSort = sort);
+              },
+            ),
           ],
         );
       },
@@ -1535,36 +1727,48 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     required String title,
     required String subtitle,
     required Widget trailing,
+    required bool isDesktop,
   }) {
-    return Row(
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: GoogleFonts.inter(
-                  color: const Color(0xFFFFB87A),
-                  fontSize: 11,
-                  letterSpacing: 2.2,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                subtitle,
-                style: GoogleFonts.inter(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  height: 1.08,
-                ),
-              ),
-            ],
+        Text(
+          title,
+          style: GoogleFonts.inter(
+            color: const Color(0xFFFFB87A),
+            fontSize: 11,
+            letterSpacing: 2.2,
+            fontWeight: FontWeight.w700,
           ),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(height: 6),
+        Text(
+          subtitle,
+          style: GoogleFonts.inter(
+            color: Colors.white,
+            fontSize: isDesktop ? 28 : 20,
+            fontWeight: FontWeight.w800,
+            height: 1.08,
+          ),
+        ),
+      ],
+    );
+
+    if (isDesktop) {
+      return Row(
+        children: [
+          Expanded(child: body),
+          const SizedBox(width: 16),
+          trailing,
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        body,
+        const SizedBox(height: 8),
         trailing,
       ],
     );
@@ -2334,39 +2538,31 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       color: _surfaceContainerLowest,
       child: Column(
         children: [
-          // Brand
           Padding(
-            padding: const EdgeInsets.only(left: 32, right: 24, top: 28, bottom: 28),
-            child: Row(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Container(
-                  width: 170,
+                  width: 180,
                   height: 46,
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
                   child: Image.asset(
                     'assets/images/abbk_logo.png',
                     fit: BoxFit.contain,
                     filterQuality: FilterQuality.high,
                   ),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.clientName ?? 'Enterprise Corp',
-                      style: GoogleFonts.inter(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: _onSurface,
-                      ),
-                    ),
-                    const SizedBox.shrink(),
-                  ],
                 ),
               ],
             ),
@@ -2893,46 +3089,52 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           bottom: BorderSide(color: _outlineVariant.withOpacity(0.15)),
         ),
       ),
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 10,
+      child: Row(
         children: [
-          SizedBox(
-            width: double.infinity,
+          Expanded(
             child: OutlinedButton.icon(
               onPressed: () => _openNotificationsPopover(),
-              icon: const Icon(Icons.notifications_outlined, size: 18),
+              icon: const Icon(Icons.notifications_outlined, size: 16),
               label: const Text('Notifications'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: _onSurfaceVariant,
                 side: BorderSide(color: _outlineVariant.withOpacity(0.45)),
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             ),
           ),
-          SizedBox(
-            width: double.infinity,
+          const SizedBox(width: 8),
+          Expanded(
             child: OutlinedButton.icon(
               onPressed: _openProfileSettingsDialog,
-              icon: const Icon(Icons.settings_outlined, size: 18),
+              icon: const Icon(Icons.settings_outlined, size: 16),
               label: const Text('Paramètres'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: _onSurfaceVariant,
                 side: BorderSide(color: _outlineVariant.withOpacity(0.45)),
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             ),
           ),
-          SizedBox(
-            width: double.infinity,
+          const SizedBox(width: 8),
+          Expanded(
             child: OutlinedButton.icon(
               onPressed: _logoutClient,
-              icon: const Icon(Icons.logout, size: 18),
-              label: const Text('Déconnexion'),
+              icon: const Icon(Icons.logout, size: 16),
+              label: const Text('Quitter'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: _error,
                 side: BorderSide(color: _error.withOpacity(0.45)),
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             ),
           ),
@@ -3158,8 +3360,12 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   }
 
   Future<void> _openNotificationsPopover({Offset? anchor}) async {
+    setState(() {
+      _unreadNotifications = 0;
+    });
+
     final alerts = (widget.clientData?['alerts'] ?? 0).toString();
-    final rows = <Map<String, String>>[
+    final rows = _clientNotifications.isNotEmpty ? _clientNotifications : <Map<String, String>>[
       {
         'title': 'Santé du site',
         'body': 'Le site est opérationnel. Alertes actives: $alerts.',
@@ -3280,17 +3486,28 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             clipBehavior: Clip.none,
             children: [
               Icon(icon, color: _onSurfaceVariant, size: 22),
-              if (icon == Icons.notifications_outlined)
+              if (icon == Icons.notifications_outlined && _unreadNotifications > 0)
                 Positioned(
                   top: -2,
                   right: -2,
                   child: Container(
-                    width: 8,
-                    height: 8,
+                    padding: const EdgeInsets.all(2),
                     decoration: BoxDecoration(
                       color: _primary,
                       shape: BoxShape.circle,
                       border: Border.all(color: _bg, width: 1.5),
+                    ),
+                    constraints: const BoxConstraints(minWidth: 12, minHeight: 12),
+                    child: Center(
+                      child: Text(
+                        _unreadNotifications > 9 ? '9+' : '$_unreadNotifications',
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 8,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                   ),
                 ),
@@ -4776,35 +4993,45 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                           m['motorType'] ?? m['type'] ?? 'Standard',
                           style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onSurfaceVariant),
                         ),
-                        if (_realtimeTemps.containsKey(machineRealtimeId)) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(color: _primary.withOpacity(0.2), borderRadius: BorderRadius.circular(4)),
-                            child: Text(
-                              '${_realtimeTemps[machineRealtimeId]!.toStringAsFixed(1)}°C',
-                              style: GoogleFonts.spaceGrotesk(fontSize: 10, fontWeight: FontWeight.bold, color: _primary),
-                            ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(color: _primary.withOpacity(0.2), borderRadius: BorderRadius.circular(4)),
+                          child: Text(
+                            '${(_realtimeTemps[machineRealtimeId] ?? 0.0).toStringAsFixed(1)}°C',
+                            style: GoogleFonts.spaceGrotesk(fontSize: 10, fontWeight: FontWeight.bold, color: _primary),
                           ),
-                        ],
+                        ),
                       ],
                     ),
-                    if (_realtimeVibrations.containsKey(machineRealtimeId) ||
-                        _realtimeFrictions.containsKey(machineRealtimeId) ||
-                        _realtimePressures.containsKey(machineRealtimeId)) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Vib: ${(_realtimeVibrations[machineRealtimeId] ?? 0).toStringAsFixed(1)} mm/s  •  Fric: ${(_realtimeFrictions[machineRealtimeId] ?? 0).toStringAsFixed(2)}  •  Pres: ${(_realtimePressures[machineRealtimeId] ?? 0).toStringAsFixed(1)} bar',
-                        style: GoogleFonts.spaceGrotesk(
-                          fontSize: 10,
-                          color: _secondary.withOpacity(0.9),
-                        ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Vib: ${(_realtimeVibrations[machineRealtimeId] ?? 0.0).toStringAsFixed(1)} mm/s  •  Fric: ${(_realtimeFrictions[machineRealtimeId] ?? 0.0).toStringAsFixed(2)}  •  Pres: ${(_realtimePressures[machineRealtimeId] ?? 0.0).toStringAsFixed(1)} bar',
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 10,
+                        color: _secondary.withOpacity(0.9),
                       ),
-                    ],
+                    ),
                   ],
                 ),
               ),
               _scoreBox('ALERTS', '${m['alerts'] ?? 0}', isAlert ? _error : _green),
+              const SizedBox(width: 12),
+              Builder(
+                builder: (context) {
+                  final lastTelTime = _lastTelemetryTime[machineRealtimeId];
+                  final isOnline = lastTelTime != null &&
+                      DateTime.now().difference(lastTelTime).inSeconds < 10;
+                  return _actionBtn(
+                    Icons.wifi_rounded,
+                    isOnline ? _green : _error,
+                    () {
+                      _openWifiConfigDialog(context, machineRealtimeId);
+                    },
+                    iconColor: isOnline ? _green : _error,
+                  );
+                }
+              ),
               const SizedBox(width: 12),
               _actionBtn(Icons.arrow_forward, _secondary, () {
                 setState(() {
@@ -4857,6 +5084,119 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         ],
       ),
     );
+  }
+
+  Future<void> _openWifiConfigDialog(BuildContext context, String machineId) async {
+    final ssidCtrl = TextEditingController();
+    final passCtrl = TextEditingController();
+
+    final success = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: _surfaceContainerHigh,
+          title: Row(
+            children: [
+              const Icon(Icons.wifi_lock_rounded, color: _primary),
+              const SizedBox(width: 10),
+              Text(
+                'Configuration WiFi ESP32',
+                style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Connectez d\'abord votre appareil au réseau WiFi "DALI-Config" de l\'ESP32, puis remplissez ce formulaire.',
+                style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: TextEditingController(text: machineId),
+                enabled: false,
+                decoration: const InputDecoration(
+                  labelText: 'ID de la Machine',
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ssidCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Nom du Réseau WiFi (SSID) *',
+                  hintText: 'ex: MaBoxInternet',
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: passCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Mot de passe WiFi *',
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Annuler', style: TextStyle(color: _onSurfaceVariant)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: _primary, foregroundColor: Colors.white),
+              child: const Text('Envoyer'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (success == true) {
+      final ssid = ssidCtrl.text.trim();
+      final pass = passCtrl.text.trim();
+
+      if (ssid.isEmpty || pass.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Le SSID et le mot de passe sont obligatoires.'),
+            backgroundColor: _error,
+          ),
+        );
+        return;
+      }
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => const Center(child: CircularProgressIndicator(color: _primary)),
+      );
+
+      try {
+        await ApiService.configureMachineWifi(machineId, ssid, pass);
+        if (!mounted) return;
+        Navigator.pop(context); // Close loading indicator
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Configuration envoyée ! L\'ESP32 va redémarrer.'),
+            backgroundColor: _green,
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        Navigator.pop(context); // Close loading indicator
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Échec de la configuration : ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: _error,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildDiagnosticBanner() {
@@ -5132,7 +5472,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  Widget _actionBtn(IconData icon, Color hoverColor, VoidCallback onTap) {
+  Widget _actionBtn(IconData icon, Color hoverColor, VoidCallback onTap, {Color? iconColor}) {
     return Material(
       color: _surfaceContainerHighest,
       borderRadius: BorderRadius.circular(10),
@@ -5142,7 +5482,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         hoverColor: hoverColor.withOpacity(0.1),
         child: Container(
           padding: const EdgeInsets.all(12),
-          child: Icon(icon, size: 20, color: _onSurface),
+          child: Icon(icon, size: 20, color: iconColor ?? _onSurface),
         ),
       ),
     );

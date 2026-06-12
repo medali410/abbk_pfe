@@ -1,60 +1,79 @@
+// src/index.js  (version mise à jour — intègre les nouvelles routes)
+// ─── Seules les lignes modifiées/ajoutées sont marquées [AJOUT] ──────────────
+
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 
-const authRoutes = require('./routes/auth');
-const clientsRoutes = require('./routes/clients');
-const machinesRoutes = require('./routes/machines');
-const dashboardRoutes = require('./routes/dashboard');
-const actorsRoutes = require('./routes/actors');
-const documentsRoutes = require('./routes/documents');
-const telemetryRoutes = require('./routes/telemetry');
-const chatRoutes = require('./routes/chat');
-const healthController = require('./controllers/healthController');
+const authRoutes             = require('./routes/auth');
+const clientsRoutes          = require('./routes/clients');
+const machinesRoutes         = require('./routes/machines');
+const dashboardRoutes        = require('./routes/dashboard');
+const actorsRoutes           = require('./routes/actors');
+const documentsRoutes        = require('./routes/documents');
+const telemetryRoutes        = require('./routes/telemetry');
+const chatRoutes             = require('./routes/chat');
+const purchaseRequestsRoutes = require('./routes/purchaseRequests');
+
+// [AJOUT] Nouvelles routes dédiées Technicien et Agent de Maintenance
+const techniciansRoutes      = require('./routes/technicians');        // [AJOUT]
+const maintenanceAgentsRoutes = require('./routes/maintenanceAgents'); // [AJOUT]
+const controlesRoutes        = require('./routes/controles');          // [AJOUT]
+const maintenanceOrdersRoutes = require('./routes/maintenanceOrders'); // [AJOUT]
+const consultationRoutes     = require('./routes/consultations');
+const notificationRoutes     = require('./routes/notifications');
+const missionRoutes          = require('./routes/missions');
+
+const healthController    = require('./controllers/healthController');
 const telemetryController = require('./controllers/telemetryController');
-const { prisma } = require('./lib/prisma');
+const { prisma }          = require('./lib/prisma');
 
 const PORT = parseInt(String(process.env.PORT || '3001'), 10);
-const app = express();
+const app  = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: true,
-        credentials: true,
-    }
-});
+const io = new Server(server, { cors: { origin: true, credentials: true }, allowEIO3: true });
 
-app.use(
-    cors({
-        origin: true,
-        credentials: true,
-    }),
-);
+app.set('io', io); // Save IO to be used in controllers
+
+// Initialiser la connexion MQTT
+const { initMqtt } = require('./lib/mqtt');
+initMqtt(io);
+
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 
-// Serve static uploads
 const path = require('path');
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Health check
 app.get('/api/health', healthController.check);
 
-// API Routes
-app.use('/api', authRoutes);
-app.use('/api/clients', clientsRoutes);
-app.use('/api/machines', machinesRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api', actorsRoutes);
-app.use('/api/conceptions', documentsRoutes);
-app.use('/api/documents', documentsRoutes);
-app.use('/api', telemetryRoutes);
-app.use('/api/chat', chatRoutes);
+// ─── Routes ───────────────────────────────────────────────────────────────────
+app.use('/api',                          authRoutes);
+app.use('/api/clients',                  clientsRoutes);
+app.use('/api/machines',                 machinesRoutes);
+app.use('/api/dashboard',               dashboardRoutes);
+app.use('/api',                          actorsRoutes);            // garde la compatibilité avec /api/concepteurs
+app.use('/api/conceptions',             documentsRoutes);
+app.use('/api/documents',               documentsRoutes);
+app.use('/api',                          telemetryRoutes);
+app.use('/api/chat',                     chatRoutes);
+app.use('/api/purchase-requests',        purchaseRequestsRoutes);
 
+// [AJOUT] Routes dédiées Technicien et Agent de Maintenance
+app.use('/api/technicians',              techniciansRoutes);        // [AJOUT]
+app.use('/api/maintenance-agents',       maintenanceAgentsRoutes);  // [AJOUT]
+app.use('/api/controles',                controlesRoutes);          // [AJOUT]
+app.use('/api/maintenance-orders',       maintenanceOrdersRoutes);  // [AJOUT]
+app.use('/api/consultations',            consultationRoutes);
+app.use('/api/notifications',            notificationRoutes);
+app.use('/api/missions',                 missionRoutes);
+
+// ─── Socket.io ────────────────────────────────────────────────────────────────
 const chatController = require('./controllers/chatController');
 
-// Socket.io logic
 io.on('connection', (socket) => {
     console.log('🔌 Client connecté via Socket.io:', socket.id);
 
@@ -70,26 +89,16 @@ io.on('connection', (socket) => {
             const { roomId, from, senderName, text, userId, attachmentUrl, attachmentType } = data;
             if (!roomId || (!text && !attachmentUrl)) return;
 
-            // Ensure room exists
             await prisma.chatRoom.upsert({
-                where: { roomId },
+                where:  { roomId },
                 create: { roomId },
                 update: { updatedAt: new Date() },
             });
 
-            // Save message to database
-            await prisma.chatMessage.create({
-                data: {
-                    roomId,
-                    from,
-                    senderName,
-                    text: text || '',
-                    attachmentUrl,
-                    attachmentType,
-                }
+            const msg = await prisma.chatMessage.create({
+                data: { roomId, from, senderName, text: text || '', attachmentUrl, attachmentType },
             });
 
-            // Track participant (best-effort)
             if (userId) {
                 await chatController._ensureParticipant(roomId, {
                     userId,
@@ -98,10 +107,8 @@ io.on('connection', (socket) => {
                 });
             }
 
-            // AUTO-JOIN DESIGNER if it's a conception room
             if (roomId.startsWith('chat_conception_')) {
-                const designerIdStr = roomId.replace('chat_conception_', '');
-                const designerId = parseInt(designerIdStr, 10);
+                const designerId = parseInt(roomId.replace('chat_conception_', ''), 10);
                 if (!isNaN(designerId)) {
                     await chatController._ensureParticipant(roomId, {
                         userId: designerId,
@@ -110,16 +117,29 @@ io.on('connection', (socket) => {
                 }
             }
 
-            // Broadcast to room
-            socket.to(roomId).emit('chat_message', data);
+            io.to(roomId).emit('chat_message', msg);
         } catch (err) {
             console.error('❌ Erreur Socket Chat:', err);
         }
     });
 
-    // Réception des données de télémétrie
+    socket.on('delete_message', (data) => {
+        if (data.roomId && data.messageId) {
+            socket.to(data.roomId).emit('delete_message', data);
+        }
+    });
+
+    socket.on('clear_chat', (data) => {
+        if (data.roomId) {
+            socket.to(data.roomId).emit('clear_chat', data);
+        }
+    });
+
     socket.on('telemetry_data', async (data) => {
         await telemetryController.saveTelemetry(data);
+        if (data.power === undefined && data.torque !== undefined && data.rpm !== undefined) {
+            data.power = parseFloat(data.torque) * parseFloat(data.rpm);
+        }
         io.emit('nouvelle_prediction', data);
     });
 

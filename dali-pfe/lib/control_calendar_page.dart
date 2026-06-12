@@ -713,7 +713,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
   void _initSocket() {
     _socket?.dispose();
     _socket = io.io(ApiService.socketBaseUrl, <String, dynamic>{
-      'transports': ['websocket'],
+      'transports': <String>['websocket'],
       'autoConnect': true,
     });
     _socket!.on('nouveau_controle', (raw) {

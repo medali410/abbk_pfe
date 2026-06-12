@@ -16,7 +16,16 @@ exports.getLatest = async (req, res) => {
             take: take,
         });
 
-        res.json(data);
+        // Normalize DB keys to MQTT/Frontend expected keys
+        const mappedData = data.map(record => ({
+            ...record,
+            temperature: record.temp,
+            pressure: record.pression,
+            magnetic: record.magnet,
+            power: (record.torque && record.rpm) ? (record.torque * record.rpm) : 0,
+        }));
+
+        res.json(mappedData);
     } catch (error) {
         console.error('Erreur Telemetry:', error);
         res.status(500).json({ error: 'Erreur lors de la récupération de la télémétrie' });

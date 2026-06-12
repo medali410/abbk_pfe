@@ -20,18 +20,25 @@ class _MachineHistoryViewState extends State<MachineHistoryView> {
 
   late Future<List<Map<String, dynamic>>> _archivesFuture;
   late Future<List<Map<String, dynamic>>> _missionsFuture;
+  late Future<List<Map<String, dynamic>>> _controlesFuture;
 
   @override
   void initState() {
     super.initState();
     _archivesFuture = ApiService.getInterventionArchives(machineId: widget.machineId);
     _missionsFuture = ApiService.getMaintenanceOrders(machineId: widget.machineId);
+    _controlesFuture = widget.machineId != null 
+        ? ApiService.getControlesForMachine(widget.machineId!) 
+        : Future.value([]);
   }
 
   void _reloadHistory() {
     setState(() {
       _archivesFuture = ApiService.getInterventionArchives(machineId: widget.machineId);
       _missionsFuture = ApiService.getMaintenanceOrders(machineId: widget.machineId);
+      _controlesFuture = widget.machineId != null 
+          ? ApiService.getControlesForMachine(widget.machineId!) 
+          : Future.value([]);
     });
   }
 
@@ -114,6 +121,28 @@ class _MachineHistoryViewState extends State<MachineHistoryView> {
               );
             },
           ),
+          const SizedBox(height: 48),
+          _buildSectionHeader('Historique de contrôle'),
+          const SizedBox(height: 16),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _controlesFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const LinearProgressIndicator(color: Colors.purpleAccent);
+              }
+              final rows = snapshot.data ?? [];
+              if (rows.isEmpty) {
+                return _emptyBoxSmall('Aucun contrôle enregistré.');
+              }
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: rows.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, i) => _controleCard(rows[i]),
+              );
+            },
+          ),
         ],
       ),
     );
@@ -127,7 +156,7 @@ class _MachineHistoryViewState extends State<MachineHistoryView> {
       color: _primary,
       onRefresh: () async {
         _reloadHistory();
-        await Future.wait([_archivesFuture, _missionsFuture]);
+        await Future.wait([_archivesFuture, _missionsFuture, _controlesFuture]);
       },
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -270,6 +299,80 @@ class _MachineHistoryViewState extends State<MachineHistoryView> {
                     Text(
                       'Assigné à : $tech',
                       style: GoogleFonts.spaceGrotesk(color: _onVariant, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    status,
+                    style: GoogleFonts.spaceGrotesk(
+                      color: statusColor,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    date,
+                    style: GoogleFonts.spaceGrotesk(color: _onVariant.withOpacity(0.7), fontSize: 11),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _controleCard(Map<String, dynamic> r) {
+    final title = (r['type'] ?? 'Contrôle').toString();
+    final tech = (r['technicienNom'] ?? 'Technicien').toString();
+    final status = (r['statut'] ?? 'EN_ATTENTE').toString();
+    final date = r['jour'] ?? r['createdAt']?.toString().split('T').first ?? '—';
+    final notes = (r['compteRendu'] ?? '').toString();
+
+    Color statusColor = Colors.purpleAccent;
+    if (status == 'TERMINE') statusColor = Colors.greenAccent;
+
+    return Material(
+      color: _surface,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {},
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.fact_check_outlined, color: statusColor, size: 20),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$title - $tech',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: _onSurface, fontSize: 14),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      notes.isNotEmpty ? notes : 'Aucun compte-rendu',
+                      style: GoogleFonts.spaceGrotesk(color: _onVariant, fontSize: 12),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),

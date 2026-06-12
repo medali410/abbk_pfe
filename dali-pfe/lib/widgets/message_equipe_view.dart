@@ -68,12 +68,32 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
   String? _recordingPath;
   final AudioRecorder _audioRecorder = AudioRecorder();
   Timer? _recordingTimer;
+  Timer? _pollingTimer;
   int _recordingDurationSeconds = 0;
 
   final ScrollController _messagesScroll = ScrollController();
   List<Map<String, dynamic>> _searchResults = [];
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
+  int get _currentUserId {
+    final userRole = ApiService.savedUserRole?.toLowerCase();
+    final isConcepteur = userRole == 'concepteur' || (userRole == 'conception' && !ApiService.isSuperAdmin);
+    if (isConcepteur) {
+      final myProfile = ApiService.savedConcepteurProfile;
+      if (myProfile != null) {
+        final idStr = (myProfile['id'] ?? myProfile['_id'] ?? myProfile['concepteurId'] ?? myProfile['userId'] ?? '').toString();
+        final id = int.tryParse(idStr);
+        if (id != null) return id;
+      }
+    }
+    if (_senderRole == 'technician' && _technicianId.isNotEmpty) {
+      return int.tryParse(_technicianId) ?? 1;
+    }
+    if (_senderRole == 'client' && _clientId.isNotEmpty) {
+      return int.tryParse(_clientId) ?? 1;
+    }
+    return 1;
+  }
   Map<String, dynamic>? _selectedDesignerDetails;
 
   @override
@@ -86,9 +106,17 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     
     // Auto-detect based on ApiService if not provided
     if (_senderName == 'Technicien' && ApiService.savedUserRole != null) {
-        _senderRole = ApiService.savedUserRole!.toLowerCase();
-        if (_senderRole == 'admin' || _senderRole == 'superadmin') _senderRole = 'conception';
-        _senderName = 'Administrateur';
+        final role = ApiService.savedUserRole!.toLowerCase();
+        final isConcepteur = role == 'concepteur' || (role == 'conception' && !ApiService.isSuperAdmin);
+        if (role == 'admin' || role == 'superadmin') {
+          _senderRole = 'conception';
+          _senderName = 'Administrateur';
+        } else if (isConcepteur) {
+          _senderRole = 'conception';
+          _senderName = ApiService.savedConcepteurProfile?['name'] ?? 'Concepteur';
+        } else {
+          _senderRole = role;
+        }
     }
 
     if (_senderRole != 'client' && _senderRole != 'technician' && _senderRole != 'conception') {
@@ -105,6 +133,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     _socket?.dispose();
     _audioRecorder.dispose();
     _recordingTimer?.cancel();
+    _pollingTimer?.cancel();
     super.dispose();
   }
 
@@ -166,8 +195,162 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
   }
 
   Future<void> _initChat() async {
+    _socket = io.io(ApiService.socketBaseUrl, <String, dynamic>{
+      'transports': <String>['websocket'],
+      'autoConnect': true,
+    });
+    _socket!.onConnect((_) {
+      debugPrint('⚡ Chat Socket connecté: ${_socket!.id}');
+      if (_activeRoomId.isNotEmpty) {
+        _socket!.emit('join_chat_room', {'roomId': _activeRoomId});
+      }
+    });
+    _socket!.onConnectError((err) => debugPrint('❌ Chat ConnectError: $err'));
+    _socket!.onError((err) => debugPrint('❌ Chat Error: $err'));
+    _socket!.onDisconnect((_) => debugPrint('❌ Chat Disconnect'));
+    _socket!.on('chat_message', (raw) {
+      try {
+        final data = raw is String ? jsonDecode(raw) : raw;
+        if (data is! Map) return;
+        final m = Map<String, dynamic>.from(data);
+        
+        final rId = (m['roomId'] ?? '').toString();
+        final textVal = (m['text'] ?? '').toString();
+        final timeVal = (m['createdAt'] ?? DateTime.now().toIso8601String()).toString();
+        final senderVal = (m['senderName'] ?? '').toString();
+        _updateConversationLastMessage(rId, textVal, timeVal, senderVal);
+
+        if (rId != _activeRoomId) return;
+        final fromMe = senderVal == _senderName &&
+            (m['from'] ?? '').toString() == _senderRole;
+        if (fromMe) return;
+        if (!mounted) return;
+        setState(() => _messages.add(m));
+        _scrollToLatest();
+      } catch (_) {}
+    });
+    _socket!.on('delete_message', (raw) {
+      try {
+        final data = raw is String ? jsonDecode(raw) : raw;
+        if (data is! Map) return;
+        final roomId = (data['roomId'] ?? '').toString();
+        if (roomId != _activeRoomId) return;
+        final msgId = (data['messageId'] ?? '').toString();
+        if (msgId.isNotEmpty && mounted) {
+          setState(() {
+            _messages.removeWhere((m) => (m['id'] ?? '').toString() == msgId);
+          });
+        }
+      } catch (_) {}
+    });
+    _socket!.on('clear_chat', (raw) {
+      try {
+        final data = raw is String ? jsonDecode(raw) : raw;
+        if (data is! Map) return;
+        final roomId = (data['roomId'] ?? '').toString();
+        if (roomId == _activeRoomId && mounted) {
+          _closeConversation();
+        }
+      } catch (_) {}
+    });
+
+    if (_socket!.connected && _activeRoomId.isNotEmpty) {
+      _socket!.emit('join_chat_room', {'roomId': _activeRoomId});
+    }
+
     try {
-      if (_senderRole == 'client') {
+      final userRole = ApiService.savedUserRole?.toLowerCase();
+      final isConcepteur = userRole == 'concepteur' || (userRole == 'conception' && !ApiService.isSuperAdmin);
+
+      if (isConcepteur) {
+        final myProfile = ApiService.savedConcepteurProfile;
+        final myConcepteurId = myProfile != null ? (myProfile['id'] ?? myProfile['_id'] ?? '').toString() : '';
+        final adminRoom = 'chat_conception_$myConcepteurId';
+        
+        final list = <Map<String, dynamic>>[];
+        
+        list.add({
+          'roomId': adminRoom,
+          'name': 'Admin',
+          'lastText': 'Discuter avec l\'administrateur',
+          'lastAt': DateTime.now().toIso8601String(),
+          'senderName': 'Admin',
+          'roleLabel': 'Admin',
+        });
+        
+        try {
+          final clients = await ApiService.getClients();
+          for (final c in clients) {
+            final clientId = (c['clientId'] ?? c['id'] ?? '').toString();
+            final clientName = (c['nom'] ?? c['name'] ?? 'Client').toString();
+            if (clientId.isNotEmpty) {
+              list.add({
+                'roomId': 'chat_client_${clientId}_conception_${myConcepteurId}',
+                'name': clientName,
+                'lastText': 'Ouvrir la discussion',
+                'lastAt': DateTime.now().toIso8601String(),
+                'senderName': '',
+                'roleLabel': 'Client',
+              });
+            }
+          }
+        } catch (_) {}
+
+        try {
+          final concepteurs = await ApiService.getConcepteurs();
+          for (final c in concepteurs) {
+            final otherConcepteurId = (c['concepteurId'] ?? c['id'] ?? '').toString();
+            final concepteurName = (c['nom'] ?? c['name'] ?? 'Concepteur').toString();
+            if (otherConcepteurId.isNotEmpty && otherConcepteurId != myConcepteurId) {
+              final sortedIds = [myConcepteurId, otherConcepteurId]..sort();
+              list.add({
+                'roomId': 'chat_concep_${sortedIds[0]}_${sortedIds[1]}',
+                'name': concepteurName,
+                'lastText': 'Ouvrir la discussion',
+                'lastAt': DateTime.now().toIso8601String(),
+                'senderName': '',
+                'roleLabel': 'Concepteur',
+              });
+            }
+          }
+        } catch (_) {}
+
+        try {
+          final maintenance = await ApiService.getMaintenanceAgents();
+          for (final m in maintenance) {
+            final agentId = (m['maintenanceAgentId'] ?? m['id'] ?? '').toString();
+            final agentName = (m['nom'] ?? m['name'] ?? '${m['firstName'] ?? ''} ${m['lastName'] ?? ''}'.trim()).toString();
+            if (agentId.isNotEmpty) {
+              list.add({
+                'roomId': 'chat_maintenance_${agentId}_conception_${myConcepteurId}',
+                'name': agentName.isNotEmpty ? agentName : 'Agent Maintenance',
+                'lastText': 'Ouvrir la discussion',
+                'lastAt': DateTime.now().toIso8601String(),
+                'senderName': '',
+                'roleLabel': 'Maintenance',
+              });
+            }
+          }
+        } catch (_) {}
+        
+        _conversations = list;
+        if (mounted) setState(() {});
+        
+        // Load last message in background
+        for (final conv in _conversations) {
+          try {
+            final messages = await ApiService.getChatMessages(conv['roomId'], limit: 1);
+            if (messages.isNotEmpty) {
+              conv['lastText'] = messages.first['text'] ?? '';
+              conv['lastAt'] = messages.first['createdAt'] ?? '';
+              conv['senderName'] = messages.first['senderName'] ?? '';
+            }
+          } catch (_) {}
+        }
+        if (mounted) setState(() {});
+        
+        await _switchConversation(_conversations.first);
+      } else if (_senderRole == 'client') {
         if (_clientId.isNotEmpty) {
           _conversations = await ApiService.getClientConversations(_clientId);
         }
@@ -179,32 +362,8 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
         }
       }
       // Ne pas auto-sélectionner — l'utilisateur doit cliquer sur une conversation
-      if (mounted) setState(() {});
+      if (!isConcepteur && mounted) setState(() {});
     } catch (_) {}
-
-    _socket = io.io(ApiService.socketBaseUrl, <String, dynamic>{
-      'transports': ['websocket'],
-      'autoConnect': true,
-    });
-    _socket!.onConnect((_) {
-      if (_activeRoomId.isNotEmpty) {
-        _socket!.emit('join_chat_room', {'roomId': _activeRoomId});
-      }
-    });
-    _socket!.on('chat_message', (raw) {
-      try {
-        final data = raw is String ? jsonDecode(raw) : raw;
-        if (data is! Map) return;
-        final m = Map<String, dynamic>.from(data);
-        if ((m['roomId'] ?? '').toString() != _activeRoomId) return;
-        final fromMe = (m['senderName'] ?? '').toString() == _senderName &&
-            (m['from'] ?? '').toString() == _senderRole;
-        if (fromMe) return;
-        if (!mounted) return;
-        setState(() => _messages.add(m));
-        _scrollToLatest();
-      } catch (_) {}
-    });
   }
 
   Future<void> _switchConversation(Map<String, dynamic> c) async {
@@ -213,22 +372,47 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     _activeRoomId = room;
     _socket?.emit('join_chat_room', {'roomId': room});
 
-    // Resolve designer details: find the designer/technician participant (not the admin)
-    String designerName = _resolveDesignerName(c);
+    final userRole = ApiService.savedUserRole?.toLowerCase();
+    final isConcepteur = userRole == 'concepteur' || (userRole == 'conception' && !ApiService.isSuperAdmin);
 
-    if (designerName.isNotEmpty && !designerName.toLowerCase().contains('admin')) {
-      // Try to search for the designer first for full profile info
-      try {
-        final results = await ApiService.searchConcepteurs(designerName);
-        if (mounted && results.isNotEmpty) {
-          setState(() {
-            _selectedDesignerDetails = results.firstWhere(
-              (r) => r['name'] == designerName, 
-              orElse: () => results.first,
-            );
-          });
-        } else {
-          // Fallback: build minimal info from resolved name
+    if (isConcepteur) {
+      if (mounted) {
+        setState(() {
+          _selectedDesignerDetails = {
+            'name': (c['name'] ?? 'Admin').toString(),
+            'specialite': (c['roleLabel'] ?? '').toString(),
+            'machines': <String>[],
+          };
+        });
+      }
+    } else {
+      // Resolve designer details: find the designer/technician participant (not the admin)
+      String designerName = _resolveDesignerName(c);
+
+      if (designerName.isNotEmpty && !designerName.toLowerCase().contains('admin')) {
+        // Try to search for the designer first for full profile info
+        try {
+          final results = await ApiService.searchConcepteurs(designerName);
+          if (mounted && results.isNotEmpty) {
+            setState(() {
+              _selectedDesignerDetails = results.firstWhere(
+                (r) => r['name'] == designerName, 
+                orElse: () => results.first,
+              );
+            });
+          } else {
+            // Fallback: build minimal info from resolved name
+            if (mounted) {
+              setState(() {
+                _selectedDesignerDetails = {
+                  'name': designerName,
+                  'specialite': '',
+                  'machines': <String>[],
+                };
+              });
+            }
+          }
+        } catch (_) {
           if (mounted) {
             setState(() {
               _selectedDesignerDetails = {
@@ -239,27 +423,17 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
             });
           }
         }
-      } catch (_) {
+      } else {
+        // Fallback: show whatever name we resolved
         if (mounted) {
           setState(() {
             _selectedDesignerDetails = {
-              'name': designerName,
+              'name': designerName.isNotEmpty ? designerName : 'Discussion',
               'specialite': '',
               'machines': <String>[],
             };
           });
         }
-      }
-    } else {
-      // Fallback: show whatever name we resolved
-      if (mounted) {
-        setState(() {
-          _selectedDesignerDetails = {
-            'name': designerName.isNotEmpty ? designerName : 'Discussion',
-            'specialite': '',
-            'machines': <String>[],
-          };
-        });
       }
     }
 
@@ -267,10 +441,12 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
       _messages = await ApiService.getChatMessages(room, limit: 300);
       if (mounted) setState(() {});
       _scrollToLatest();
+      _startPolling();
     } catch (_) {}
   }
 
   void _closeConversation() {
+    _pollingTimer?.cancel();
     if (mounted) {
       setState(() {
         _activeRoomId = '';
@@ -304,6 +480,9 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
 
     try {
       await ApiService.deleteChatRoom(_activeRoomId);
+      _socket?.emit('clear_chat', {
+        'roomId': _activeRoomId,
+      });
       _closeConversation();
       await _initChat(); // Refresh list
     } catch (e) {
@@ -346,22 +525,53 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
       _scrollToLatest();
     }
 
-    final currentUserId = (_senderRole == 'technician' && _technicianId.isNotEmpty) 
-        ? int.tryParse(_technicianId)
-        : (_senderRole == 'client' && _clientId.isNotEmpty)
-            ? int.tryParse(_clientId)
-            : 1;
-
-    _socket?.emit('chat_message', {
+    final currentUserId = _currentUserId;
+    final payload = {
       'roomId': _activeRoomId,
       'from': _senderRole,
       'userId': currentUserId,
       'senderName': _senderName,
       'text': text,
+    };
+
+    // 1. Emit socket event instantly for real-time delivery
+    _socket?.emit('chat_message', payload);
+
+    // 2. Post to DB via REST API in background
+    ApiService.postChatMessage(payload).catchError((err) {
+      debugPrint('REST chat message failed: $err');
     });
+
     _input.clear();
     if (mounted) setState(() => _isTyping = false);
+    _updateConversationLastMessage(
+      _activeRoomId,
+      text,
+      DateTime.now().toIso8601String(),
+      _senderName,
+    );
     _scrollToLatest();
+  }
+
+  void _startPolling() {
+    _pollingTimer?.cancel();
+    _pollingTimer = Timer.periodic(const Duration(milliseconds: 800), (timer) {
+      if (_activeRoomId.isNotEmpty) {
+        _pollMessages();
+      }
+    });
+  }
+
+  Future<void> _pollMessages() async {
+    try {
+      final latest = await ApiService.getChatMessages(_activeRoomId, limit: 300);
+      if (latest.length != _messages.length && mounted) {
+        setState(() {
+          _messages = latest;
+        });
+        _scrollToLatest();
+      }
+    } catch (_) {}
   }
 
   Future<void> _pickAndUploadFile({required bool isImage}) async {
@@ -410,11 +620,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
           _scrollToLatest();
         }
 
-        final currentUserId = (_senderRole == 'technician' && _technicianId.isNotEmpty) 
-            ? int.tryParse(_technicianId)
-            : (_senderRole == 'client' && _clientId.isNotEmpty)
-                ? int.tryParse(_clientId)
-                : 1;
+        final currentUserId = _currentUserId;
 
         _socket?.emit('chat_message', {
           'roomId': _activeRoomId,
@@ -566,11 +772,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
           _scrollToLatest();
         }
 
-        final currentUserId = (_senderRole == 'technician' && _technicianId.isNotEmpty) 
-            ? int.tryParse(_technicianId)
-            : (_senderRole == 'client' && _clientId.isNotEmpty)
-                ? int.tryParse(_clientId)
-                : 1;
+        final currentUserId = _currentUserId;
 
         _socket?.emit('chat_message', {
           'roomId': _activeRoomId,
@@ -596,7 +798,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     }
   }
 
-  Future<void> _deleteMessage(int messageId) async {
+  Future<void> _deleteMessage(dynamic messageId) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -614,7 +816,11 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
       try {
         await ApiService.deleteChatMessage(messageId.toString());
         setState(() {
-          _messages.removeWhere((m) => m['id'] == messageId);
+          _messages.removeWhere((m) => (m['id'] ?? '').toString() == messageId.toString());
+        });
+        _socket?.emit('delete_message', {
+          'roomId': _activeRoomId,
+          'messageId': messageId.toString(),
         });
       } catch (e) {
         debugPrint('Erreur suppression: $e');
@@ -631,11 +837,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
       'createdAt': DateTime.now().toIso8601String(),
     };
     if (mounted) setState(() => _messages.add(localMessage));
-    final currentUserId = (_senderRole == 'technician' && _technicianId.isNotEmpty) 
-        ? int.tryParse(_technicianId)
-        : (_senderRole == 'client' && _clientId.isNotEmpty)
-            ? int.tryParse(_clientId)
-            : 1; // Default fallback for Concepteur
+    final currentUserId = _currentUserId;
 
     _socket?.emit('chat_message', {
       'roomId': _activeRoomId,
@@ -644,6 +846,12 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
       'senderName': _senderName,
       'text': txt,
     });
+    _updateConversationLastMessage(
+      _activeRoomId,
+      txt,
+      DateTime.now().toIso8601String(),
+      _senderName,
+    );
     _scrollToLatest();
   }
 
@@ -653,6 +861,30 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
       return;
     }
     if (mounted) setState(() => _isSearching = true);
+
+    final userRole = ApiService.savedUserRole?.toLowerCase();
+    final isConcepteur = userRole == 'concepteur' || (userRole == 'conception' && !ApiService.isSuperAdmin);
+    if (isConcepteur && _conversations.isNotEmpty) {
+      final query = q.trim().toLowerCase();
+      final matches = _conversations.where((c) {
+        final name = (c['name'] ?? '').toString().toLowerCase();
+        final role = (c['roleLabel'] ?? '').toString().toLowerCase();
+        return name.contains(query) || role.contains(query);
+      }).toList();
+      if (mounted) {
+        setState(() {
+          _searchResults = matches.map((m) => {
+            'id': m['roomId'],
+            'roomId': m['roomId'],
+            'name': m['name'],
+            'roleLabel': m['roleLabel'] ?? 'Contact',
+          }).toList();
+          _isSearching = false;
+        });
+      }
+      return;
+    }
+
     try {
       final results = await ApiService.searchConcepteurs(q);
       if (mounted) setState(() { _searchResults = results; _isSearching = false; });
@@ -661,24 +893,27 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     }
   }
 
-  void _startChatWith(Map<String, dynamic> designer) {
-    // Generate a roomId based on user roles
-    final designerId = designer['id'].toString();
-    final room = 'chat_conception_$designerId';
+  void _startChatWith(Map<String, dynamic> contact) {
+    final room = (contact['roomId'] ?? contact['id'] ?? '').toString();
+    final name = (contact['name'] ?? 'Contact').toString();
+    final role = (contact['roleLabel'] ?? contact['specialite'] ?? '').toString();
     
     if (mounted) {
       setState(() {
         _searchResults = [];
         _isSearching = false;
         _searchController.clear();
-        _selectedDesignerDetails = designer;
+        _selectedDesignerDetails = {
+          'name': name,
+          'specialite': role,
+          'machines': <String>[],
+        };
       });
     }
 
-    // Switch to this room
     _switchConversation({
       'roomId': room,
-      'concepteurName': designer['name'],
+      'name': name,
     });
   }
 
@@ -687,6 +922,22 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     if (dt == null) return '--:--';
     final d = dt.toLocal();
     return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  }
+
+  void _updateConversationLastMessage(String roomId, String text, String createdAt, String senderName) {
+    if (!mounted) return;
+    setState(() {
+      final index = _conversations.indexWhere((c) => c['roomId'] == roomId);
+      if (index != -1) {
+        final conv = Map<String, dynamic>.from(_conversations[index]);
+        conv['lastText'] = text;
+        conv['lastAt'] = createdAt;
+        conv['senderName'] = senderName;
+        
+        _conversations.removeAt(index);
+        _conversations.insert(0, conv);
+      }
+    });
   }
 
   void _scrollToLatest() {
@@ -982,8 +1233,16 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                       final m = _messages[i];
                       final sender = (m['senderName'] ?? 'User').toString();
                       final text = (m['text'] ?? '').toString();
-                      final mine = sender == _senderName;
+                      final fromRole = (m['from'] ?? '').toString().toLowerCase();
+
+                      final userRole = ApiService.savedUserRole?.toLowerCase();
+                      final isConcepteur = userRole == 'concepteur' || (userRole == 'conception' && !ApiService.isSuperAdmin);
+
+                      final bool mine = sender.trim().toLowerCase() == _senderName.trim().toLowerCase();
+
+                      final displaySender = isConcepteur ? 'Admin' : sender;
                       final critical = text.toLowerCase().contains('alerte critique');
+
                       return Align(
                         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
                         child: GestureDetector(
@@ -1007,7 +1266,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 if (!mine) ...[
-                                  Text(sender, style: GoogleFonts.inter(color: _accent, fontSize: 10, fontWeight: FontWeight.bold)),
+                                  Text(displaySender, style: GoogleFonts.inter(color: _accent, fontSize: 10, fontWeight: FontWeight.bold)),
                                   const SizedBox(height: 2),
                                 ],
                                 

@@ -18,7 +18,7 @@ const transporter = nodemailer.createTransport(config);
  * @param {string} name 
  * @param {string} password 
  */
-async function sendWelcomeEmail(to, name, password) {
+async function sendWelcomeEmail(to, name, password, roleLabel = 'Concepteur') {
     if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
         console.warn('⚠️ SMTP non configuré. Email non envoyé à', to);
         return {
@@ -32,7 +32,7 @@ async function sendWelcomeEmail(to, name, password) {
         <div style="font-family: sans-serif; line-height: 1.5; color: #333;">
             <h2 style="color: #FF6E00;">Bienvenue sur DALI PFE</h2>
             <p>Bonjour <strong>${name}</strong>,</p>
-            <p>Votre compte <strong>Concepteur</strong> a été créé avec succès.</p>
+            <p>Votre compte <strong>${roleLabel}</strong> a été créé avec succès.</p>
             <p>Voici vos identifiants de connexion :</p>
             <div style="background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;">
                 <p style="margin: 5px 0;"><strong>Email :</strong> ${to}</p>
@@ -48,7 +48,7 @@ async function sendWelcomeEmail(to, name, password) {
         await transporter.sendMail({
             from: process.env.SMTP_FROM || '"DALI PFE" <noreply@dali-pfe.com>',
             to,
-            subject: 'Vos identifiants de connexion - DALI PFE',
+            subject: `Vos identifiants de connexion (${roleLabel}) - DALI PFE`,
             html,
         });
         console.log('✅ Email envoyé avec succès à', to);

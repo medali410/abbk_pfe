@@ -308,7 +308,7 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
     try {
       final clients = await ApiService.getClients();
       final machinesRaw = _filterClientId == null || _filterClientId!.isEmpty
-          ? await ApiService.getCatalogMachines()
+          ? await ApiService.getCatalogMachines(includeAll: true)
           : await ApiService.getMachinesForClient(_filterClientId!);
       final machines = _onlyDbMachines(machinesRaw);
 
@@ -470,17 +470,18 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
 
     return Container(
       width: isDesktop ? 220 : double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: const BoxDecoration(
-        color: _surfaceContainer,
-        border: Border(bottom: BorderSide(color: _outlineVariant)),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E2243).withOpacity(0.9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1.5),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String?>(
           isExpanded: true,
           value: _filterClientId,
           icon: Icon(Icons.keyboard_arrow_down, color: _onSurfaceVariant, size: 18),
-          dropdownColor: _surfaceContainerLow,
+          dropdownColor: const Color(0xFF131730),
           style: GoogleFonts.spaceGrotesk(color: _onSurface, fontSize: 14),
           items: items,
           onChanged: (v) {
@@ -495,17 +496,18 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
   Widget _buildSortFilter(bool isDesktop) {
     return Container(
       width: isDesktop ? 220 : double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: const BoxDecoration(
-        color: _surfaceContainer,
-        border: Border(bottom: BorderSide(color: _outlineVariant)),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E2243).withOpacity(0.9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1.5),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           isExpanded: true,
           value: _sortKey,
           icon: Icon(Icons.keyboard_arrow_down, color: _onSurfaceVariant, size: 18),
-          dropdownColor: _surfaceContainerLow,
+          dropdownColor: const Color(0xFF131730),
           style: GoogleFonts.spaceGrotesk(color: _onSurface, fontSize: 14),
           items: [
             DropdownMenuItem(value: 'health_desc', child: Text('Santé (décroissant)', style: GoogleFonts.spaceGrotesk(fontSize: 14))),
@@ -754,9 +756,9 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: _surfaceContainer.withOpacity(0.65),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: accent.withOpacity(0.22)),
+          color: const Color(0xFF1E2243).withOpacity(0.4),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: accent.withOpacity(0.18)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -876,13 +878,8 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
     required String lastConsultationLabel,
     required List<String> teamNames,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: _surfaceContainerLow,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _outlineVariant.withOpacity(0.15)),
-      ),
-      clipBehavior: Clip.antiAlias,
+    return _HoverCardWrapper(
+      hoverBorderColor: progressColorBottom,
       child: Material(
         color: Colors.transparent,
         child: Column(
@@ -961,10 +958,11 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
+                        color: statusColor.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: statusColor.withOpacity(0.25), width: 1),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -981,10 +979,10 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
                           Text(
                             status,
                             style: GoogleFonts.spaceGrotesk(
-                              fontSize: 9,
+                              fontSize: 10,
                               fontWeight: FontWeight.bold,
                               color: statusColor,
-                              letterSpacing: -0.5,
+                              letterSpacing: 0.2,
                             ),
                           ),
                         ],
@@ -1111,11 +1109,11 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
                       onPressed: _canDeleteMachineId(id)
                           ? () => _confirmDeleteMachine(context, id, name)
                           : null,
-                      icon: Icon(Icons.delete_outline, size: 18, color: _errorColor),
+                      icon: Icon(Icons.delete_outline_rounded, size: 16, color: _errorColor),
                       label: Text(
-                        'EFFACER',
+                        'SUPPRIMER',
                         style: GoogleFonts.spaceGrotesk(
-                          fontSize: 10,
+                          fontSize: 11,
                           fontWeight: FontWeight.bold,
                           color: _errorColor,
                           letterSpacing: 1.5,
@@ -1123,8 +1121,12 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
                       ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: _errorColor,
-                        side: BorderSide(color: _errorColor.withOpacity(0.45)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        side: BorderSide(color: _errorColor.withOpacity(0.25)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        backgroundColor: _errorColor.withOpacity(0.04),
                       ),
                     ),
                 ],
@@ -1164,4 +1166,54 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
     );
   }
 
+}
+
+class _HoverCardWrapper extends StatefulWidget {
+  final Widget child;
+  final Color hoverBorderColor;
+  const _HoverCardWrapper({required this.child, required this.hoverBorderColor});
+
+  @override
+  State<_HoverCardWrapper> createState() => _HoverCardWrapperState();
+}
+
+class _HoverCardWrapperState extends State<_HoverCardWrapper> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        transform: _isHovered ? (Matrix4.identity()..translate(0, -6, 0)) : Matrix4.identity(),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              const Color(0xFF1E2243).withOpacity(0.95),
+              const Color(0xFF131730).withOpacity(0.85),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _isHovered ? widget.hoverBorderColor.withOpacity(0.6) : Colors.white.withOpacity(0.08),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: _isHovered ? widget.hoverBorderColor.withOpacity(0.2) : Colors.black.withOpacity(0.3),
+              blurRadius: _isHovered ? 24 : 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: widget.child,
+      ),
+    );
+  }
 }

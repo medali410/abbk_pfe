@@ -9,9 +9,14 @@ const {
     handleGoogleIdToken,
     exchangeCodeForIdToken,
 } = require('../lib/googleAuth');
+const { validateLogin, validateClientSelfRegister } = require('../lib/validators');
 
 async function login(req, res) {
     try {
+        const loginErrors = validateLogin(req.body);
+        if (loginErrors.length > 0) {
+            return res.status(400).json({ error: loginErrors.join(' | '), errors: loginErrors });
+        }
         const user = await UserModel.findByEmail(req.body.email);
         if (!user) {
             return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
@@ -128,11 +133,9 @@ async function clientSelfRegister(req, res) {
         const nom = String(req.body.name || req.body.nom || '').trim();
         const password = String(req.body.password || '');
         const location = String(req.body.location || req.body.address || req.body.adresse || '').trim();
-        if (!email.includes('@') || !nom) {
-            return res.status(400).json({ error: 'Email et nom obligatoires' });
-        }
-        if (password.length < 6) {
-            return res.status(400).json({ error: 'Mot de passe minimum 6 caractères' });
+        const registerErrors = validateClientSelfRegister(req.body);
+        if (registerErrors.length > 0) {
+            return res.status(400).json({ error: registerErrors.join(' | '), errors: registerErrors });
         }
         const { user, profile } = await createUserWithProfile(
             'client',

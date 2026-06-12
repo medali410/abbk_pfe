@@ -10,7 +10,9 @@ async function findMany({ catalog = false, includeAll = false, unassigned = fals
     if (unassigned) {
         where = { companyId: '' };
     }
-    if (concepterId) {
+    // Only filter by concepteurId when NOT doing a full catalog fetch.
+    // When includeAll=true the designer wants to see every machine in the system.
+    if (concepterId && !includeAll) {
         where.concepteurId = String(concepterId);
     }
     // If it's a catalog view, only show public machines by default
@@ -52,6 +54,8 @@ async function create(data) {
             concepteurId: String(data.concepteurId || ''),
             isPublic: data.isPublic !== false,
             disponible: data.disponible !== false,
+            price: data.price !== undefined ? String(data.price) : '',
+            stock: data.stock !== undefined ? parseInt(data.stock, 10) : 0,
         },
     });
 }
@@ -80,6 +84,10 @@ async function update(machineId, data) {
     if (data.model3dUrl !== undefined) updateData.model3dUrl = String(data.model3dUrl);
     if (data.disponible !== undefined) updateData.disponible = !!data.disponible;
     if (data.companyId !== undefined) updateData.companyId = String(data.companyId);
+    if (data.wifiSsid !== undefined) updateData.wifiSsid = String(data.wifiSsid);
+    if (data.wifiPassword !== undefined) updateData.wifiPassword = String(data.wifiPassword);
+    if (data.price !== undefined) updateData.price = String(data.price);
+    if (data.stock !== undefined) updateData.stock = parseInt(data.stock, 10);
 
     return prisma.machine.update({
         where: { id: String(machineId) },

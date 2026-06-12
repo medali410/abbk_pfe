@@ -1,14 +1,34 @@
 const ClientModel = require('../models/clientModel');
 const MachineModel = require('../models/machineModel');
 const { serializeMachine } = require('../views/machineView');
-const { createUserWithProfile } = require('../lib/auth');
+const { createUserWithProfile, getAuthUserId, prisma } = require('../lib/auth');
 const { mergeUserProfile } = require('../views/userView');
 
 const { nextBusinessId } = require('../lib/ids');
 
 async function list(req, res) {
     try {
-        const rows = await ClientModel.findAllWithUsers();
+        const userId = getAuthUserId(req.auth);
+        const role = req.auth?.role;
+        let rows;
+        if (role === 'conception') {
+            const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+            if (concepteur) {
+                const machines = await prisma.machine.findMany({
+                    where: { concepteurId: String(concepteur.id) }
+                });
+                const clientIds = [...new Set(machines.map(m => m.companyId).filter(Boolean))];
+                rows = await prisma.client.findMany({
+                    where: { clientId: { in: clientIds } },
+                    include: { user: true },
+                    orderBy: { id: 'desc' },
+                });
+            } else {
+                rows = [];
+            }
+        } else {
+            rows = await ClientModel.findAllWithUsers();
+        }
         res.set('Cache-Control', 'no-store');
         return res.json(rows.map((c) => mergeUserProfile(c.user, c)));
     } catch (err) {
@@ -64,6 +84,32 @@ async function getMachines(req, res) {
     }
 }
 
+async function getTechnicians(req, res) {
+    try {
+        const { id } = req.params;
+        const techs = await prisma.technician.findMany({
+            where: { companyId: String(id) },
+            include: { user: true }
+        });
+        return res.json(techs.map(t => mergeUserProfile(t.user, t)));
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+async function getMaintenanceAgents(req, res) {
+    try {
+        const { id } = req.params;
+        const agents = await prisma.maintenanceAgent.findMany({
+            where: { clientId: String(id) },
+            include: { user: true }
+        });
+        return res.json(agents.map(a => mergeUserProfile(a.user, a)));
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
 async function update(req, res) {
     try {
         const { id } = req.params;
@@ -92,4 +138,4 @@ async function remove(req, res) {
     }
 }
 
-module.exports = { list, create, getById, getMachines, update, remove };
+module.exports = { list, create, getById, getMachines, getTechnicians, getMaintenanceAgents, update, remove };

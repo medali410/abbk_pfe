@@ -207,14 +207,15 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
 
   void _applyTelemetry(Map<String, dynamic> data) {
     if (!mounted) return;
-    final metrics = data['metrics'] as Map<String, dynamic>?;
+    final rawMetrics = data['metrics'];
+    final metrics = rawMetrics is Map ? Map<String, dynamic>.from(rawMetrics) : null;
     setState(() {
-      _thermal = _toDouble(data['temperature'] ?? metrics?['thermal'], _thermal);
-      _pressure = _toDouble(data['pressure'] ?? metrics?['pressure'], _pressure);
-      _power = _toDouble(data['power'] ?? data['powerConsumption'] ?? metrics?['power'], _power);
+      _thermal = _toDouble(data['temperature'] ?? data['temp'] ?? metrics?['thermal'] ?? metrics?['temp'], _thermal);
+      _pressure = _toDouble(data['pressure'] ?? data['pression'] ?? metrics?['pressure'] ?? metrics?['pression'], _pressure);
+      _power = _toDouble(data['power'] ?? data['powerConsumption'] ?? metrics?['power'] ?? metrics?['powerConsumption'], _power);
       _ultrasonic = _toDouble(data['ultrasonic'] ?? metrics?['ultrasonic'], _ultrasonic);
       _presence = _toDouble(data['presence'] ?? metrics?['presence'], _presence);
-      _magnetic = _toDouble(data['magnetic'] ?? metrics?['magnetic'], _magnetic);
+      _magnetic = _toDouble(data['magnetic'] ?? data['magnet'] ?? metrics?['magnetic'] ?? metrics?['magnet'], _magnetic);
       _infrared = _toDouble(data['infrared'] ?? metrics?['infrared'], _infrared);
       _vibration = _toDouble(data['vibration'] ?? metrics?['vibration'], _vibration);
       _friction = _toDouble(data['friction'] ?? metrics?['friction'], _friction);
@@ -227,7 +228,8 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
         _lng = lng;
       }
       _ingestScenario(data);
-      final fs = data['failureScenario'] as Map<String, dynamic>?;
+      final rawFs = data['failureScenario'];
+      final fs = rawFs is Map ? Map<String, dynamic>.from(rawFs) : null;
       final hasModelProb = data['prob_panne'] != null || data['panne_probability'] != null;
       final probRaw = data['prob_panne'] ??
           data['panne_probability'] ??
@@ -274,7 +276,8 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
   }
 
   void _ingestScenario(Map<String, dynamic> data) {
-    Map<String, dynamic>? fs = data['failureScenario'] as Map<String, dynamic>?;
+    final rawFs = data['failureScenario'];
+    Map<String, dynamic>? fs = rawFs is Map ? Map<String, dynamic>.from(rawFs) : null;
     final code = (data['scenarioCode'] ?? fs?['scenarioCode'])?.toString();
     final label = (data['scenarioLabel'] ?? fs?['scenarioLabel'])?.toString();
     final expl = (data['scenarioExplanation'] ?? fs?['scenarioExplanation'])?.toString();
@@ -293,7 +296,7 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
 
   void _initSocket() {
     _socket = io.io(ApiService.socketBaseUrl, <String, dynamic>{
-      'transports': ['websocket'],
+      'transports': <String>['websocket', 'polling'],
       'autoConnect': true,
     });
     _socket.on('nouvelle_prediction', (raw) {
@@ -789,12 +792,12 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
         hints,
         showTemperatureVideo: true,
       ),
-      _metricCard('Pressure', 'pressure', '${_pressure.toStringAsFixed(1)} bar', Icons.compress, pressureColor, hints),
+      _metricCard('Pressure', 'pressure', _pressure > 0 && _pressure < 2 ? '${_pressure.toStringAsFixed(3)} bar' : '${_pressure.toStringAsFixed(1)} bar', Icons.compress, pressureColor, hints),
       _metricCard('Power / Electricity', 'power', '${_power.toStringAsFixed(1)} kWh', Icons.bolt, powerColor, hints),
       _metricCard('Ultrasonic', 'ultrasonic', '${_ultrasonic.toStringAsFixed(1)} cm', Icons.waves, ultrasonicColor, hints),
       _metricCard('Presence', '', _presence >= 0.5 ? 'DETECTED' : 'ABSENT', Icons.sensors, _presence >= 0.5 ? _green : _error, hints),
       _metricCard('Magnetic', 'magnetic', '${_magnetic.toStringAsFixed(1)} mTesla', Icons.straighten, magneticColor, hints),
-      _metricCard('Infrared', 'infrared', '${_infrared.toStringAsFixed(1)} W/m²', Icons.settings_input_antenna, infraredColor, hints),
+      _metricCard('Infrared', 'infrared', _infrared <= 0 ? 'N/A' : '${_infrared.toStringAsFixed(1)} °C', Icons.settings_input_antenna, infraredColor, hints),
     ];
     return GridView.count(
       shrinkWrap: true,

@@ -179,9 +179,10 @@ Map<String, double> _metricsAsDoubles(Map<String, dynamic>? raw) {
   return out;
 }
 
-/// Complète la carte `metrics` avec d’éventuels champs legacy au niveau machine.
 Map<String, double> _effectiveMachineMetrics(Map<String, dynamic> machine) {
-  final out = _metricsAsDoubles(machine['metrics'] as Map<String, dynamic>?);
+  final rawMetrics = machine['metrics'];
+  final metricsMap = rawMetrics is Map ? Map<String, dynamic>.from(rawMetrics) : null;
+  final out = _metricsAsDoubles(metricsMap);
   void merge(String metricKey, Object? legacyVal) {
     if (out.containsKey(metricKey)) return;
     final n = num.tryParse(legacyVal?.toString() ?? '');
@@ -208,15 +209,6 @@ String _iaMessageFromRow(Map<String, dynamic> m) {
   return 'En attente de données IA…';
 }
 
-/// Hauteur cible des tuiles grille (évite overflow avec ratio largeur/hauteur).
-double _gridChildAspectRatio(double viewportWidth, int crossAxisCount) {
-  const pad = 32.0;
-  const spacing = 12.0;
-  final inner = viewportWidth - pad - (crossAxisCount - 1) * spacing;
-  final cellW = inner / crossAxisCount;
-  const targetH = 420.0;
-  return (cellW / targetH).clamp(0.42, 1.35);
-}
 
 /// Liste machines pour intégration dans [MaintenanceDashboardPage].
 /// Grille 2×n sur écran large (quadrants), une colonne sur mobile.
@@ -249,27 +241,55 @@ class MaintenanceMachineHubContent extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final vw = constraints.maxWidth;
-        final crossCount = vw >= 720 ? 2 : 1;
-        final compact = crossCount > 1;
-        final ratio = _gridChildAspectRatio(vw, crossCount);
+        final rows = (data['machines'] as List? ?? const [])
+            .map((e) => (e as Map).cast<String, dynamic>())
+            .toList();
 
-        final grid = GridView.builder(
-          padding: const EdgeInsets.all(16),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossCount,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: ratio,
+        final criticalRows = rows
+            .where((m) =>
+                (m['level'] ?? '').toString().toUpperCase() != 'NORMAL')
+            .toList();
+        final normalRows = rows
+            .where((m) =>
+                (m['level'] ?? '').toString().toUpperCase() == 'NORMAL')
+            .toList();
+
+        final featuredMachine =
+            criticalRows.isNotEmpty ? criticalRows.first : rows.first;
+
+        final netflixView = SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildFeaturedBanner(
+                context,
+                featuredMachine,
+                viewerName,
+                maintenanceAgentId,
+              ),
+              if (criticalRows.isNotEmpty)
+                _NetflixMachineRow(
+                  title: 'Diagnostics Critiques & Attention',
+                  machines: criticalRows,
+                  viewerName: viewerName,
+                  maintenanceAgentId: maintenanceAgentId,
+                ),
+              _NetflixMachineRow(
+                title: 'Toutes les Machines du Périmètre',
+                machines: rows,
+                viewerName: viewerName,
+                maintenanceAgentId: maintenanceAgentId,
+              ),
+              if (normalRows.isNotEmpty && criticalRows.isNotEmpty)
+                _NetflixMachineRow(
+                  title: 'Fonctionnement Normal',
+                  machines: normalRows,
+                  viewerName: viewerName,
+                  maintenanceAgentId: maintenanceAgentId,
+                ),
+            ],
           ),
-          itemCount: rows.length,
-          itemBuilder: (context, i) {
-            return _MaintenanceMachineCard(
-              machine: rows[i],
-              viewerName: viewerName,
-              maintenanceAgentId: maintenanceAgentId,
-              compact: compact,
-            );
-          },
         );
 
         final sidebarDivider = Colors.white.withValues(alpha: 0.08);
@@ -302,7 +322,7 @@ class MaintenanceMachineHubContent extends StatelessWidget {
                   ),
                 ),
               ),
-              Expanded(child: grid),
+              Expanded(child: netflixView),
             ],
           );
         }
@@ -321,13 +341,344 @@ class MaintenanceMachineHubContent extends StatelessWidget {
                 machines: rows,
               ),
             ),
-            Expanded(child: grid),
+            Expanded(child: netflixView),
           ],
         );
       },
     );
   }
 }
+
+/// Banner for the featured machine at the top (Netflix style).
+Widget _buildFeaturedBanner(
+  BuildContext context,
+  Map<String, dynamic> machine,
+  String viewerName,
+  String maintenanceAgentId,
+) {
+  final id = (machine['machineId'] ?? '').toString();
+  final name = (machine['machineName'] ?? id).toString();
+  final level = (machine['level'] ?? 'NORMAL').toString();
+  final imageUrl = (machine['imageUrl'] ?? '').toString();
+  final iaMsg = _iaMessageFromRow(machine);
+
+  final isCritical = level.toUpperCase() != 'NORMAL';
+  final levelColor =
+      isCritical ? const Color(0xFFFFB4AB) : const Color(0xFF75D1FF);
+
+  return Container(
+    margin: const EdgeInsets.all(16),
+    height: 220,
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(16),
+      gradient: const LinearGradient(
+        colors: [Color(0xFF1F1D40), Color(0xFF13112E)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.3),
+          blurRadius: 15,
+          offset: const Offset(0, 8),
+        ),
+      ],
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Stack(
+      children: [
+        Positioned(
+          right: -50,
+          top: -50,
+          child: Container(
+            width: 200,
+            height: 200,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFFFF6E00).withValues(alpha: 0.15),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: levelColor.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: levelColor.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Text(
+                        'MACHINE VEDETTE · $level',
+                        style: GoogleFonts.spaceGrotesk(
+                          color: levelColor,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      name,
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      iaMsg,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: const Color(0xFFE2DFFF).withValues(alpha: 0.8),
+                        height: 1.3,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => MachineDetailAiPage(
+                                  machineId: id,
+                                  machineName: name,
+                                  viewerRole: 'maintenance',
+                                  viewerName: viewerName,
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.info_outline, size: 16),
+                          label: const Text('Détails IA'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: const Color(0xFF10102B),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            textStyle: GoogleFonts.inter(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => MissionControlPage(
+                                  initialArgs: <String, dynamic>{
+                                    'machineId': id,
+                                    'techId': id,
+                                    'name': viewerName.isNotEmpty
+                                        ? viewerName
+                                        : 'Agent maintenance',
+                                    'machineName': name,
+                                    'viewerRole': 'maintenance',
+                                    if (maintenanceAgentId.isNotEmpty)
+                                      'technicianId': maintenanceAgentId,
+                                  },
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(
+                            Icons.assignment_turned_in_outlined,
+                            size: 16,
+                          ),
+                          label: const Text('Mission'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white30),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            textStyle: GoogleFonts.inter(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                flex: 2,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Hero(
+                    tag: 'featured_img_$id',
+                    child: _buildMachineImageBox(imageUrl, size: 140),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Horizontal Netflix-style machine row with navigation buttons.
+class _NetflixMachineRow extends StatefulWidget {
+  const _NetflixMachineRow({
+    required this.title,
+    required this.machines,
+    required this.viewerName,
+    required this.maintenanceAgentId,
+  });
+
+  final String title;
+  final List<Map<String, dynamic>> machines;
+  final String viewerName;
+  final String maintenanceAgentId;
+
+  @override
+  State<_NetflixMachineRow> createState() => _NetflixMachineRowState();
+}
+
+class _NetflixMachineRowState extends State<_NetflixMachineRow> {
+  final ScrollController _scrollController = ScrollController();
+
+  void _scroll(double offset) {
+    _scrollController.animateTo(
+      (_scrollController.offset + offset).clamp(
+        0.0,
+        _scrollController.position.maxScrollExtent,
+      ),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.machines.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            widget.title,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 500,
+          child: Stack(
+            children: [
+              ListView.builder(
+                controller: _scrollController,
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: widget.machines.length,
+                itemBuilder: (context, idx) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 16),
+                    child: SizedBox(
+                      width: 320,
+                      child: _MaintenanceMachineCard(
+                        machine: widget.machines[idx],
+                        viewerName: widget.viewerName,
+                        maintenanceAgentId: widget.maintenanceAgentId,
+                        compact: true,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              Positioned(
+                left: 8,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.black.withValues(alpha: 0.6),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.1),
+                      ),
+                    ),
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.chevron_left_rounded,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                      onPressed: () => _scroll(-600),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                right: 8,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.black.withValues(alpha: 0.6),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.1),
+                      ),
+                    ),
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.chevron_right_rounded,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                      onPressed: () => _scroll(600),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+}
+
 
 /// Même grille 3×2 que la vue détail machine IA (thermique, pression, puissance…).
 class _MaintenanceSensorSnapshotGrid extends StatelessWidget {

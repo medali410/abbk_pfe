@@ -62,6 +62,8 @@ model Technician {
   userId        Int    @unique
   technicianId  String @unique
   companyId     String @default("")
+  firstName     String @default("")
+  lastName      String @default("")
   specialization String @default("")
   status        String @default("Disponible")
   machineIds    String @default("[]")
@@ -75,12 +77,15 @@ model MaintenanceAgent {
   clientId            String @default("")
   firstName           String @default("")
   lastName            String @default("")
+  machineIds          String @default("[]")
   user                User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Machine {
   id          String   @id
   name        String
+  price       String   @default("")
+  stock       Int      @default(0)
   type        String   @default("")
   disponible  Boolean  @default(true)
   status      String   @default("STOPPED")
@@ -94,7 +99,11 @@ model Machine {
   modele3dId  Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  wifiSsid    String   @default("")
+  wifiPassword String  @default("") // Temporaire PFE
   modele3d    Modele3d?
+  controles   Controle[]
+  maintenanceOrders MaintenanceOrder[]
 }
 
 model Modele3d {
@@ -170,4 +179,96 @@ model ChatRoomParticipant {
   joinedAt DateTime @default(now())
 
   @@unique([roomId, userId])
+}
+
+model PurchaseRequest {
+  id             Int      @id @default(autoincrement())
+  machineId      String
+  machineName    String   @default("")
+  linkedClientId String   @default("")
+  requesterName  String
+  requesterEmail String   @default("")
+  requesterPhone String   @default("")
+  location       String   @default("")
+  googleMapsUrl  String   @default("")
+  note           String   @default("")
+  status         String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  reviewedByName String   @default("")
+  requestType    String   @default("PURCHASE")
+  metadata       String   @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Controle {
+  id           Int      @id @default(autoincrement())
+  machineId    String
+  machine      Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  technicienId String?
+  technicienNom String?
+  jour         String   // Format YYYY-MM-DD
+  compteRendu  String   @default("")
+  statut       String   @default("EN_ATTENTE") // EN_ATTENTE, EN_COURS, TERMINE, ANNULE
+  notes        String   @default("")
+  type         String   @default("TERRAIN") // TERRAIN, CALENDRIER, PREVENTIF
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model MaintenanceOrder {
+  id             String   @id @default(uuid())
+  machineId      String
+  machine        Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  description    String
+  technicianId   String?
+  technicianName String?
+  status         String   @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Mission {
+  id          Int       @id @default(autoincrement())
+  missionId   String    @unique
+  technicianId String
+  machineId   String
+  machineName String    @default("")
+  title       String
+  description String    @default("")
+  priority    String    @default("NORMAL")
+  status      String    @default("PENDING")
+  scheduledAt DateTime?
+  completedAt DateTime?
+  createdById Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Consultation {
+  id                 Int       @id @default(autoincrement())
+  consultationId     String    @unique
+  machineId          String
+  technicianId       String
+  scheduledDate      DateTime
+  durationMinutes    Int       @default(60)
+  note               String    @default("")
+  clientId           String    @default("")
+  maintenanceAgentId String    @default("")
+  status             String    @default("PENDING")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+model Notification {
+  id             Int       @id @default(autoincrement())
+  userId         Int
+  role           String
+  type           String    @default("INFO")
+  title          String    @default("")
+  body           String    @default("")
+  missionId      Int?
+  consultationId Int?
+  isRead         Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }

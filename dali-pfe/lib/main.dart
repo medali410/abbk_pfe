@@ -25,6 +25,8 @@ import 'control_calendar_page.dart';
 import 'control_reports_history_page.dart';
 import 'preventive_history_page.dart';
 import 'concepteur_dashboard_page.dart';
+import 'technician_dashboard_page.dart';
+import 'machine_consultation_page.dart';
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -53,6 +55,8 @@ const Set<String> _appRouteNames = {
   '/machine-team',
   '/machine-detail',
   '/message-equipe',
+  '/technician-dashboard',
+  '/machine-consultation',
 };
 
 /// Sur le web, conserve la route après F5 (ex. `/#/dashboard` → `/dashboard`).
@@ -354,6 +358,8 @@ class MyApp extends StatelessWidget {
         '/machine-detail':
             (context) => const MachineDetailAiPage(machineId: 'MAC_HATHA'),
         '/message-equipe': (context) => const MessageEquipePage(),
+        '/technician-dashboard': (context) => const TechnicianDashboardPage(),
+        '/machine-consultation': (context) => const MachineConsultationPage(),
       },
     );
   }

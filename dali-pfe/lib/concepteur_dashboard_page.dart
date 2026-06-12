@@ -12,6 +12,9 @@ import 'add_machine_page.dart';
 import 'add_client_page.dart';
 import 'add_technician_page.dart';
 import 'add_maintenance_agent_page.dart';
+import 'utils/form_validators.dart';
+import 'widgets/message_equipe_view.dart';
+
 
 class ConcepteurDashboardPage extends StatefulWidget {
   const ConcepteurDashboardPage({super.key});
@@ -71,6 +74,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   String? _error;
   bool _hasFleetSession = true;
   bool _silentRecoveryTried = false;
+  String? _profileExpandedFilter;
 
   /// Écoute missions / messages diagnostic pour notifier le concepteur (ex. technicien confirme).
   IO.Socket? _missionAckSocket;
@@ -168,11 +172,12 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   }
 
   String _initialsFromName(String name) {
-    final parts = name
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((e) => e.trim().isNotEmpty)
-        .toList();
+    final parts =
+        name
+            .trim()
+            .split(RegExp(r'\s+'))
+            .where((e) => e.trim().isNotEmpty)
+            .toList();
     if (parts.isEmpty) return 'U';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
     return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
@@ -275,7 +280,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     Set<String> clientKeys,
   ) {
     return concepteurs.where((c) {
-      final companyId = (c['companyId'] ?? c['clientId'] ?? '').toString().trim();
+      final companyId =
+          (c['companyId'] ?? c['clientId'] ?? '').toString().trim();
       if (companyId.isEmpty) return false;
       for (final k in clientKeys) {
         if (_linkedIdMatches(companyId, k)) return true;
@@ -294,28 +300,6 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
         color: Colors.transparent,
         child: Row(
           children: [
-            OutlinedButton(
-              onPressed: onEdit,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: primaryColor,
-                side: BorderSide(color: primaryColor.withOpacity(0.65)),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
-                minimumSize: const Size(72, 36),
-                tapTargetSize: MaterialTapTargetSize.padded,
-                visualDensity: VisualDensity.compact,
-              ),
-              child: Text(
-                'Modifier',
-                style: GoogleFonts.inter(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
             OutlinedButton(
               onPressed: onDelete,
               style: OutlinedButton.styleFrom(
@@ -464,11 +448,16 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       barrierDismissible: false,
       builder: (ctx) {
         final size = MediaQuery.of(ctx).size;
-        final dialogWidth = size.width * 0.94 > 1320 ? 1320.0 : size.width * 0.94;
-        final dialogHeight = size.height * 0.94 > 920 ? 920.0 : size.height * 0.94;
+        final dialogWidth =
+            size.width * 0.94 > 1320 ? 1320.0 : size.width * 0.94;
+        final dialogHeight =
+            size.height * 0.94 > 920 ? 920.0 : size.height * 0.94;
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(16),
             child: SizedBox(
@@ -530,9 +519,12 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   }
 
   bool _isPendingTechnician(Map<String, dynamic> t) {
-    final approval = (t['approvalStatus'] ?? '').toString().toUpperCase().trim();
+    final approval =
+        (t['approvalStatus'] ?? '').toString().toUpperCase().trim();
     final status = (t['status'] ?? '').toString().toLowerCase().trim();
-    return approval == 'PENDING' || status == 'en attente' || status == 'pending';
+    return approval == 'PENDING' ||
+        status == 'en attente' ||
+        status == 'pending';
   }
 
   Future<void> _approvePendingTechnician(Map<String, dynamic> t) async {
@@ -905,7 +897,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     try {
       _missionAckSocket?.dispose();
       _missionAckSocket = IO.io(ApiService.socketBaseUrl, <String, dynamic>{
-        'transports': ['websocket'],
+        'transports': <String>['websocket'],
         'autoConnect': true,
       });
 
@@ -916,7 +908,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
         final machineLabel =
             (data['machineName'] ?? '').toString().trim().isNotEmpty
                 ? (data['machineName'] ?? '').toString().trim()
-                : (data['machineId'] ?? data['interventionId'] ?? '').toString();
+                : (data['machineId'] ?? data['interventionId'] ?? '')
+                    .toString();
         final iv = (data['interventionId'] ?? '').toString();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -988,6 +981,183 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       await ApiService.loadSavedAuth();
     } catch (_) {}
     return (ApiService.authToken ?? '').trim();
+  }
+
+  void _showMachineMiniDetails(BuildContext context, Map<String, dynamic> m) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E2030),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              const Icon(Icons.precision_manufacturing, color: primaryColor),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _machineNameOf(m),
+                  style: GoogleFonts.spaceGrotesk(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: FutureBuilder<Map<String, dynamic>?>(
+            future: ApiService.getLatestTelemetry(
+              _machineIdOf(m),
+            ).catchError((_) => null),
+            builder: (ctx, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const SizedBox(
+                  height: 100,
+                  child: Center(
+                    child: CircularProgressIndicator(color: primaryColor),
+                  ),
+                );
+              }
+              final data = snap.data;
+              final status =
+                  (m['status'] ?? 'Inconnu').toString().toUpperCase();
+              final isRunning = status == 'RUNNING';
+
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        isRunning ? Icons.play_circle_fill : Icons.stop_circle,
+                        color:
+                            isRunning
+                                ? const Color(0xFF66BB6A)
+                                : const Color(0xFFFFB4AB),
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'État : $status',
+                        style: GoogleFonts.inter(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (data != null) ...[
+                    _miniStatRow(
+                      'Température',
+                      '${data['temperature'] ?? '--'} °C',
+                      Icons.thermostat,
+                    ),
+                    const SizedBox(height: 8),
+                    _miniStatRow(
+                      'Pression',
+                      '${data['pressure'] ?? '--'} bar',
+                      Icons.speed,
+                    ),
+                    const SizedBox(height: 8),
+                    _miniStatRow(
+                      'Vibration',
+                      '${data['vibration'] ?? '--'} mm/s',
+                      Icons.waves,
+                    ),
+                    const SizedBox(height: 8),
+                    _miniStatRow(
+                      'RPM',
+                      '${data['rpm'] ?? '--'} tr/min',
+                      Icons.rotate_right,
+                    ),
+                    const SizedBox(height: 8),
+                    _miniStatRow(
+                      'Risque panne',
+                      '${data['prob_panne'] ?? data['panne_probability'] ?? '--'} %',
+                      Icons.warning_amber,
+                    ),
+                  ] else
+                    Text(
+                      'Aucune donnée de télémétrie récente.',
+                      style: GoogleFonts.inter(
+                        color: Colors.white30,
+                        fontSize: 13,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(
+                'Fermer',
+                style: GoogleFonts.inter(color: mutedTextColor),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _openMachineDetail(m);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryColor,
+                foregroundColor: Colors.black,
+              ),
+              child: Text(
+                'Ouvrir détails',
+                style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _miniStatRow(String label, String value, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, color: primaryColor.withOpacity(0.8), size: 16),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
+          ),
+        ),
+        Text(
+          value,
+          style: GoogleFonts.inter(
+            color: Colors.white,
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _openMachineDetail(Map<String, dynamic> m) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder:
+            (_) => MachineDetailAiPage(
+              machineId: _machineIdOf(m),
+              machineName: _machineNameOf(m),
+              clientId: (m['clientId'] ?? m['companyId'] ?? '').toString(),
+              location: (m['location'] ?? '').toString(),
+              viewerRole: ApiService.savedUserRole,
+              viewerName: _profileDisplayName,
+            ),
+      ),
+    );
   }
 
   String _pickFirstString(Map<String, dynamic> src, List<String> keys) {
@@ -1073,7 +1243,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     return 'https://$v';
   }
 
-  Map<String, dynamic> _extractConcepteurProfileMap(Map<String, dynamic> workspace) {
+  Map<String, dynamic> _extractConcepteurProfileMap(
+    Map<String, dynamic> workspace,
+  ) {
     final candidates = <dynamic>[
       workspace['concepteur'],
       workspace['designer'],
@@ -1087,32 +1259,42 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     for (final c in candidates) {
       if (c is Map) return Map<String, dynamic>.from(c);
     }
-    final rootId = _pickFirstString(workspace, const ['concepteurId', 'id', '_id']);
+    final rootId = _pickFirstString(workspace, const [
+      'concepteurId',
+      'id',
+      '_id',
+    ]);
     if (rootId.isNotEmpty) return Map<String, dynamic>.from(workspace);
     return <String, dynamic>{};
   }
 
   void _applyConcepteurProfileData(Map<String, dynamic> data) {
-    final nextId = _pickFirstString(
-      data,
-      const ['concepteurId', 'id', '_id', 'userId'],
-    );
-    final nextName = _pickFirstString(
-      data,
-      const ['name', 'nom', 'fullName', 'displayName', 'username'],
-    );
-    final nextPhoto = _pickFirstString(
-      data,
-      const ['imageUrl', 'photoUrl', 'avatarUrl', 'photo'],
-    );
-    final nextEmail = _pickFirstString(
-      data,
-      const ['email', 'mail'],
-    );
-    final nextAddress = _pickFirstString(
-      data,
-      const ['adresse', 'address', 'location', 'street'],
-    );
+    final nextId = _pickFirstString(data, const [
+      'concepteurId',
+      'id',
+      '_id',
+      'userId',
+    ]);
+    final nextName = _pickFirstString(data, const [
+      'name',
+      'nom',
+      'fullName',
+      'displayName',
+      'username',
+    ]);
+    final nextPhoto = _pickFirstString(data, const [
+      'imageUrl',
+      'photoUrl',
+      'avatarUrl',
+      'photo',
+    ]);
+    final nextEmail = _pickFirstString(data, const ['email', 'mail']);
+    final nextAddress = _pickFirstString(data, const [
+      'adresse',
+      'address',
+      'location',
+      'street',
+    ]);
 
     final normalized = <String, dynamic>{
       ...data,
@@ -1181,11 +1363,11 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
   void _onSidebarSelect(String title) {
     if (!_hasFleetSession &&
-        (title == 'CLIENT CATALOG' ||
-            title == 'PROJECT TEAM' ||
+        (title == 'PROJET' ||
+            title == 'CLIENT CATALOG' ||
             title == 'TECHNICIANS' ||
             title == 'MAINTENANCE' ||
-            title == 'SETTINGS')) {
+            title == 'MESSAGERIE')) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -1202,16 +1384,16 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
         _techniciansFuture = ApiService.getTechnicians();
       } else if (title == 'MAINTENANCE') {
         _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
+      } else if (title == 'PROJET') {
+        _clientsFuture = ApiService.getClients();
+        _techniciansFuture = ApiService.getTechnicians();
+        _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
       } else if (title == 'CLIENT CATALOG') {
         _clientsFuture = ApiService.getClients();
         _techniciansFuture = ApiService.getTechnicians();
         _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
-      } else if (title == 'PROJECT TEAM') {
-        _clientsFuture = ApiService.getClients();
-        _techniciansFuture = ApiService.getTechnicians();
-        _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
-      } else if (title == 'SETTINGS') {
-        _clientLoginSurveyFuture = ApiService.getClientLoginSurvey();
+      } else if (title == 'MESSAGERIE') {
+        // Chat ne nécessite pas de chargement futur spécifique ici
       } else if (title == 'PROFILE') {
         _loadConcepteurProfileFromBackend();
       }
@@ -1244,6 +1426,16 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
         final s = e.toString().trim();
         if (s.isNotEmpty) ids.add(s);
       }
+    } else if (raw is String) {
+      try {
+        final l = jsonDecode(raw);
+        if (l is List) {
+          for (final e in l) {
+            final s = e.toString().trim();
+            if (s.isNotEmpty) ids.add(s);
+          }
+        }
+      } catch (_) {}
     }
     if (ids.isEmpty) return [];
     final matchedAssignedIds = <String>{};
@@ -1473,18 +1665,17 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     setState(() => _loadingRequests = true);
     try {
       final rows = await ApiService.getPurchaseRequests();
-      final sortedRows = List<Map<String, dynamic>>.from(rows)
-        ..sort((a, b) {
-          final aRaw = (a['createdAt'] ?? a['purchaseAt'] ?? '').toString();
-          final bRaw = (b['createdAt'] ?? b['purchaseAt'] ?? '').toString();
-          final aDate = DateTime.tryParse(aRaw);
-          final bDate = DateTime.tryParse(bRaw);
+      final sortedRows = List<Map<String, dynamic>>.from(rows)..sort((a, b) {
+        final aRaw = (a['createdAt'] ?? a['purchaseAt'] ?? '').toString();
+        final bRaw = (b['createdAt'] ?? b['purchaseAt'] ?? '').toString();
+        final aDate = DateTime.tryParse(aRaw);
+        final bDate = DateTime.tryParse(bRaw);
 
-          if (aDate != null && bDate != null) return bDate.compareTo(aDate);
-          if (aDate != null) return -1;
-          if (bDate != null) return 1;
-          return 0;
-        });
+        if (aDate != null && bDate != null) return bDate.compareTo(aDate);
+        if (aDate != null) return -1;
+        if (bDate != null) return 1;
+        return 0;
+      });
       if (!mounted) return;
       setState(() {
         _purchaseRequests = sortedRows;
@@ -1890,7 +2081,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               as String;
       if (clientKey.trim().isNotEmpty) {
         setState(() {
-          selectedMenu = 'CLIENT CATALOG';
+          selectedMenu = 'PROJET';
           _clientsFuture = ApiService.getClients();
           _techniciansFuture = ApiService.getTechnicians();
           _maintenanceAgentsFuture = ApiService.getMaintenanceAgents();
@@ -2060,13 +2251,78 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     }
   }
 
+  Future<String?> _showEmailCorrectionDialog(String initialEmail, String roleLabel) async {
+    final controller = TextEditingController(text: initialEmail);
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: sidebarColor,
+        title: Text(
+          'Email requis pour le $roleLabel',
+          style: GoogleFonts.inter(color: textColor),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Veuillez corriger ou saisir un email valide pour envoyer le mot de passe :',
+              style: GoogleFonts.inter(color: mutedTextColor, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              style: TextStyle(color: textColor),
+              decoration: InputDecoration(
+                hintText: 'exemple@gmail.com',
+                hintStyle: TextStyle(color: mutedTextColor.withOpacity(0.5)),
+                enabledBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: primaryColor.withOpacity(0.4)),
+                ),
+                focusedBorder: const UnderlineInputBorder(
+                  borderSide: BorderSide(color: primaryColor),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: Text('Annuler', style: TextStyle(color: mutedTextColor)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final val = controller.text.trim();
+              if (val.isNotEmpty && val.contains('@')) {
+                Navigator.pop(ctx, val);
+              } else {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Veuillez saisir un email contenant @')),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryColor,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Valider'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _validateTechnicianAddRequest(Map<String, dynamic> req) async {
     final reqId = (req['id'] ?? req['_id'] ?? '').toString().trim();
     if (reqId.isEmpty) return;
 
     final metadataRaw = req['metadata'];
     final metadata =
-        metadataRaw is Map ? Map<String, dynamic>.from(metadataRaw) : <String, dynamic>{};
+        metadataRaw is Map
+            ? Map<String, dynamic>.from(metadataRaw)
+            : <String, dynamic>{};
     final idsFromMeta =
         (metadata['machineIds'] is List)
             ? (metadata['machineIds'] as List)
@@ -2085,15 +2341,18 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     final machineIds = mergedMachineIds.toList();
 
     final requestedName = (req['requesterName'] ?? '').toString().trim();
-    final realEmail = (req['requesterEmail'] ?? '').toString().trim().toLowerCase();
+    var realEmail =
+        (req['requesterEmail'] ?? '').toString().trim().toLowerCase();
     final linkedClientId = (req['linkedClientId'] ?? '').toString().trim();
     final location = (req['location'] ?? '').toString().trim();
-    final specialization = (metadata['specialization'] ??
-            req['requestedSpecialty'] ??
-            'Maintenance terrain')
-        .toString()
-        .trim();
-    final description = (metadata['description'] ?? req['note'] ?? '').toString().trim();
+    final specialization =
+        (metadata['specialization'] ??
+                req['requestedSpecialty'] ??
+                'Maintenance terrain')
+            .toString()
+            .trim();
+    final description =
+        (metadata['description'] ?? req['note'] ?? '').toString().trim();
 
     if (linkedClientId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2108,20 +2367,16 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     }
 
     if (realEmail.isEmpty || !realEmail.contains('@')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Email technicien invalide : la demande doit contenir un email valide.',
-          ),
-          backgroundColor: alertColor,
-        ),
-      );
-      return;
+      final corrected = await _showEmailCorrectionDialog(realEmail, 'technicien');
+      if (corrected == null) return; // Annulé par l'utilisateur
+      realEmail = corrected;
     }
 
     final epochSuffix = DateTime.now().millisecondsSinceEpoch.toString();
-    final technicianFullName = requestedName.isEmpty ? 'Technicien' : requestedName;
-    final generatedPassword = 'Tmp${epochSuffix.substring(epochSuffix.length - 6)}!';
+    final technicianFullName =
+        requestedName.isEmpty ? 'Technicien' : requestedName;
+    final generatedPassword =
+        'Tmp${epochSuffix.substring(epochSuffix.length - 6)}!';
 
     try {
       final createdTechnician = await ApiService.addTechnician({
@@ -2130,9 +2385,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
         'phone': (req['requesterPhone'] ?? '').toString().trim(),
         'location': location,
         'specialization': specialization,
-        'technicalDescription': description.isEmpty
-            ? 'Créé automatiquement depuis demande client'
-            : description,
+        'technicalDescription':
+            description.isEmpty
+                ? 'Créé automatiquement depuis demande client'
+                : description,
         'companyId': linkedClientId,
         'status': 'Disponible',
         'machineIds': machineIds,
@@ -2161,9 +2417,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Technicien créé : $realEmail.$mailHint',
-          ),
+          content: Text('Technicien créé : $realEmail.$mailHint'),
           backgroundColor: successColor,
           duration: const Duration(seconds: 8),
         ),
@@ -2188,7 +2442,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
     final metadataRaw = req['metadata'];
     final metadata =
-        metadataRaw is Map ? Map<String, dynamic>.from(metadataRaw) : <String, dynamic>{};
+        metadataRaw is Map
+            ? Map<String, dynamic>.from(metadataRaw)
+            : <String, dynamic>{};
     final idsFromMeta =
         (metadata['machineIds'] is List)
             ? (metadata['machineIds'] as List)
@@ -2206,34 +2462,35 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     final machineIds = <String>{...idsFromMeta, ...idsFromRoot}.toList();
     final linkedClientId = (req['linkedClientId'] ?? '').toString().trim();
     final fullName = (req['requesterName'] ?? '').toString().trim();
-    final email = (req['requesterEmail'] ?? '').toString().trim().toLowerCase();
+    var email = (req['requesterEmail'] ?? '').toString().trim().toLowerCase();
     final location = (req['location'] ?? '').toString().trim();
-    final description = (metadata['description'] ?? req['note'] ?? '').toString().trim();
+    final description =
+        (metadata['description'] ?? req['note'] ?? '').toString().trim();
 
     if (linkedClientId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Demande sans client lié : impossible de créer le maintenance man.'),
+          content: Text(
+            'Demande sans client lié : impossible de créer le maintenance man.',
+          ),
           backgroundColor: alertColor,
         ),
       );
       return;
     }
     if (email.isEmpty || !email.contains('@')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Email maintenance invalide : la demande doit contenir un email valide.'),
-          backgroundColor: alertColor,
-        ),
-      );
-      return;
+      final corrected = await _showEmailCorrectionDialog(email, 'maintenance');
+      if (corrected == null) return; // Annulé par l'utilisateur
+      email = corrected;
     }
 
-    final parts = fullName.split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
+    final parts =
+        fullName.split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
     final firstName = parts.isNotEmpty ? parts.first : 'Maintenance';
     final lastName = parts.length > 1 ? parts.sublist(1).join(' ') : 'agent';
     final epochSuffix = DateTime.now().millisecondsSinceEpoch.toString();
-    final generatedPassword = 'Tmp${epochSuffix.substring(epochSuffix.length - 6)}!';
+    final generatedPassword =
+        'Tmp${epochSuffix.substring(epochSuffix.length - 6)}!';
 
     try {
       final createdMaintenance = await ApiService.addMaintenanceAgent({
@@ -2258,11 +2515,22 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       });
       final createdEmail =
           (createdMaintenance['email'] ?? email).toString().trim();
+      String mailHint = '';
+      final mail = createdMaintenance['credentialsEmail'];
+      if (mail is Map<String, dynamic>) {
+        if (mail['sent'] == true) {
+          mailHint = ' Identifiants envoyés par email.';
+        } else if (mail['reason'] == 'smtp_credentials_missing') {
+          mailHint = ' SMTP non configuré (ajoutez SMTP_* dans .env backend).';
+        } else if (mail['reason'] == 'send_failed') {
+          mailHint = ' Échec de l\'envoi de l\'e-mail (vérifiez la configuration SMTP).';
+        }
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Maintenance créé : $createdEmail'),
+          content: Text('Maintenance créé : $createdEmail.$mailHint'),
           backgroundColor: successColor,
-          duration: const Duration(seconds: 6),
+          duration: const Duration(seconds: 8),
         ),
       );
     } catch (e) {
@@ -2532,7 +2800,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             )
           else
             ElevatedButton(
-              onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
+              onPressed:
+                  () => Navigator.pushReplacementNamed(context, '/login'),
               style: ElevatedButton.styleFrom(backgroundColor: primaryColor),
               child: Text(
                 'Se reconnecter',
@@ -2548,10 +2817,13 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   }
 
   Widget _buildMainContent() {
+    if (selectedMenu == 'MESSAGERIE') {
+      return const MessageEquipeView(embedded: true);
+    }
     return RefreshIndicator(
       onRefresh: () async {
         // Refresh context-aware: machines dashboard vs client catalog.
-        if (selectedMenu == 'CLIENT CATALOG') {
+        if (selectedMenu == 'PROJET') {
           setState(() {
             _clientsFuture = ApiService.getClients();
             _techniciansFuture = ApiService.getTechnicians();
@@ -2568,7 +2840,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           } catch (_) {}
           return;
         }
-        if (selectedMenu == 'PROJECT TEAM') {
+        if (selectedMenu == 'CLIENT CATALOG') {
           setState(() {
             _clientsFuture = ApiService.getClients();
             _techniciansFuture = ApiService.getTechnicians();
@@ -2605,15 +2877,6 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           await _fetchMachines();
           return;
         }
-        if (selectedMenu == 'SETTINGS') {
-          setState(() {
-            _clientLoginSurveyFuture = ApiService.getClientLoginSurvey();
-          });
-          try {
-            await _clientLoginSurveyFuture;
-          } catch (_) {}
-          return;
-        }
         if (selectedMenu == 'PROFILE') return;
         await _fetchMachines();
       },
@@ -2624,16 +2887,14 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (selectedMenu == 'CLIENT CATALOG')
+            if (selectedMenu == 'PROJET')
               _buildClientCatalogPanel()
-            else if (selectedMenu == 'PROJECT TEAM')
+            else if (selectedMenu == 'CLIENT CATALOG')
               _buildProjectTeamPanel()
             else if (selectedMenu == 'TECHNICIANS')
               _buildTechniciansPanel()
             else if (selectedMenu == 'MAINTENANCE')
               _buildMaintenanceAgentsPanel()
-            else if (selectedMenu == 'SETTINGS')
-              _buildClientLoginSurveyPanel()
             else if (selectedMenu == 'PROFILE')
               _buildProfilePanel()
             else ...[
@@ -2908,21 +3169,25 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           }
 
           final raw = snapshot.data ?? const <dynamic>[];
-          final allClients = (raw.isNotEmpty ? raw[0] : const <dynamic>[]) as List<dynamic>;
-          final allTechs = (raw.length > 1 ? raw[1] : const <dynamic>[]) as List<dynamic>;
-          final allAgents = (raw.length > 2 ? raw[2] : const <dynamic>[]) as List<dynamic>;
+          final allClients =
+              (raw.isNotEmpty ? raw[0] : const <dynamic>[]) as List<dynamic>;
+          final allTechs =
+              (raw.length > 1 ? raw[1] : const <dynamic>[]) as List<dynamic>;
+          final allAgents =
+              (raw.length > 2 ? raw[2] : const <dynamic>[]) as List<dynamic>;
           final clientRows = allClients.cast<Map<String, dynamic>>();
           final technicianRows = allTechs.cast<Map<String, dynamic>>();
           final maintenanceRows = allAgents.cast<Map<String, dynamic>>();
           final q = _clientSearchQuery.toLowerCase().trim();
 
-          final filtered = clientRows.where((c) {
-            if (q.isEmpty) return true;
-            final id = _clientIdOf(c).toLowerCase();
-            final name = _clientNameOf(c).toLowerCase();
-            final email = (c['email'] ?? '').toString().toLowerCase();
-            return id.contains(q) || name.contains(q) || email.contains(q);
-          }).toList();
+          final filtered =
+              clientRows.where((c) {
+                if (q.isEmpty) return true;
+                final id = _clientIdOf(c).toLowerCase();
+                final name = _clientNameOf(c).toLowerCase();
+                final email = (c['email'] ?? '').toString().toLowerCase();
+                return id.contains(q) || name.contains(q) || email.contains(q);
+              }).toList();
 
           if (filtered.isEmpty) {
             return Center(
@@ -2933,14 +3198,15 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             );
           }
 
-          final selectedName = _selectedCatalogClientId == null
-              ? ''
-              : _clientNameOf(
-                  clientRows.firstWhere(
-                    (c) => _clientIdOf(c) == _selectedCatalogClientId,
-                    orElse: () => filtered.first,
-                  ),
-                );
+          final selectedName =
+              _selectedCatalogClientId == null
+                  ? ''
+                  : _clientNameOf(
+                    clientRows.firstWhere(
+                      (c) => _clientIdOf(c) == _selectedCatalogClientId,
+                      orElse: () => filtered.first,
+                    ),
+                  );
 
           Map<String, dynamic>? selectedClientRow() {
             final sid = _selectedCatalogClientId;
@@ -2970,25 +3236,32 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               itemBuilder: (context, i) {
                 final c = filtered[i];
                 final cid = _clientIdOf(c);
-                final selected = cid.isNotEmpty && cid == _selectedCatalogClientId;
+                final selected =
+                    cid.isNotEmpty && cid == _selectedCatalogClientId;
                 return Container(
                   decoration: BoxDecoration(
                     color: const Color(0xFF14141F),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                      color: selected ? primaryColor.withOpacity(0.6) : const Color(0xFF222233),
+                      color:
+                          selected
+                              ? primaryColor.withOpacity(0.6)
+                              : const Color(0xFF222233),
                     ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       InkWell(
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(13),
+                        ),
                         onTap: () {
                           if (cid.isEmpty) return;
                           setState(() {
                             _selectedCatalogClientId = cid;
-                            _selectedClientMachinesFuture = ApiService.getMachinesForClient(cid);
+                            _selectedClientMachinesFuture =
+                                ApiService.getMachinesForClient(cid);
                           });
                         },
                         child: Padding(
@@ -2999,29 +3272,49 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  _entityAvatar(c, _clientNameOf(c), radius: 18),
+                                  _entityAvatar(
+                                    c,
+                                    _clientNameOf(c),
+                                    radius: 18,
+                                  ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           _clientNameOf(c),
                                           style: GoogleFonts.inter(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w700,
-                                            color: selected ? primaryColor : textColor,
+                                            color:
+                                                selected
+                                                    ? primaryColor
+                                                    : textColor,
                                           ),
                                         ),
                                         const SizedBox(height: 6),
-                                        Text('ID: $cid', style: GoogleFonts.inter(fontSize: 11, color: mutedTextColor)),
+                                        Text(
+                                          'ID: $cid',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 11,
+                                            color: mutedTextColor,
+                                          ),
+                                        ),
                                         const SizedBox(height: 4),
-                                        if ((c['email'] ?? '').toString().trim().isNotEmpty)
+                                        if ((c['email'] ?? '')
+                                            .toString()
+                                            .trim()
+                                            .isNotEmpty)
                                           Text(
                                             (c['email'] ?? '').toString(),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
-                                            style: GoogleFonts.inter(fontSize: 11, color: mutedTextColor),
+                                            style: GoogleFonts.inter(
+                                              fontSize: 11,
+                                              color: mutedTextColor,
+                                            ),
                                           ),
                                       ],
                                     ),
@@ -3032,7 +3325,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                           ),
                         ),
                       ),
-                      _catalogEditDeleteRow(onEdit: () => _openEditClient(c), onDelete: () => _deleteClientEntity(c)),
+                      _catalogEditDeleteRow(
+                        onEdit: () => _openEditClient(c),
+                        onDelete: () => _deleteClientEntity(c),
+                      ),
                     ],
                   ),
                 );
@@ -3048,22 +3344,40 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               children: [
                 Row(
                   children: [
-                    Expanded(child: _maintenanceSectionTitle('Techniciens', Icons.tune_rounded)),
+                    Expanded(
+                      child: _maintenanceSectionTitle(
+                        'Techniciens',
+                        Icons.tune_rounded,
+                      ),
+                    ),
                     ElevatedButton.icon(
-                      onPressed: () => _openAddTechnician(clientId: selectedCid),
+                      onPressed:
+                          () => _openAddTechnician(clientId: selectedCid),
                       icon: const Icon(Icons.person_add_alt_1, size: 14),
-                      label: Text('Add Technicien', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700)),
+                      label: Text(
+                        'Add Technicien',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryColor,
                         foregroundColor: bgColor,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 9,
+                        ),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 10),
                 if (list.isEmpty)
-                  _maintenanceEmptyPane(icon: Icons.engineering_outlined, message: 'Aucun technicien lie a ce client.')
+                  _maintenanceEmptyPane(
+                    icon: Icons.engineering_outlined,
+                    message: 'Aucun technicien lie a ce client.',
+                  )
                 else
                   ListView.separated(
                     shrinkWrap: true,
@@ -3084,12 +3398,33 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                             ListTile(
                               dense: true,
                               contentPadding: EdgeInsets.zero,
-                              leading: _entityAvatar(t, _technicianNameOf(t), radius: 16),
-                              title: Text(_technicianNameOf(t), style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w700, fontSize: 13)),
-                              subtitle: Text('${_technicianIdOf(t)}\n${(t['email'] ?? '').toString()}',
-                                  maxLines: 2, overflow: TextOverflow.ellipsis, style: GoogleFonts.inter(color: mutedTextColor, fontSize: 10)),
+                              leading: _entityAvatar(
+                                t,
+                                _technicianNameOf(t),
+                                radius: 16,
+                              ),
+                              title: Text(
+                                _technicianNameOf(t),
+                                style: GoogleFonts.inter(
+                                  color: textColor,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              subtitle: Text(
+                                '${_technicianIdOf(t)}\n${(t['email'] ?? '').toString()}',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.inter(
+                                  color: mutedTextColor,
+                                  fontSize: 10,
+                                ),
+                              ),
                             ),
-                            _catalogEditDeleteRow(onEdit: () => _openEditTechnician(t), onDelete: () => _deleteTechnicianEntity(t)),
+                            _catalogEditDeleteRow(
+                              onEdit: () => _openEditTechnician(t),
+                              onDelete: () => _deleteTechnicianEntity(t),
+                            ),
                           ],
                         ),
                       );
@@ -3107,22 +3442,40 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               children: [
                 Row(
                   children: [
-                    Expanded(child: _maintenanceSectionTitle('Agents maintenance', Icons.handyman_outlined)),
+                    Expanded(
+                      child: _maintenanceSectionTitle(
+                        'Agents maintenance',
+                        Icons.handyman_outlined,
+                      ),
+                    ),
                     ElevatedButton.icon(
-                      onPressed: () => _openAddMaintenanceAgent(clientId: selectedCid),
+                      onPressed:
+                          () => _openAddMaintenanceAgent(clientId: selectedCid),
                       icon: const Icon(Icons.build_outlined, size: 14),
-                      label: Text('Add Maintenance', style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700)),
+                      label: Text(
+                        'Add Maintenance',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryColor,
                         foregroundColor: bgColor,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 9,
+                        ),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 10),
                 if (list.isEmpty)
-                  _maintenanceEmptyPane(icon: Icons.build_circle_outlined, message: 'Aucun agent maintenance lie a ce client.')
+                  _maintenanceEmptyPane(
+                    icon: Icons.build_circle_outlined,
+                    message: 'Aucun agent maintenance lie a ce client.',
+                  )
                 else
                   ListView.separated(
                     shrinkWrap: true,
@@ -3143,12 +3496,33 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                             ListTile(
                               dense: true,
                               contentPadding: EdgeInsets.zero,
-                              leading: _entityAvatar(a, _maintenanceAgentNameOf(a), radius: 16),
-                              title: Text(_maintenanceAgentNameOf(a), style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w700, fontSize: 13)),
-                              subtitle: Text('${_maintenanceAgentIdOf(a)}\n${(a['email'] ?? '').toString()}',
-                                  maxLines: 2, overflow: TextOverflow.ellipsis, style: GoogleFonts.inter(color: mutedTextColor, fontSize: 10)),
+                              leading: _entityAvatar(
+                                a,
+                                _maintenanceAgentNameOf(a),
+                                radius: 16,
+                              ),
+                              title: Text(
+                                _maintenanceAgentNameOf(a),
+                                style: GoogleFonts.inter(
+                                  color: textColor,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              subtitle: Text(
+                                '${_maintenanceAgentIdOf(a)}\n${(a['email'] ?? '').toString()}',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.inter(
+                                  color: mutedTextColor,
+                                  fontSize: 10,
+                                ),
+                              ),
                             ),
-                            _catalogEditDeleteRow(onEdit: () => _openEditMaintenanceAgent(a), onDelete: () => _deleteMaintenanceAgentEntity(a)),
+                            _catalogEditDeleteRow(
+                              onEdit: () => _openEditMaintenanceAgent(a),
+                              onDelete: () => _deleteMaintenanceAgentEntity(a),
+                            ),
                           ],
                         ),
                       );
@@ -3169,12 +3543,20 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _maintenanceSectionTitle('Machines', Icons.precision_manufacturing_outlined),
+                _maintenanceSectionTitle(
+                  'Machines',
+                  Icons.precision_manufacturing_outlined,
+                ),
                 Padding(
                   padding: const EdgeInsets.only(top: 4, bottom: 10),
                   child: Text(
-                    selectedName.isNotEmpty ? 'Pour $selectedName' : 'Client selectionne',
-                    style: GoogleFonts.inter(fontSize: 12, color: mutedTextColor),
+                    selectedName.isNotEmpty
+                        ? 'Pour $selectedName'
+                        : 'Client selectionne',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: mutedTextColor,
+                    ),
                   ),
                 ),
                 FutureBuilder<List<Map<String, dynamic>>>(
@@ -3187,11 +3569,18 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                       );
                     }
                     if (mSnap.hasError) {
-                      return Text('Erreur machines: ${mSnap.error}', style: GoogleFonts.inter(color: alertColor));
+                      return Text(
+                        'Erreur machines: ${mSnap.error}',
+                        style: GoogleFonts.inter(color: alertColor),
+                      );
                     }
-                    final machines = mSnap.data ?? const <Map<String, dynamic>>[];
+                    final machines =
+                        mSnap.data ?? const <Map<String, dynamic>>[];
                     if (machines.isEmpty) {
-                      return _maintenanceEmptyPane(icon: Icons.precision_manufacturing_outlined, message: 'Aucune machine achetee pour ce client.');
+                      return _maintenanceEmptyPane(
+                        icon: Icons.precision_manufacturing_outlined,
+                        message: 'Aucune machine achetee pour ce client.',
+                      );
                     }
                     return ListView.separated(
                       shrinkWrap: true,
@@ -3202,36 +3591,63 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                         final m = machines[i];
                         final mid = _machineIdOf(m);
                         final name = _machineNameOf(m);
-                        final rawImg = (m['imageUrl'] ?? m['image'] ?? '').toString();
-                        return Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF14141F),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF222233)),
-                          ),
-                          child: Row(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: SizedBox(
-                                  width: 64,
-                                  height: 52,
-                                  child: _buildMachineImageWidget(rawImg, height: 52, width: 64, fit: BoxFit.cover),
-                                ),
+                        final rawImg =
+                            (m['imageUrl'] ?? m['image'] ?? '').toString();
+                        return InkWell(
+                          onTap: () => _openMachineDetail(m),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF14141F),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: const Color(0xFF222233),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: GoogleFonts.inter(color: textColor, fontWeight: FontWeight.w700)),
-                                    const SizedBox(height: 4),
-                                    Text('ID: $mid', style: GoogleFonts.inter(fontSize: 11, color: mutedTextColor)),
-                                  ],
+                            ),
+                            child: Row(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: SizedBox(
+                                    width: 64,
+                                    height: 52,
+                                    child: _buildMachineImageWidget(
+                                      rawImg,
+                                      height: 52,
+                                      width: 64,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.inter(
+                                          color: textColor,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'ID: $mid',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 11,
+                                          color: mutedTextColor,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         );
                       },
@@ -3249,24 +3665,61 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.08))),
+                  border: Border(
+                    bottom: BorderSide(color: Colors.white.withOpacity(0.08)),
+                  ),
                 ),
                 child: Row(
                   children: [
                     Expanded(
                       child: TextField(
                         controller: _clientSearchController,
-                        onChanged: (v) => setState(() => _clientSearchQuery = v),
+                        onChanged:
+                            (v) => setState(() => _clientSearchQuery = v),
                         decoration: InputDecoration(
                           hintText: 'Rechercher par nom, ID ou email...',
-                          hintStyle: GoogleFonts.inter(color: mutedTextColor.withOpacity(0.65), fontSize: 13),
-                          prefixIcon: const Icon(Icons.search_rounded, size: 18, color: Colors.white54),
+                          hintStyle: GoogleFonts.inter(
+                            color: mutedTextColor.withOpacity(0.5),
+                            fontSize: 13,
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.search_rounded,
+                            size: 18,
+                            color: primaryColor,
+                          ),
+                          suffixIcon: _clientSearchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear_rounded, size: 18, color: Colors.white54),
+                                  onPressed: () {
+                                    _clientSearchController.clear();
+                                    setState(() => _clientSearchQuery = '');
+                                  },
+                                )
+                              : null,
                           filled: true,
-                          fillColor: const Color(0xFF1E1E2D),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          fillColor: const Color(0x11FFFFFF),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(
+                              color: Colors.white.withOpacity(0.08),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                              color: primaryColor,
+                              width: 1.2,
+                            ),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 14,
+                          ),
                         ),
-                        style: GoogleFonts.inter(color: textColor, fontSize: 13),
+                        style: GoogleFonts.inter(
+                          color: textColor,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
                     if (wide) ...[
@@ -3278,64 +3731,72 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               ),
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: wide
-                    ? SizedBox(
-                        height: 740,
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(
-                              width: 320,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF10101A),
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(color: const Color(0xFF222233)),
+                child:
+                    wide
+                        ? SizedBox(
+                          height: 740,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                width: 320,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF10101A),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: const Color(0xFF222233),
+                                    ),
+                                  ),
+                                  padding: const EdgeInsets.all(12),
+                                  child: clientsList(),
                                 ),
-                                padding: const EdgeInsets.all(12),
-                                child: clientsList(),
                               ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: SingleChildScrollView(
-                                child: Column(
-                                  children: [
-                                    if (xWide)
-                                      Row(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Expanded(child: catalogTechBlock(keys)),
-                                          const SizedBox(width: 12),
-                                          Expanded(child: catalogMaintBlock(keys)),
-                                        ],
-                                      )
-                                    else ...[
-                                      catalogTechBlock(keys),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  child: Column(
+                                    children: [
+                                      if (xWide)
+                                        Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(
+                                              child: catalogTechBlock(keys),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: catalogMaintBlock(keys),
+                                            ),
+                                          ],
+                                        )
+                                      else ...[
+                                        catalogTechBlock(keys),
+                                        const SizedBox(height: 14),
+                                        catalogMaintBlock(keys),
+                                      ],
                                       const SizedBox(height: 14),
-                                      catalogMaintBlock(keys),
+                                      machinesPanel(),
                                     ],
-                                    const SizedBox(height: 14),
-                                    machinesPanel(),
-                                  ],
+                                  ),
                                 ),
                               ),
-                            ),
+                            ],
+                          ),
+                        )
+                        : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SizedBox(height: 440, child: clientsList()),
+                            const SizedBox(height: 14),
+                            catalogTechBlock(keys),
+                            const SizedBox(height: 14),
+                            catalogMaintBlock(keys),
+                            const SizedBox(height: 14),
+                            machinesPanel(),
                           ],
                         ),
-                      )
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          SizedBox(height: 440, child: clientsList()),
-                          const SizedBox(height: 14),
-                          catalogTechBlock(keys),
-                          const SizedBox(height: 14),
-                          catalogMaintBlock(keys),
-                          const SizedBox(height: 14),
-                          machinesPanel(),
-                        ],
-                      ),
               ),
             ],
           );
@@ -3361,121 +3822,299 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       );
     }
 
-    final clients = (_concepteurProjectTeam?['clients'] as List?)
+    final clients =
+        (_concepteurProjectTeam?['clients'] as List?)
             ?.whereType<Map>()
             .map((e) => Map<String, dynamic>.from(e))
             .toList() ??
         const <Map<String, dynamic>>[];
-    final techs = (_concepteurProjectTeam?['technicians'] as List?)
+    final techs =
+        (_concepteurProjectTeam?['technicians'] as List?)
             ?.whereType<Map>()
             .map((e) => Map<String, dynamic>.from(e))
             .toList() ??
         const <Map<String, dynamic>>[];
-    final agents = (_concepteurProjectTeam?['maintenanceAgents'] as List?)
-            ?.whereType<Map>()
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList() ??
-        const <Map<String, dynamic>>[];
-    final concepteurs = (_concepteurProjectTeam?['concepteurs'] as List?)
+    final agents =
+        (_concepteurProjectTeam?['maintenanceAgents'] as List?)
             ?.whereType<Map>()
             .map((e) => Map<String, dynamic>.from(e))
             .toList() ??
         const <Map<String, dynamic>>[];
 
+    if (clients.isEmpty) {
+      return _maintenanceEmptyPane(
+        icon: Icons.business_outlined,
+        message: 'Aucun client n\'a encore achete une de vos machines.',
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        int crossAxisCount = 3;
+        if (constraints.maxWidth < 600)
+          crossAxisCount = 1;
+        else if (constraints.maxWidth < 1000)
+          crossAxisCount = 2;
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: 0.85,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+          ),
+          itemCount: clients.length,
+          itemBuilder: (context, index) {
+            final c = clients[index];
+            final clientKeys = _clientLinkedIdKeys(c);
+            
+            final embeddedTechs = (c['technicians'] as List?)?.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+            final embeddedAgents = (c['maintenanceAgents'] as List?)?.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+            final embeddedMachines = (c['machines'] as List?)?.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+            
+            final t = embeddedTechs ?? _techniciansForClientKeys(techs, clientKeys);
+            final m = embeddedAgents ?? _maintenanceAgentsForClientKeys(agents, clientKeys);
+            final machinesList = embeddedMachines ?? const <Map<String, dynamic>>[];
+
+            return _buildClientGalleryCard(c, machinesList, t, m);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildClientGalleryCard(
+    Map<String, dynamic> client,
+    List<Map<String, dynamic>> machines,
+    List<Map<String, dynamic>> techs,
+    List<Map<String, dynamic>> agents,
+  ) {
+    final cid = _clientIdOf(client);
+    final cname = _clientNameOf(client);
+    final location = (client['location'] ?? 'Localisation inconnue').toString();
+    final email = (client['email'] ?? 'Email non specifie').toString();
+    final isActive = client['loginDisabled'] != true;
+
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: sidebarColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        color: const Color(0xFF171733),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
       ),
-      child: clients.isEmpty
-          ? _maintenanceEmptyPane(
-              icon: Icons.business_outlined,
-              message: 'Aucun client n\'a encore achete une de vos machines.',
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Stack(
+            children: [
+              Container(
+                height: 154,
+                width: double.infinity,
+                color: const Color(0xFF1E1E2D),
+                alignment: Alignment.center,
+                child: _entityAvatar(client, cname, radius: 45),
+              ),
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withOpacity(0.15),
+                        Colors.black.withOpacity(0.55),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 10,
+                left: 10,
+                child: Row(
                   children: [
-                    const Icon(Icons.account_tree_outlined, color: primaryColor),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Clients ayant achete vos machines',
-                      style: GoogleFonts.spaceGrotesk(
-                        color: textColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
+                    _statusBadge(
+                      isActive ? 'ACTIF' : 'INACTIF',
+                      isActive ? const Color(0xFF4CAF50) : const Color(0xFFE53935),
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
-                ...clients.map((c) {
-                  final clientKeys = _clientLinkedIdKeys(c);
-                  final embeddedTechs = (c['technicians'] as List?)
-                      ?.whereType<Map>()
-                      .map((e) => Map<String, dynamic>.from(e))
-                      .toList();
-                  final embeddedAgents = (c['maintenanceAgents'] as List?)
-                      ?.whereType<Map>()
-                      .map((e) => Map<String, dynamic>.from(e))
-                      .toList();
-                  final embeddedConcepteurs = (c['concepteurs'] as List?)
-                      ?.whereType<Map>()
-                      .map((e) => Map<String, dynamic>.from(e))
-                      .toList();
-                  final embeddedMachines = (c['machines'] as List?)
-                      ?.whereType<Map>()
-                      .map((e) => Map<String, dynamic>.from(e))
-                      .toList();
-                  final t = embeddedTechs ??
-                      _techniciansForClientKeys(techs, clientKeys);
-                  final m = embeddedAgents ??
-                      _maintenanceAgentsForClientKeys(agents, clientKeys);
-                  final d = embeddedConcepteurs ??
-                      _concepteursForClientKeys(concepteurs, clientKeys);
-                  final cid = _clientIdOf(c);
-                  final cname = _clientNameOf(c);
-                  final machines = embeddedMachines ?? const <Map<String, dynamic>>[];
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: cardColor.withOpacity(0.55),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.white.withOpacity(0.08)),
+              ),
+            ],
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'ID: ' + (cid.isEmpty ? 'INCONNU' : cid.toUpperCase()),
+                    style: GoogleFonts.inter(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: primaryColor,
+                      letterSpacing: 0.4,
                     ),
-                    child: ExpansionTile(
-                      iconColor: primaryColor,
-                      collapsedIconColor: mutedTextColor,
-                      title: Text(
-                        '$cname (${cid.isEmpty ? 'ID inconnu' : cid})',
-                        style: GoogleFonts.inter(
-                          color: textColor,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    cname,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w700,
+                      color: textColor,
+                      height: 1.0,
+                    ),
+                  ),
+                  Expanded(
+                    child: machines.isEmpty
+                        ? Center(
+                            child: Text(
+                              'Aucune machine associée',
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                color: mutedTextColor,
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: EdgeInsets.zero,
+                            itemCount: machines.length,
+                            separatorBuilder: (context, index) => const SizedBox(height: 6),
+                            itemBuilder: (context, index) {
+                              final m = machines[index];
+                              final mName = (m['name'] ?? m['reference'] ?? 'Machine').toString();
+                              final isRunning = (m['status'] ?? '').toString().toUpperCase() == 'RUNNING';
+                              return GestureDetector(
+                                onTap: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (context) {
+                                      final ref = (m['machineId'] ?? m['reference'] ?? 'Non spécifiée').toString();
+                                      final type = (m['type'] ?? m['category'] ?? 'Non catégorisée').toString();
+                                      final loc = (m['location'] ?? 'Inconnue').toString();
+                                      
+                                      return AlertDialog(
+                                        backgroundColor: const Color(0xFF1E1E2D),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        title: Row(
+                                          children: [
+                                            const Icon(Icons.info_outline, color: primaryColor),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text('Détails de la machine', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 18)),
+                                            ),
+                                          ],
+                                        ),
+                                        content: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Padding(
+                                              padding: const EdgeInsets.symmetric(vertical: 4),
+                                              child: Text('Nom : $mName', style: GoogleFonts.inter(color: Colors.white70)),
+                                            ),
+                                            Padding(
+                                              padding: const EdgeInsets.symmetric(vertical: 4),
+                                              child: Text('Référence : $ref', style: GoogleFonts.inter(color: Colors.white70)),
+                                            ),
+                                            Padding(
+                                              padding: const EdgeInsets.symmetric(vertical: 4),
+                                              child: Text('Catégorie : $type', style: GoogleFonts.inter(color: Colors.white70)),
+                                            ),
+                                            Padding(
+                                              padding: const EdgeInsets.symmetric(vertical: 4),
+                                              child: Text('Localisation : $loc', style: GoogleFonts.inter(color: Colors.white70)),
+                                            ),
+                                            Padding(
+                                              padding: const EdgeInsets.symmetric(vertical: 4),
+                                              child: Text('État : ${isRunning ? "En marche" : "Arrêt"}', style: GoogleFonts.inter(color: isRunning ? const Color(0xFF4CAF50) : const Color(0xFFE53935), fontWeight: FontWeight.bold)),
+                                            ),
+                                          ],
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(context),
+                                            child: const Text('FERMER', style: TextStyle(color: primaryColor)),
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.03),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        isRunning ? Icons.play_circle_filled : Icons.stop_circle,
+                                        size: 14,
+                                        color: isRunning ? const Color(0xFF4CAF50) : const Color(0xFFE53935),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          mName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 11,
+                                            color: Colors.white70,
+                                          ),
+                                        ),
+                                      ),
+                                      Text(
+                                        isRunning ? 'En marche' : 'Arrêt',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 9,
+                                          color: isRunning ? const Color(0xFF4CAF50) : const Color(0xFFE53935),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _cardButton(
+                          Icons.edit_outlined,
+                          'MODIFIER',
+                          const Color(0xFF212142),
+                          () => _openEditClient(client),
                         ),
                       ),
-                      subtitle: Text(
-                        'Machines: ${machines.length} • Techniciens: ${t.length} • Maintenance: ${m.length}',
-                        style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
-                      ),
-                      childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                      children: [
-                        _buildProjectTeamClientDetails(
-                          machines: machines,
-                          technicians: t,
-                          maintenanceAgents: m,
-                          concepteurs: d,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _cardButton(
+                          Icons.delete_outline,
+                          'EFFACER',
+                          const Color(0xFF422121),
+                          () => _deleteClientEntity(client),
                         ),
-                      ],
-                    ),
-                  );
-                }),
-              ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3501,10 +4140,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           machines.isEmpty
               ? 'Aucune machine pour ce client.'
               : machines.map((x) => _machineNameOf(x)).join(', '),
-          style: GoogleFonts.inter(
-            color: mutedTextColor,
-            fontSize: 12,
-          ),
+          style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
         ),
         const SizedBox(height: 10),
         Text(
@@ -3516,28 +4152,169 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           ),
         ),
         const SizedBox(height: 6),
-        Text(
-          'Techniciens: ${technicians.isEmpty ? '—' : technicians.map((e) => _technicianNameOf(e)).join(', ')}',
-          style: GoogleFonts.inter(
-            color: mutedTextColor,
-            fontSize: 12,
+        if (technicians.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          ...technicians.map((t) {
+            final name = _technicianNameOf(t);
+            final loc =
+                (t['location'] ??
+                        t['address'] ??
+                        t['city'] ??
+                        'Localisation non spécifiée')
+                    .toString();
+
+            // Get all machines associated with this technician
+            // First get their machineIds if any
+            final raw = t['machineIds'];
+            final tIds = <String>[];
+            if (raw is List) {
+              for (final e in raw) {
+                final s = e.toString().trim();
+                if (s.isNotEmpty) tIds.add(s);
+              }
+            } else if (raw is String) {
+              try {
+                final l = jsonDecode(raw);
+                if (l is List) {
+                  for (final e in l) {
+                    final s = e.toString().trim();
+                    if (s.isNotEmpty) tIds.add(s);
+                  }
+                }
+              } catch (_) {}
+            }
+            // Then find matching machines from the client's machines
+            final techM =
+                machines.where((m) => tIds.contains(_machineIdOf(m))).toList();
+            final displayMachines = techM.isNotEmpty ? techM : machines;
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF14141F),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.white.withOpacity(0.05)),
+              ),
+              child: Row(
+                children: [
+                  _entityAvatar(t, name, radius: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: GoogleFonts.inter(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.location_on_outlined,
+                              color: mutedTextColor,
+                              size: 12,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                loc,
+                                style: GoogleFonts.inter(
+                                  color: mutedTextColor,
+                                  fontSize: 11,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (displayMachines.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children:
+                                displayMachines.map((m) {
+                                  return InkWell(
+                                    onTap:
+                                        () =>
+                                            _showMachineMiniDetails(context, m),
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: primaryColor.withOpacity(0.1),
+                                        border: Border.all(
+                                          color: primaryColor.withOpacity(0.3),
+                                        ),
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.precision_manufacturing,
+                                            size: 12,
+                                            color: primaryColor,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            _machineNameOf(m),
+                                            style: GoogleFonts.inter(
+                                              color: primaryColor,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                          ),
+                        ] else ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Aucune machine assignée',
+                            style: GoogleFonts.inter(
+                              color: mutedTextColor,
+                              fontSize: 11,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+          const SizedBox(height: 4),
+        ] else ...[
+          Text(
+            'Techniciens: —',
+            style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
           ),
-        ),
+        ],
         const SizedBox(height: 4),
         Text(
           'Maintenance: ${maintenanceAgents.isEmpty ? '—' : maintenanceAgents.map((e) => _maintenanceAgentNameOf(e)).join(', ')}',
-          style: GoogleFonts.inter(
-            color: mutedTextColor,
-            fontSize: 12,
-          ),
+          style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
         ),
         const SizedBox(height: 4),
         Text(
           'Concepteurs: ${concepteurs.isEmpty ? '—' : concepteurs.map((e) => (e['name'] ?? 'Concepteur').toString()).join(', ')}',
-          style: GoogleFonts.inter(
-            color: mutedTextColor,
-            fontSize: 12,
-          ),
+          style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
         ),
       ],
     );
@@ -3588,8 +4365,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   controller: _technicianSearchController,
                   onChanged: (v) => setState(() => _technicianSearchQuery = v),
                   decoration: InputDecoration(
-                    hintText:
-                        'Rechercher par nom, ID, email ou réf. client...',
+                    hintText: 'Rechercher par nom, ID, email ou réf. client...',
                     hintStyle: GoogleFonts.inter(
                       color: mutedTextColor.withOpacity(0.6),
                       fontSize: 13,
@@ -3624,7 +4400,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   width: isDesktop ? 340 : 260,
                   child: TextField(
                     controller: _technicianSearchController,
-                    onChanged: (v) => setState(() => _technicianSearchQuery = v),
+                    onChanged:
+                        (v) => setState(() => _technicianSearchQuery = v),
                     decoration: InputDecoration(
                       hintText:
                           'Rechercher par nom, ID, email ou réf. client...',
@@ -3809,9 +4586,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                               color: const Color(
                                                 0xFFFFB86C,
                                               ).withOpacity(0.18),
-                                              borderRadius: BorderRadius.circular(
-                                                999,
-                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
                                               border: Border.all(
                                                 color: const Color(0xFFFFB86C),
                                               ),
@@ -4051,80 +4827,84 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                               (m['imageUrl'] ?? m['image'] ?? '').toString();
                           final unresolved =
                               (m['_unresolvedMachineId'] ?? '').toString();
-                          return Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: cardColor.withOpacity(0.55),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.08),
+                          return InkWell(
+                            onTap: () => _openMachineDetail(m),
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: cardColor.withOpacity(0.55),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.08),
+                                ),
                               ),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: SizedBox(
-                                    width: 72,
-                                    height: 56,
-                                    child: _buildMachineImageWidget(
-                                      rawImg,
-                                      height: 56,
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: SizedBox(
                                       width: 72,
-                                      fit: BoxFit.cover,
+                                      height: 56,
+                                      child: _buildMachineImageWidget(
+                                        rawImg,
+                                        height: 56,
+                                        width: 72,
+                                        fit: BoxFit.cover,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: GoogleFonts.inter(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                          color: textColor,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'ID: ${mid.isNotEmpty ? mid : unresolved}',
-                                        style: GoogleFonts.inter(
-                                          fontSize: 12,
-                                          color: mutedTextColor,
-                                        ),
-                                      ),
-                                      if (unresolved.isNotEmpty)
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
                                         Text(
-                                          'Réf. base (absente du catalogue chargé)',
-                                          style: GoogleFonts.inter(
-                                            fontSize: 11,
-                                            color: mutedTextColor.withOpacity(
-                                              0.85,
-                                            ),
-                                          ),
-                                        ),
-                                      if (location.trim().isNotEmpty &&
-                                          unresolved.isEmpty)
-                                        Text(
-                                          location,
+                                          name,
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: textColor,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'ID: ${mid.isNotEmpty ? mid : unresolved}',
                                           style: GoogleFonts.inter(
                                             fontSize: 12,
                                             color: mutedTextColor,
                                           ),
                                         ),
-                                    ],
+                                        if (unresolved.isNotEmpty)
+                                          Text(
+                                            'Réf. base (absente du catalogue chargé)',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 11,
+                                              color: mutedTextColor.withOpacity(
+                                                0.85,
+                                              ),
+                                            ),
+                                          ),
+                                        if (location.trim().isNotEmpty &&
+                                            unresolved.isEmpty)
+                                          Text(
+                                            location,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 12,
+                                              color: mutedTextColor,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           );
                         },
@@ -4275,7 +5055,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   width: isDesktop ? 340 : 260,
                   child: TextField(
                     controller: _maintenanceSearchController,
-                    onChanged: (v) => setState(() => _maintenanceSearchQuery = v),
+                    onChanged:
+                        (v) => setState(() => _maintenanceSearchQuery = v),
                     decoration: InputDecoration(
                       hintText: 'Rechercher par nom, ID, email ou client...',
                       hintStyle: GoogleFonts.inter(
@@ -4634,80 +5415,84 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                               (m['imageUrl'] ?? m['image'] ?? '').toString();
                           final unresolved =
                               (m['_unresolvedMachineId'] ?? '').toString();
-                          return Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: cardColor.withOpacity(0.55),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.08),
+                          return InkWell(
+                            onTap: () => _openMachineDetail(m),
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: cardColor.withOpacity(0.55),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.08),
+                                ),
                               ),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: SizedBox(
-                                    width: 72,
-                                    height: 56,
-                                    child: _buildMachineImageWidget(
-                                      rawImg,
-                                      height: 56,
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: SizedBox(
                                       width: 72,
-                                      fit: BoxFit.cover,
+                                      height: 56,
+                                      child: _buildMachineImageWidget(
+                                        rawImg,
+                                        height: 56,
+                                        width: 72,
+                                        fit: BoxFit.cover,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: GoogleFonts.inter(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                          color: textColor,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'ID: ${mid.isNotEmpty ? mid : unresolved}',
-                                        style: GoogleFonts.inter(
-                                          fontSize: 12,
-                                          color: mutedTextColor,
-                                        ),
-                                      ),
-                                      if (unresolved.isNotEmpty)
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
                                         Text(
-                                          'Réf. base (absente du catalogue chargé)',
-                                          style: GoogleFonts.inter(
-                                            fontSize: 11,
-                                            color: mutedTextColor.withOpacity(
-                                              0.85,
-                                            ),
-                                          ),
-                                        ),
-                                      if (location.trim().isNotEmpty &&
-                                          unresolved.isEmpty)
-                                        Text(
-                                          location,
+                                          name,
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: textColor,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'ID: ${mid.isNotEmpty ? mid : unresolved}',
                                           style: GoogleFonts.inter(
                                             fontSize: 12,
                                             color: mutedTextColor,
                                           ),
                                         ),
-                                    ],
+                                        if (unresolved.isNotEmpty)
+                                          Text(
+                                            'Réf. base (absente du catalogue chargé)',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 11,
+                                              color: mutedTextColor.withOpacity(
+                                                0.85,
+                                              ),
+                                            ),
+                                          ),
+                                        if (location.trim().isNotEmpty &&
+                                            unresolved.isEmpty)
+                                          Text(
+                                            location,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.inter(
+                                              fontSize: 12,
+                                              color: mutedTextColor,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           );
                         },
@@ -4780,7 +5565,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     final purchaseOnly =
         _purchaseRequests.where((r) {
           final type = (r['requestType'] ?? '').toString().toUpperCase();
-          return type != 'TECHNICIAN_ADD';
+          return type != 'TECHNICIAN_ADD' && type != 'MAINTENANCE_ADD';
         }).toList();
 
     return Container(
@@ -4807,7 +5592,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                    'Demandes d\'achat',
+                          'Demandes d\'achat',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.spaceGrotesk(
@@ -4859,10 +5644,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               style: GoogleFonts.inter(color: mutedTextColor),
             )
           else ...[
-            ...(_showAllPurchaseRequests
-                    ? purchaseOnly
-                    : purchaseOnly.take(3))
-                .map((r) {
+            ...(_showAllPurchaseRequests ? purchaseOnly : purchaseOnly.take(3)).map((
+              r,
+            ) {
               final status = (r['status'] ?? 'PENDING').toString();
               final pending = status == 'PENDING';
               final reqId = (r['id'] ?? r['_id'] ?? '').toString();
@@ -4912,7 +5696,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                 if (pending)
                                   OutlinedButton(
                                     onPressed:
-                                        () => _showPurchaseRequestMachinePreview(r),
+                                        () =>
+                                            _showPurchaseRequestMachinePreview(
+                                              r,
+                                            ),
                                     child: const Text('Voir'),
                                   ),
                               ],
@@ -4969,7 +5756,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   onPressed:
                       () => setState(
                         () =>
-                            _showAllPurchaseRequests = !_showAllPurchaseRequests,
+                            _showAllPurchaseRequests =
+                                !_showAllPurchaseRequests,
                       ),
                   child: Text(
                     _showAllPurchaseRequests ? 'Voir moins' : 'Voir plus',
@@ -5025,8 +5813,11 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                         ),
                       ),
                       if (technicianRequests
-                          .where((r) =>
-                              (r['status'] ?? 'PENDING').toString() == 'PENDING')
+                          .where(
+                            (r) =>
+                                (r['status'] ?? 'PENDING').toString() ==
+                                'PENDING',
+                          )
                           .isNotEmpty)
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -5073,8 +5864,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   ),
                   const SizedBox(width: 10),
                   if (technicianRequests
-                      .where((r) =>
-                          (r['status'] ?? 'PENDING').toString() == 'PENDING')
+                      .where(
+                        (r) =>
+                            (r['status'] ?? 'PENDING').toString() == 'PENDING',
+                      )
                       .isNotEmpty)
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -5121,64 +5914,138 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     ? technicianRequests
                     : technicianRequests.take(3))
                 .map((r) {
-              final status = (r['status'] ?? 'PENDING').toString();
-              final pending = status == 'PENDING';
-              final metadataRaw = r['metadata'];
-              final metadata = metadataRaw is Map
-                  ? Map<String, dynamic>.from(metadataRaw)
-                  : <String, dynamic>{};
-              final reqType =
-                  (r['requestType'] ?? 'TECHNICIAN_ADD').toString().toUpperCase();
-              final isMaintenanceReq = reqType == 'MAINTENANCE_ADD';
-              final roleLabel = isMaintenanceReq ? 'Maintenance' : 'Technicien';
-              final specialization =
-                  (metadata['specialization'] ??
-                          (isMaintenanceReq
-                              ? 'Maintenance opérationnelle'
-                              : 'Maintenance terrain'))
-                      .toString();
-              final clientLabel =
-                  (r['linkedClientId'] ?? r['clientId'] ?? '—').toString();
-              return Container(
-                margin: const EdgeInsets.only(top: 10),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: cardColor,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child:
-                    isCompact
-                        ? Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${r['requesterName'] ?? roleLabel} • $specialization',
-                              style: GoogleFonts.inter(
-                                color: textColor,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Email: ${(r['requesterEmail'] ?? '—').toString()}',
-                              style: GoogleFonts.inter(
-                                color: mutedTextColor,
-                                fontSize: 12,
-                              ),
-                            ),
-                            Text(
-                              'Client: $clientLabel  •  Localisation: ${(r['location'] ?? '—').toString()}',
-                              style: GoogleFonts.inter(
-                                color: mutedTextColor,
-                                fontSize: 12,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 6,
-                              crossAxisAlignment: WrapCrossAlignment.center,
+                  final status = (r['status'] ?? 'PENDING').toString();
+                  final pending = status == 'PENDING';
+                  final metadataRaw = r['metadata'];
+                  final metadata =
+                      metadataRaw is Map
+                          ? Map<String, dynamic>.from(metadataRaw)
+                          : <String, dynamic>{};
+                  final reqType =
+                      (r['requestType'] ?? 'TECHNICIAN_ADD')
+                          .toString()
+                          .toUpperCase();
+                  final isMaintenanceReq = reqType == 'MAINTENANCE_ADD';
+                  final roleLabel =
+                      isMaintenanceReq ? 'Maintenance' : 'Technicien';
+                  final specialization =
+                      (metadata['specialization'] ??
+                              (isMaintenanceReq
+                                  ? 'Maintenance opérationnelle'
+                                  : 'Maintenance terrain'))
+                          .toString();
+                  final clientLabel =
+                      (r['linkedClientId'] ?? r['clientId'] ?? '—').toString();
+                  return Container(
+                    margin: const EdgeInsets.only(top: 10),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: cardColor,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child:
+                        isCompact
+                            ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                Text(
+                                  '${r['requesterName'] ?? roleLabel} • $specialization',
+                                  style: GoogleFonts.inter(
+                                    color: textColor,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Email: ${(r['requesterEmail'] ?? '—').toString()}',
+                                  style: GoogleFonts.inter(
+                                    color: mutedTextColor,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                Text(
+                                  'Client: $clientLabel  •  Localisation: ${(r['location'] ?? '—').toString()}',
+                                  style: GoogleFonts.inter(
+                                    color: mutedTextColor,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 6,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    _statusBadge(
+                                      status,
+                                      status == 'VALIDATED'
+                                          ? successColor
+                                          : (status == 'REJECTED'
+                                              ? alertColor
+                                              : primaryColor),
+                                    ),
+                                    if (pending)
+                                      TextButton(
+                                        onPressed: () => _rejectRequest(r),
+                                        child: const Text('Rejeter'),
+                                      ),
+                                    if (pending)
+                                      ElevatedButton.icon(
+                                        onPressed:
+                                            () =>
+                                                isMaintenanceReq
+                                                    ? _validateMaintenanceAddRequest(
+                                                      r,
+                                                    )
+                                                    : _validateTechnicianAddRequest(
+                                                      r,
+                                                    ),
+                                        icon: const Icon(
+                                          Icons.check_circle_outline,
+                                          size: 16,
+                                        ),
+                                        label: const Text('Valider'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: primaryColor,
+                                          foregroundColor: Colors.black,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            )
+                            : Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '${r['requesterName'] ?? roleLabel} • $specialization',
+                                        style: GoogleFonts.inter(
+                                          color: textColor,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Email: ${(r['requesterEmail'] ?? '—').toString()}',
+                                        style: GoogleFonts.inter(
+                                          color: mutedTextColor,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                      Text(
+                                        'Client: $clientLabel  •  Localisation: ${(r['location'] ?? '—').toString()}',
+                                        style: GoogleFonts.inter(
+                                          color: mutedTextColor,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                                 _statusBadge(
                                   status,
                                   status == 'VALIDATED'
@@ -5187,17 +6054,24 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                           ? alertColor
                                           : primaryColor),
                                 ),
+                                const SizedBox(width: 8),
                                 if (pending)
                                   TextButton(
                                     onPressed: () => _rejectRequest(r),
                                     child: const Text('Rejeter'),
                                   ),
+                                if (pending) const SizedBox(width: 8),
                                 if (pending)
                                   ElevatedButton.icon(
                                     onPressed:
-                                        () => isMaintenanceReq
-                                            ? _validateMaintenanceAddRequest(r)
-                                            : _validateTechnicianAddRequest(r),
+                                        () =>
+                                            isMaintenanceReq
+                                                ? _validateMaintenanceAddRequest(
+                                                  r,
+                                                )
+                                                : _validateTechnicianAddRequest(
+                                                  r,
+                                                ),
                                     icon: const Icon(
                                       Icons.check_circle_outline,
                                       size: 16,
@@ -5210,74 +6084,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                   ),
                               ],
                             ),
-                          ],
-                        )
-                        : Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    '${r['requesterName'] ?? roleLabel} • $specialization',
-                                    style: GoogleFonts.inter(
-                                      color: textColor,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Email: ${(r['requesterEmail'] ?? '—').toString()}',
-                                    style: GoogleFonts.inter(
-                                      color: mutedTextColor,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Client: $clientLabel  •  Localisation: ${(r['location'] ?? '—').toString()}',
-                                    style: GoogleFonts.inter(
-                                      color: mutedTextColor,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            _statusBadge(
-                              status,
-                              status == 'VALIDATED'
-                                  ? successColor
-                                  : (status == 'REJECTED'
-                                      ? alertColor
-                                      : primaryColor),
-                            ),
-                            const SizedBox(width: 8),
-                            if (pending)
-                              TextButton(
-                                onPressed: () => _rejectRequest(r),
-                                child: const Text('Rejeter'),
-                              ),
-                            if (pending) const SizedBox(width: 8),
-                            if (pending)
-                              ElevatedButton.icon(
-                                onPressed:
-                                    () => isMaintenanceReq
-                                        ? _validateMaintenanceAddRequest(r)
-                                        : _validateTechnicianAddRequest(r),
-                                icon: const Icon(
-                                  Icons.check_circle_outline,
-                                  size: 16,
-                                ),
-                                label: const Text('Valider'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: primaryColor,
-                                  foregroundColor: Colors.black,
-                                ),
-                              ),
-                          ],
-                        ),
-              );
-            }),
+                  );
+                }),
             if (technicianRequests.length > 3)
               Align(
                 alignment: Alignment.centerRight,
@@ -5374,9 +6182,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                 children: [
                   _topNavItem(Icons.grid_view_rounded, 'DASHBOARD'),
                   _topNavItem(Icons.person_outline_rounded, 'PROFILE'),
-                  _topNavItem(Icons.menu_book_rounded, 'CLIENT CATALOG'),
-                  _topNavItem(Icons.account_tree_outlined, 'PROJECT TEAM'),
-                  _topNavItem(Icons.settings_outlined, 'SETTINGS'),
+                  _topNavItem(Icons.account_tree_outlined, 'CLIENT CATALOG'),
+                  _topNavItem(Icons.menu_book_rounded, 'PROJET'),
+                  _topNavItem(Icons.chat_bubble_outline_rounded, 'MESSAGERIE'),
                 ],
               ),
             ),
@@ -5436,11 +6244,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             ApiService.clearAuth();
             Navigator.of(context).pushReplacementNamed('/');
           },
-          icon: const Icon(
-            Icons.logout_rounded,
-            color: alertColor,
-            size: 20,
-          ),
+          icon: const Icon(Icons.logout_rounded, color: alertColor, size: 20),
         ),
       ],
     );
@@ -5448,6 +6252,19 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
   Widget _topNavItem(IconData icon, String title) {
     bool isSelected = selectedMenu == title;
+    String displayTitle = title;
+    if (title == 'DASHBOARD') {
+      displayTitle = 'TABLEAU DE BORD';
+    } else if (title == 'PROFILE') {
+      displayTitle = 'PROFIL';
+    } else if (title == 'CLIENT CATALOG') {
+      displayTitle = 'CATALOGUE CLIENTS';
+    } else if (title == 'PROJET') {
+      displayTitle = 'PROJET';
+    } else if (title == 'MESSAGERIE' || title == 'SETTINGS') {
+      displayTitle = 'MESSAGERIE';
+    }
+
     return InkWell(
       onTap: () => _onSidebarSelect(title),
       child: Container(
@@ -5473,7 +6290,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             ),
             const SizedBox(width: 8),
             Text(
-              title,
+              displayTitle,
               style: GoogleFonts.inter(
                 fontSize: 12,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
@@ -5544,28 +6361,45 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     }
 
     final email = pickProfileValue(const ['email', 'mail']);
-    final phone = pickProfileValue(
-      const ['phone', 'telephone', 'mobile', 'phoneNumber'],
-    );
-    final company = pickProfileValue(
-      const ['companyName', 'company', 'organization', 'clientName'],
-    );
-    final concepteurId = _concepteurProfileId.isNotEmpty
-        ? _concepteurProfileId
-        : pickProfileValue(const ['concepteurId', 'id', '_id', 'userId']);
-    final speciality = pickProfileValue(
-      const ['speciality', 'specialty', 'specialite', 'poste', 'title', 'jobTitle'],
-    );
+    final phone = pickProfileValue(const [
+      'phone',
+      'telephone',
+      'mobile',
+      'phoneNumber',
+    ]);
+    final company = pickProfileValue(const [
+      'companyName',
+      'company',
+      'organization',
+      'clientName',
+    ]);
+    final concepteurId =
+        _concepteurProfileId.isNotEmpty
+            ? _concepteurProfileId
+            : pickProfileValue(const ['concepteurId', 'id', '_id', 'userId']);
+    final speciality = pickProfileValue(const [
+      'speciality',
+      'specialty',
+      'specialite',
+      'poste',
+      'title',
+      'jobTitle',
+    ]);
     final address = pickProfileValue(const ['address', 'adresse', 'street']);
     final city = pickProfileValue(const ['city', 'ville']);
     final country = pickProfileValue(const ['country', 'pays']);
     final status = pickProfileValue(const ['status', 'statut']);
-    final websiteUrl = pickProfileValue(
-      const ['websiteUrl', 'siteWeb', 'website', 'url'],
-    );
-    final profileUrl = pickProfileValue(
-      const ['profileUrl', 'linkedinUrl', 'portfolioUrl'],
-    );
+    final websiteUrl = pickProfileValue(const [
+      'websiteUrl',
+      'siteWeb',
+      'website',
+      'url',
+    ]);
+    final profileUrl = pickProfileValue(const [
+      'profileUrl',
+      'linkedinUrl',
+      'portfolioUrl',
+    ]);
 
     final isCompact = MediaQuery.of(context).size.width < 900;
     return Column(
@@ -5579,10 +6413,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: Colors.white.withOpacity(0.08)),
           ),
-          child: Wrap(
-            spacing: 20,
-            runSpacing: 20,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // ---- Avatar with upload button ----
               GestureDetector(
@@ -5592,9 +6424,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   final normalized = _normalizeProfilePhotoUrl(dataUrl);
                   setState(() => _profilePhotoUrl = normalized);
                   try {
-                    await ApiService.updateMyConcepteurProfile(
-                      {'imageUrl': normalized},
-                    );
+                    await ApiService.updateMyConcepteurProfile({
+                      'imageUrl': normalized,
+                    });
                   } catch (_) {}
                 },
                 child: Stack(
@@ -5604,33 +6436,27 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                       radius: 46,
                       backgroundColor: cardColor,
                       backgroundImage:
-                          _profilePhotoUrl.isNotEmpty &&
-                                  (_profilePhotoUrl.startsWith('http') ||
-                                      _profilePhotoUrl
-                                          .toLowerCase()
-                                          .startsWith('data:image/'))
-                              ? (_profilePhotoUrl
-                                          .toLowerCase()
-                                          .startsWith('data:image/')
+                          _profilePhotoUrl.isNotEmpty
+                              ? (_profilePhotoUrl.toLowerCase().startsWith(
+                                        'data:image/',
+                                      )
                                       ? MemoryImage(
-                                          Uri.parse(_profilePhotoUrl)
-                                              .data!
-                                              .contentAsBytes(),
-                                        )
-                                      : NetworkImage(_profilePhotoUrl))
+                                        Uri.parse(
+                                          _profilePhotoUrl,
+                                        ).data!.contentAsBytes(),
+                                      )
+                                      : NetworkImage(
+                                        ApiService.fullUrl(_profilePhotoUrl),
+                                      ))
                                   as ImageProvider
                               : null,
                       child:
-                          _profilePhotoUrl.isEmpty ||
-                                  (!_profilePhotoUrl.startsWith('http') &&
-                                      !_profilePhotoUrl
-                                          .toLowerCase()
-                                          .startsWith('data:image/'))
+                          _profilePhotoUrl.isEmpty
                               ? Icon(
-                                  Icons.person_outline,
-                                  size: 46,
-                                  color: mutedTextColor,
-                                )
+                                Icons.person_outline,
+                                size: 46,
+                                color: mutedTextColor,
+                              )
                               : null,
                     ),
                     Container(
@@ -5650,30 +6476,12 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   ],
                 ),
               ),
+              const SizedBox(height: 20),
               SizedBox(
                 width: isCompact ? double.infinity : 420,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'PROFILE DASHBOARD',
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        color: textColor,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'PARAMETRES DU COMPTE ET ETAT DE SESSION',
-                      style: GoogleFonts.inter(
-                        fontSize: 11,
-                        color: mutedTextColor,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
                     if (_profileLoading)
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 8),
@@ -5703,26 +6511,6 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Role: $role',
-                      style: GoogleFonts.inter(fontSize: 13, color: mutedTextColor),
-                    ),
-                    if (email.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        email,
-                        style: GoogleFonts.inter(fontSize: 13, color: mutedTextColor),
-                      ),
-                    ],
-                    const SizedBox(height: 14),
-                    Text(
-                      _hasFleetSession
-                          ? 'Session active. Vous pouvez acceder aux modules du dashboard.'
-                          : 'Session expiree. Reconnectez-vous pour synchroniser vos donnees.',
-                      style: GoogleFonts.inter(fontSize: 13, color: mutedTextColor),
-                    ),
-                    const SizedBox(height: 12),
                     Wrap(
                       spacing: 10,
                       runSpacing: 8,
@@ -5731,31 +6519,23 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                           _profileInfoChip('ID', concepteurId),
                         if (email.isNotEmpty) _profileInfoChip('Email', email),
                         if (phone.isNotEmpty) _profileInfoChip('Tel', phone),
-                        if (company.isNotEmpty) _profileInfoChip('Societe', company),
+                        if (company.isNotEmpty)
+                          _profileInfoChip('Societe', company),
                         if (speciality.isNotEmpty)
                           _profileInfoChip('Specialite', speciality),
-                        if (address.isNotEmpty) _profileInfoChip('Adresse', address),
+                        if (address.isNotEmpty)
+                          _profileInfoChip('Adresse', address),
                         if (city.isNotEmpty) _profileInfoChip('Ville', city),
-                        if (country.isNotEmpty) _profileInfoChip('Pays', country),
-                        if (status.isNotEmpty) _profileInfoChip('Statut', status),
+                        if (country.isNotEmpty)
+                          _profileInfoChip('Pays', country),
+                        if (status.isNotEmpty)
+                          _profileInfoChip('Statut', status),
                         if (websiteUrl.isNotEmpty)
                           _profileInfoChip('Site web', websiteUrl),
                         if (profileUrl.isNotEmpty)
                           _profileInfoChip('Profil URL', profileUrl),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    _profileInfoRow('Email', email),
-                    _profileInfoRow('Telephone', phone),
-                    _profileInfoRow('Societe', company),
-                    _profileInfoRow('Specialite', speciality),
-                    _profileInfoRow('Adresse', address),
-                    _profileInfoRow('Ville', city),
-                    _profileInfoRow('Pays', country),
-                    _profileInfoRow('Statut', status),
-                    _profileInfoRow('Site web', websiteUrl),
-                    _profileInfoRow('Profil URL', profileUrl),
-                    const SizedBox(height: 8),
                     OutlinedButton.icon(
                       onPressed: _showEditProfileDialog,
                       icon: const Icon(Icons.edit_outlined, size: 18),
@@ -5773,15 +6553,162 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                if (_profileExpandedFilter == 'public') {
+                                  _profileExpandedFilter = null;
+                                } else {
+                                  _profileExpandedFilter = 'public';
+                                }
+                              });
+                            },
+                            icon: Icon(
+                              _profileExpandedFilter == 'public'
+                                  ? Icons.keyboard_arrow_up
+                                  : Icons.keyboard_arrow_down,
+                              size: 18,
+                            ),
+                            label: Text('Machine publique ($_publishedCount)'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF1E293B),
+                              foregroundColor: primaryColor,
+                              side: BorderSide(
+                                color: _profileExpandedFilter == 'public'
+                                    ? primaryColor
+                                    : const Color(0x33FF9F64),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              textStyle: GoogleFonts.inter(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                if (_profileExpandedFilter == 'private') {
+                                  _profileExpandedFilter = null;
+                                } else {
+                                  _profileExpandedFilter = 'private';
+                                }
+                              });
+                            },
+                            icon: Icon(
+                              _profileExpandedFilter == 'private'
+                                  ? Icons.keyboard_arrow_up
+                                  : Icons.keyboard_arrow_down,
+                              size: 18,
+                            ),
+                            label: Text('Machine no public ($_notPublishedCount)'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF1E293B),
+                              foregroundColor: mutedTextColor,
+                              side: BorderSide(
+                                color: _profileExpandedFilter == 'private'
+                                    ? primaryColor
+                                    : const Color(0x22FFFFFF),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              textStyle: GoogleFonts.inter(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        _buildProjectTeamPanel(),
+        if (_profileExpandedFilter != null) ...[
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Icon(
+                _profileExpandedFilter == 'public' ? Icons.public : Icons.public_off,
+                color: primaryColor,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                _profileExpandedFilter == 'public'
+                    ? 'LISTE DES MACHINES PUBLIQUES'
+                    : 'LISTE DES MACHINES NON PUBLIQUES',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildProfileMachinesList(),
+        ],
       ],
+    );
+  }
+
+  Widget _buildProfileMachinesList() {
+    final isPublicFilter = _profileExpandedFilter == 'public';
+    final list = _allMachines.where((m) {
+      final isPublic = m['isPublic'] == true;
+      return isPublicFilter ? isPublic : !isPublic;
+    }).toList();
+
+    if (list.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withOpacity(0.05)),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          'Aucune machine dans cette catégorie.',
+          style: GoogleFonts.inter(color: mutedTextColor),
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        int crossAxisCount = 3;
+        if (constraints.maxWidth < 600) {
+          crossAxisCount = 1;
+        } else if (constraints.maxWidth < 1000) {
+          crossAxisCount = 2;
+        }
+
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: 0.80,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+          ),
+          itemCount: list.length,
+          itemBuilder: (context, index) => _buildMachineGalleryCard(list[index]),
+        );
+      },
     );
   }
 
@@ -5845,11 +6772,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               height: radius * 2,
               fit: BoxFit.cover,
               errorBuilder:
-                  (_, __, ___) => Icon(
-                    Icons.person,
-                    color: mutedTextColor,
-                    size: radius,
-                  ),
+                  (_, __, ___) =>
+                      Icon(Icons.person, color: mutedTextColor, size: radius),
             ),
           ),
         );
@@ -5865,11 +6789,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
     Widget buildNetworkCandidate(int index) {
       if (index >= urlCandidates.length) {
-        return Icon(
-          Icons.person,
-          color: mutedTextColor,
-          size: radius,
-        );
+        return Icon(Icons.person, color: mutedTextColor, size: radius);
       }
       return Image.network(
         urlCandidates[index],
@@ -5883,18 +6803,20 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     return CircleAvatar(
       radius: radius,
       backgroundColor: sidebarColor,
-      child: ClipOval(
-        child: buildNetworkCandidate(0),
-      ),
+      child: ClipOval(child: buildNetworkCandidate(0)),
     );
   }
 
   Future<void> _showEditProfileDialog() async {
+    final formKey = GlobalKey<FormState>();
     final nameController = TextEditingController(text: _profileDisplayName);
     final urlController = TextEditingController(text: _profilePhotoUrl);
     final emailController = TextEditingController(
-      text: (_concepteurProfileData['email'] ?? _concepteurProfileData['mail'] ?? '')
-          .toString(),
+      text:
+          (_concepteurProfileData['email'] ??
+                  _concepteurProfileData['mail'] ??
+                  '')
+              .toString(),
     );
     final phoneController = TextEditingController(
       text:
@@ -5992,216 +6914,355 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               child: Scrollbar(
                 thumbVisibility: true,
                 child: SingleChildScrollView(
-                  child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: nameController,
-                      style: GoogleFonts.inter(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Nom affiche',
-                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
-                        filled: true,
-                        fillColor: cardColor,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: emailController,
-                      style: GoogleFonts.inter(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Email',
-                        hintText: 'nom@domaine.com',
-                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
-                        hintStyle: GoogleFonts.inter(color: mutedTextColor),
-                        filled: true,
-                        fillColor: cardColor,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: phoneController,
-                      style: GoogleFonts.inter(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Telephone',
-                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
-                        filled: true,
-                        fillColor: cardColor,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: companyController,
-                      style: GoogleFonts.inter(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Societe',
-                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
-                        filled: true,
-                        fillColor: cardColor,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: specialityController,
-                      style: GoogleFonts.inter(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Specialite',
-                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
-                        filled: true,
-                        fillColor: cardColor,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: urlController,
-                      style: GoogleFonts.inter(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'URL photo',
-                        hintText: 'https://...',
-                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
-                        hintStyle: GoogleFonts.inter(color: mutedTextColor),
-                        filled: true,
-                        fillColor: cardColor,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: websiteUrlController,
-                      style: GoogleFonts.inter(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'URL site web',
-                        hintText: 'https://monsite.com',
-                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
-                        hintStyle: GoogleFonts.inter(color: mutedTextColor),
-                        filled: true,
-                        fillColor: cardColor,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: profileUrlController,
-                      style: GoogleFonts.inter(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'URL profil (LinkedIn/Portfolio)',
-                        hintText: 'https://...',
-                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
-                        hintStyle: GoogleFonts.inter(color: mutedTextColor),
-                        filled: true,
-                        fillColor: cardColor,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: addressController,
-                      style: GoogleFonts.inter(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Adresse',
-                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
-                        filled: true,
-                        fillColor: cardColor,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: cityController,
-                      style: GoogleFonts.inter(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Ville',
-                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
-                        filled: true,
-                        fillColor: cardColor,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: countryController,
-                      style: GoogleFonts.inter(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Pays',
-                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
-                        filled: true,
-                        fillColor: cardColor,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: statusController,
-                      style: GoogleFonts.inter(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Statut',
-                        labelStyle: GoogleFonts.inter(color: mutedTextColor),
-                        filled: true,
-                        fillColor: cardColor,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const SizedBox(height: 8),
-                    Row(
+                  child: Form(
+                    key: formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        OutlinedButton.icon(
-                          onPressed: () async {
-                            final dataUrl = await _pickImageAsDataUrl();
-                            if (dataUrl == null || dataUrl.isEmpty) return;
-                            urlController.text = dataUrl;
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Image locale selectionnee.'),
-                                backgroundColor: successColor,
+                        TextFormField(
+                          controller: nameController,
+                          style: GoogleFonts.inter(color: Colors.white),
+                          validator:
+                              (v) => FormValidators.nom(
+                                v,
+                                required: true,
+                                label: 'Nom affiché',
                               ),
-                            );
-                          },
-                          icon: const Icon(Icons.photo_library_outlined, size: 18),
-                          label: const Text('Choisir image locale'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            side: BorderSide(color: Colors.white.withOpacity(0.25)),
+                          decoration: InputDecoration(
+                            labelText: 'Nom affiché *',
+                            labelStyle: GoogleFonts.inter(
+                              color: mutedTextColor,
+                            ),
+                            errorStyle: GoogleFonts.inter(
+                              color: alertColor,
+                              fontSize: 11,
+                            ),
+                            filled: true,
+                            fillColor: cardColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: emailController,
+                          style: GoogleFonts.inter(color: Colors.white),
+                          validator: (v) => FormValidators.email(v),
+                          keyboardType: TextInputType.emailAddress,
+                          decoration: InputDecoration(
+                            labelText: 'Email',
+                            hintText: 'nom@domaine.com',
+                            labelStyle: GoogleFonts.inter(
+                              color: mutedTextColor,
+                            ),
+                            hintStyle: GoogleFonts.inter(color: mutedTextColor),
+                            errorStyle: GoogleFonts.inter(
+                              color: alertColor,
+                              fontSize: 11,
+                            ),
+                            filled: true,
+                            fillColor: cardColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: phoneController,
+                          style: GoogleFonts.inter(color: Colors.white),
+                          validator: (v) => FormValidators.phone(v),
+                          keyboardType: TextInputType.phone,
+                          decoration: InputDecoration(
+                            labelText: 'Téléphone',
+                            hintText: '+216 20 000 000',
+                            labelStyle: GoogleFonts.inter(
+                              color: mutedTextColor,
+                            ),
+                            hintStyle: GoogleFonts.inter(color: mutedTextColor),
+                            errorStyle: GoogleFonts.inter(
+                              color: alertColor,
+                              fontSize: 11,
+                            ),
+                            filled: true,
+                            fillColor: cardColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: companyController,
+                          style: GoogleFonts.inter(color: Colors.white),
+                          validator:
+                              (v) => FormValidators.text(
+                                v,
+                                max: 150,
+                                label: 'Société',
+                              ),
+                          decoration: InputDecoration(
+                            labelText: 'Société',
+                            labelStyle: GoogleFonts.inter(
+                              color: mutedTextColor,
+                            ),
+                            errorStyle: GoogleFonts.inter(
+                              color: alertColor,
+                              fontSize: 11,
+                            ),
+                            filled: true,
+                            fillColor: cardColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: specialityController,
+                          style: GoogleFonts.inter(color: Colors.white),
+                          validator:
+                              (v) => FormValidators.text(
+                                v,
+                                max: 150,
+                                label: 'Spécialité',
+                              ),
+                          decoration: InputDecoration(
+                            labelText: 'Spécialité',
+                            labelStyle: GoogleFonts.inter(
+                              color: mutedTextColor,
+                            ),
+                            errorStyle: GoogleFonts.inter(
+                              color: alertColor,
+                              fontSize: 11,
+                            ),
+                            filled: true,
+                            fillColor: cardColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: urlController,
+                          style: GoogleFonts.inter(color: Colors.white),
+                          validator: (v) => FormValidators.photoUrl(v),
+                          decoration: InputDecoration(
+                            labelText: 'URL photo',
+                            hintText: 'https://...',
+                            labelStyle: GoogleFonts.inter(
+                              color: mutedTextColor,
+                            ),
+                            hintStyle: GoogleFonts.inter(color: mutedTextColor),
+                            errorStyle: GoogleFonts.inter(
+                              color: alertColor,
+                              fontSize: 11,
+                            ),
+                            filled: true,
+                            fillColor: cardColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: websiteUrlController,
+                          style: GoogleFonts.inter(color: Colors.white),
+                          validator:
+                              (v) =>
+                                  FormValidators.url(v, label: 'URL site web'),
+                          keyboardType: TextInputType.url,
+                          decoration: InputDecoration(
+                            labelText: 'URL site web',
+                            hintText: 'https://monsite.com',
+                            labelStyle: GoogleFonts.inter(
+                              color: mutedTextColor,
+                            ),
+                            hintStyle: GoogleFonts.inter(color: mutedTextColor),
+                            errorStyle: GoogleFonts.inter(
+                              color: alertColor,
+                              fontSize: 11,
+                            ),
+                            filled: true,
+                            fillColor: cardColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: profileUrlController,
+                          style: GoogleFonts.inter(color: Colors.white),
+                          validator:
+                              (v) => FormValidators.url(v, label: 'URL profil'),
+                          keyboardType: TextInputType.url,
+                          decoration: InputDecoration(
+                            labelText: 'URL profil (LinkedIn/Portfolio)',
+                            hintText: 'https://...',
+                            labelStyle: GoogleFonts.inter(
+                              color: mutedTextColor,
+                            ),
+                            hintStyle: GoogleFonts.inter(color: mutedTextColor),
+                            errorStyle: GoogleFonts.inter(
+                              color: alertColor,
+                              fontSize: 11,
+                            ),
+                            filled: true,
+                            fillColor: cardColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: addressController,
+                          style: GoogleFonts.inter(color: Colors.white),
+                          validator:
+                              (v) => FormValidators.text(
+                                v,
+                                max: 255,
+                                label: 'Adresse',
+                              ),
+                          decoration: InputDecoration(
+                            labelText: 'Adresse',
+                            labelStyle: GoogleFonts.inter(
+                              color: mutedTextColor,
+                            ),
+                            errorStyle: GoogleFonts.inter(
+                              color: alertColor,
+                              fontSize: 11,
+                            ),
+                            filled: true,
+                            fillColor: cardColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: cityController,
+                          style: GoogleFonts.inter(color: Colors.white),
+                          validator:
+                              (v) => FormValidators.text(
+                                v,
+                                max: 100,
+                                label: 'Ville',
+                              ),
+                          decoration: InputDecoration(
+                            labelText: 'Ville',
+                            labelStyle: GoogleFonts.inter(
+                              color: mutedTextColor,
+                            ),
+                            errorStyle: GoogleFonts.inter(
+                              color: alertColor,
+                              fontSize: 11,
+                            ),
+                            filled: true,
+                            fillColor: cardColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: countryController,
+                          style: GoogleFonts.inter(color: Colors.white),
+                          validator:
+                              (v) => FormValidators.text(
+                                v,
+                                max: 100,
+                                label: 'Pays',
+                              ),
+                          decoration: InputDecoration(
+                            labelText: 'Pays',
+                            labelStyle: GoogleFonts.inter(
+                              color: mutedTextColor,
+                            ),
+                            errorStyle: GoogleFonts.inter(
+                              color: alertColor,
+                              fontSize: 11,
+                            ),
+                            filled: true,
+                            fillColor: cardColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: statusController,
+                          style: GoogleFonts.inter(color: Colors.white),
+                          validator:
+                              (v) => FormValidators.text(
+                                v,
+                                max: 50,
+                                label: 'Statut',
+                              ),
+                          decoration: InputDecoration(
+                            labelText: 'Statut',
+                            labelStyle: GoogleFonts.inter(
+                              color: mutedTextColor,
+                            ),
+                            errorStyle: GoogleFonts.inter(
+                              color: alertColor,
+                              fontSize: 11,
+                            ),
+                            filled: true,
+                            fillColor: cardColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final dataUrl = await _pickImageAsDataUrl();
+                                if (dataUrl == null || dataUrl.isEmpty) return;
+                                urlController.text = dataUrl;
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Image locale selectionnee.'),
+                                    backgroundColor: successColor,
+                                  ),
+                                );
+                              },
+                              icon: const Icon(
+                                Icons.photo_library_outlined,
+                                size: 18,
+                              ),
+                              label: const Text('Choisir image locale'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                side: BorderSide(
+                                  color: Colors.white.withOpacity(0.25),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Conseil: si une URL externe ne s affiche pas, utilisez une image locale.',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: mutedTextColor,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Conseil: si une URL externe ne s affiche pas, utilisez une image locale.',
-                      style: GoogleFonts.inter(fontSize: 11, color: mutedTextColor),
-                    ),
-                  ],
                   ),
                 ),
               ),
@@ -6228,23 +7289,13 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   final nextWebsiteUrl = websiteUrlController.text.trim();
                   final nextProfileUrl = profileUrlController.text.trim();
                   final nextUrl = _normalizeProfilePhotoUrl(urlController.text);
-                  if (nextName.isEmpty) return;
-                  if (nextUrl.isEmpty ||
-                      !(nextUrl.startsWith('http://') ||
-                          nextUrl.startsWith('https://') ||
-                          nextUrl.toLowerCase().startsWith('data:image/'))) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('URL photo invalide.'),
-                        backgroundColor: alertColor,
-                      ),
-                    );
-                    return;
-                  }
+                  // --- Validation via Form ---
+                  if (!(formKey.currentState?.validate() ?? false)) return;
                   final previousName = _profileDisplayName;
                   final previousPhoto = _profilePhotoUrl;
-                  final previousProfileData =
-                      Map<String, dynamic>.from(_concepteurProfileData);
+                  final previousProfileData = Map<String, dynamic>.from(
+                    _concepteurProfileData,
+                  );
                   setState(() {
                     _profileDisplayName = nextName;
                     _profilePhotoUrl = nextUrl;
@@ -6286,46 +7337,86 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     };
                   });
                   var savedInDb = false;
+                  String? errorMessage;
                   try {
+                    String finalImageUrl = nextUrl;
+                    if (nextUrl.toLowerCase().startsWith('data:image/')) {
+                      String ext = 'png';
+                      final match = RegExp(
+                        r'^data:image/([a-zA-Z0-9+]+);base64,',
+                      ).firstMatch(nextUrl);
+                      if (match != null) {
+                        ext = match.group(1) ?? 'png';
+                        if (ext == 'jpeg') ext = 'jpg';
+                      }
+                      final uploadedUrl = await ApiService.uploadFile(
+                        base64Data: nextUrl,
+                        filename:
+                            'profile_${DateTime.now().millisecondsSinceEpoch}.$ext',
+                      );
+                      if (uploadedUrl == null || uploadedUrl.isEmpty) {
+                        throw Exception("L'upload de l'image locale a echoue.");
+                      }
+                      finalImageUrl = uploadedUrl;
+                    }
+
                     final updated = await ApiService.updateMyConcepteurProfile({
                       if (nextName.isNotEmpty) 'username': nextName,
                       if (nextEmail.isNotEmpty) 'email': nextEmail,
                       if (nextAddress.isNotEmpty) 'address': nextAddress,
                       if (nextPhone.isNotEmpty) 'phone': nextPhone,
                       if (nextCompany.isNotEmpty) 'companyName': nextCompany,
-                      if (nextSpeciality.isNotEmpty) 'speciality': nextSpeciality,
+                      if (nextSpeciality.isNotEmpty)
+                        'speciality': nextSpeciality,
                       if (nextCity.isNotEmpty) 'city': nextCity,
                       if (nextCountry.isNotEmpty) 'country': nextCountry,
                       if (nextStatus.isNotEmpty) 'status': nextStatus,
-                      if (nextWebsiteUrl.isNotEmpty) 'websiteUrl': nextWebsiteUrl,
-                      if (nextProfileUrl.isNotEmpty) 'profileUrl': nextProfileUrl,
-                      'imageUrl': nextUrl,
+                      if (nextWebsiteUrl.isNotEmpty)
+                        'websiteUrl': nextWebsiteUrl,
+                      if (nextProfileUrl.isNotEmpty)
+                        'profileUrl': nextProfileUrl,
+                      'imageUrl': finalImageUrl,
                     });
                     // Refresh displayed name from server response
-                    final serverName = (updated['name'] ??
-                            updated['fullName'] ??
-                            updated['nom'] ??
-                            nextName)
-                        .toString();
+                    final serverName =
+                        (updated['name'] ??
+                                updated['fullName'] ??
+                                updated['nom'] ??
+                                nextName)
+                            .toString();
                     if (mounted) {
                       setState(() {
                         _profileDisplayName =
                             serverName.isNotEmpty ? serverName : nextName;
                         _profileEmail =
                             (updated['email'] ?? nextEmail).toString();
+                        final nextPhotoUrl =
+                            (updated['imageUrl'] ??
+                                    updated['photoUrl'] ??
+                                    updated['avatarUrl'] ??
+                                    updated['profilePhotoUrl'] ??
+                                    finalImageUrl)
+                                .toString();
+                        if (nextPhotoUrl.isNotEmpty) {
+                          _profilePhotoUrl = _normalizeProfilePhotoUrl(
+                            nextPhotoUrl,
+                          );
+                        }
                         _concepteurProfileData = {
                           ..._concepteurProfileData,
                           ...updated,
                         };
                         final projectTeam = updated['projectTeam'];
                         if (projectTeam is Map) {
-                          _concepteurProjectTeam =
-                              Map<String, dynamic>.from(projectTeam);
+                          _concepteurProjectTeam = Map<String, dynamic>.from(
+                            projectTeam,
+                          );
                         }
                       });
                     }
                     savedInDb = true;
-                  } catch (_) {
+                  } catch (e) {
+                    errorMessage = e.toString().replaceAll('Exception: ', '');
                     if (mounted) {
                       setState(() {
                         _profileDisplayName = previousName;
@@ -6335,13 +7426,17 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     }
                   }
                   if (!mounted) return;
-                  Navigator.of(ctx).pop();
+                  if (savedInDb) {
+                    Navigator.of(ctx).pop();
+                  }
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
                         savedInDb
                             ? 'Profil enregistre dans la base de donnees.'
-                            : 'Profil local modifie, mais sauvegarde base impossible.',
+                            : (errorMessage != null && errorMessage.isNotEmpty
+                                ? 'Sauvegarde echouee: $errorMessage'
+                                : 'Profil local modifie, mais sauvegarde base impossible.'),
                       ),
                       backgroundColor: savedInDb ? successColor : alertColor,
                     ),
@@ -6698,20 +7793,12 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     if (narrow) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          heading,
-          const SizedBox(height: 16),
-          addBtn,
-        ],
+        children: [heading, const SizedBox(height: 16), addBtn],
       );
     }
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: heading),
-        const SizedBox(width: 16),
-        addBtn,
-      ],
+      children: [Expanded(child: heading), const SizedBox(width: 16), addBtn],
     );
   }
 
@@ -6959,6 +8046,11 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                       has3D ? '3D DISPONIBLE' : 'NO 3D',
                       has3D ? const Color(0xFF26C6DA) : const Color(0xFF8A8AA1),
                     ),
+                    const SizedBox(width: 6),
+                    _statusBadge(
+                      'STOCK: ${m['stock'] ?? 0}',
+                      const Color(0xFFFF9800),
+                    ),
                   ],
                 ),
               ),
@@ -7059,9 +8151,13 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     children: [
                       Expanded(
                         child: _cardButton(
-                          enMarche ? Icons.stop_circle_outlined : Icons.play_circle_outline,
+                          enMarche
+                              ? Icons.stop_circle_outlined
+                              : Icons.play_circle_outline,
                           enMarche ? 'ARRÊTER' : 'DÉMARRER',
-                          enMarche ? const Color(0xFF3A1D2A) : const Color(0xFF214221),
+                          enMarche
+                              ? const Color(0xFF3A1D2A)
+                              : const Color(0xFF214221),
                           () => _toggleMachineStatus(m),
                         ),
                       ),
@@ -7143,6 +8239,11 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     _statusBadge(
                       has3D ? '3D' : 'NO 3D',
                       has3D ? accentColor : mutedTextColor,
+                    ),
+                    const SizedBox(width: 8),
+                    _statusBadge(
+                      'STOCK: ${m['stock'] ?? 0}',
+                      const Color(0xFFFF9800),
                     ),
                   ],
                 ),
@@ -7332,7 +8433,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   children: [
                     _miniButton(
                       Icons.edit_outlined,
-                      () => _showMachineManagementDialog(m, initialEditMode: true),
+                      () => _showMachineManagementDialog(
+                        m,
+                        initialEditMode: true,
+                      ),
                     ),
                     const SizedBox(width: 8),
                     _miniButton(
@@ -7345,10 +8449,16 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                       child: Container(
                         height: 36,
                         decoration: BoxDecoration(
-                          color: enMarche ? alertColor.withOpacity(0.1) : successColor,
+                          color:
+                              enMarche
+                                  ? alertColor.withOpacity(0.1)
+                                  : successColor,
                           borderRadius: BorderRadius.circular(4),
                           border: Border.all(
-                            color: enMarche ? alertColor.withOpacity(0.3) : Colors.transparent,
+                            color:
+                                enMarche
+                                    ? alertColor.withOpacity(0.3)
+                                    : Colors.transparent,
                           ),
                         ),
                         child: InkWell(
@@ -7668,9 +8778,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
   Future<void> _togglePublish(String id, bool currentIsPublic) async {
     try {
-      await ApiService.updateMachine(id, {
-        'isPublic': !currentIsPublic,
-      });
+      await ApiService.updateMachine(id, {'isPublic': !currentIsPublic});
       _fetchMachines();
     } catch (e) {
       if (mounted) {
@@ -7697,7 +8805,11 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       if (isStopped) {
         await ApiService.startMachine(id);
       } else {
-        await ApiService.stopMachine(id, reason: 'Arrêt manuel par concepteur', stoppedBy: 'Concepteur');
+        await ApiService.stopMachine(
+          id,
+          reason: 'Arrêt manuel par concepteur',
+          stoppedBy: 'Concepteur',
+        );
       }
       _fetchMachines();
     } catch (e) {
@@ -7712,88 +8824,101 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   void _showMachine3DPreview(Map<String, dynamic> m) {
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Container(
-          width: 600,
-          height: 500,
-          decoration: BoxDecoration(
-            color: sidebarColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: primaryColor.withOpacity(0.3)),
-          ),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    const Icon(Icons.view_in_ar, color: primaryColor),
-                    const SizedBox(width: 12),
-                    Text(
-                      'Visualisation 3D : ${m['name']}',
-                      style: GoogleFonts.spaceGrotesk(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: mutedTextColor),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
+      builder:
+          (context) => Dialog(
+            backgroundColor: Colors.transparent,
+            child: Container(
+              width: 600,
+              height: 500,
+              decoration: BoxDecoration(
+                color: sidebarColor,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: primaryColor.withOpacity(0.3)),
               ),
-              Expanded(
-                child: Container(
-                  margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(12),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.view_in_ar, color: primaryColor),
+                        const SizedBox(width: 12),
+                        Text(
+                          'Visualisation 3D : ${m['name']}',
+                          style: GoogleFonts.spaceGrotesk(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: mutedTextColor),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: Stack(
-                    children: [
-                      Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.precision_manufacturing, size: 80, color: primaryColor.withOpacity(0.1)),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Chargement du modèle 3D...',
-                              style: GoogleFonts.inter(color: mutedTextColor),
+                  Expanded(
+                    child: Container(
+                      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Stack(
+                        children: [
+                          Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.precision_manufacturing,
+                                  size: 80,
+                                  color: primaryColor.withOpacity(0.1),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Chargement du modèle 3D...',
+                                  style: GoogleFonts.inter(
+                                    color: mutedTextColor,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
+                          ),
+                          // Mock visualizer
+                          Positioned.fill(
+                            child: CustomPaint(
+                              painter: GridPainter(
+                                color: primaryColor.withOpacity(0.05),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      // Mock visualizer
-                      Positioned.fill(
-                        child: CustomPaint(
-                          painter: GridPainter(color: primaryColor.withOpacity(0.05)),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 
-  void _showMachineManagementDialog(Map<String, dynamic> m, {bool initialEditMode = false}) {
+  void _showMachineManagementDialog(
+    Map<String, dynamic> m, {
+    bool initialEditMode = false,
+  }) {
     showDialog(
       context: context,
-      builder: (context) => _MachineManagementDialog(
-        machine: m,
-        initialEditMode: initialEditMode,
-        concepterId: _concepteurProfileId, // Pass the current designer's ID
-        onUpdate: () => _fetchMachines(),
-      ),
+      builder:
+          (context) => _MachineManagementDialog(
+            machine: m,
+            initialEditMode: initialEditMode,
+            concepterId: _concepteurProfileId, // Pass the current designer's ID
+            onUpdate: () => _fetchMachines(),
+          ),
     );
   }
 
@@ -7816,7 +8941,8 @@ class _MachineManagementDialog extends StatefulWidget {
   });
 
   @override
-  State<_MachineManagementDialog> createState() => _MachineManagementDialogState();
+  State<_MachineManagementDialog> createState() =>
+      _MachineManagementDialogState();
 }
 
 class _MachineManagementDialogState extends State<_MachineManagementDialog> {
@@ -7826,6 +8952,8 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
   late TextEditingController _locationCtrl;
   late TextEditingController _urlCtrl;
   late TextEditingController _model3dCtrl;
+  late TextEditingController _priceCtrl;
+  late TextEditingController _stockCtrl;
   bool _saving = false;
   bool _isPublic = true;
 
@@ -7833,11 +8961,27 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
   void initState() {
     super.initState();
     _editMode = widget.initialEditMode;
-    _nameCtrl = TextEditingController(text: (widget.machine['name'] ?? '').toString());
-    _typeCtrl = TextEditingController(text: (widget.machine['type'] ?? '').toString());
-    _locationCtrl = TextEditingController(text: (widget.machine['location'] ?? '').toString());
-    _urlCtrl = TextEditingController(text: (widget.machine['imageUrl'] ?? '').toString());
-    _model3dCtrl = TextEditingController(text: (widget.machine['model3dUrl'] ?? '').toString());
+    _nameCtrl = TextEditingController(
+      text: (widget.machine['name'] ?? '').toString(),
+    );
+    _typeCtrl = TextEditingController(
+      text: (widget.machine['type'] ?? '').toString(),
+    );
+    _locationCtrl = TextEditingController(
+      text: (widget.machine['location'] ?? '').toString(),
+    );
+    _urlCtrl = TextEditingController(
+      text: (widget.machine['imageUrl'] ?? '').toString(),
+    );
+    _model3dCtrl = TextEditingController(
+      text: (widget.machine['model3dUrl'] ?? '').toString(),
+    );
+    _priceCtrl = TextEditingController(
+      text: (widget.machine['price'] ?? widget.machine['prix'] ?? '').toString(),
+    );
+    _stockCtrl = TextEditingController(
+      text: (widget.machine['stock'] ?? 0).toString(),
+    );
     _isPublic = widget.machine['isPublic'] == true;
   }
 
@@ -7875,7 +9019,10 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                       color: primaryColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(Icons.precision_manufacturing, color: primaryColor),
+                    child: const Icon(
+                      Icons.precision_manufacturing,
+                      color: primaryColor,
+                    ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -7883,7 +9030,9 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _editMode ? 'MODIFIER LA MACHINE' : 'DÉTAILS DE LA MACHINE',
+                          _editMode
+                              ? 'MODIFIER LA MACHINE'
+                              : 'DÉTAILS DE LA MACHINE',
                           style: GoogleFonts.spaceGrotesk(
                             color: primaryColor,
                             fontSize: 12,
@@ -7892,7 +9041,9 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                           ),
                         ),
                         Text(
-                          _nameCtrl.text.isEmpty ? 'Nouvelle Machine' : _nameCtrl.text,
+                          _nameCtrl.text.isEmpty
+                              ? 'Nouvelle Machine'
+                              : _nameCtrl.text,
                           style: GoogleFonts.spaceGrotesk(
                             color: Colors.white,
                             fontSize: 24,
@@ -7904,7 +9055,10 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                   ),
                   if (id.isNotEmpty)
                     IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.redAccent,
+                      ),
                       tooltip: 'Supprimer cette machine',
                       onPressed: _onDelete,
                     ),
@@ -7934,7 +9088,11 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [
-                            BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4)),
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.3),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
                           ],
                         ),
                         clipBehavior: Clip.antiAlias,
@@ -7943,7 +9101,11 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                           height: 160,
                           fallback: Container(
                             color: cardColor,
-                            child: const Icon(Icons.precision_manufacturing, size: 48, color: mutedTextColor),
+                            child: const Icon(
+                              Icons.precision_manufacturing,
+                              size: 48,
+                              color: mutedTextColor,
+                            ),
                           ),
                         ),
                       ),
@@ -7953,46 +9115,145 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                       const SizedBox(height: 24),
                       Row(
                         children: [
-                          Expanded(child: _buildInfoSection('CATÉGORIE', _typeCtrl.text, textColor)),
+                          Expanded(
+                            child: _buildInfoSection(
+                              'CATÉGORIE',
+                              _typeCtrl.text,
+                              textColor,
+                            ),
+                          ),
                           const SizedBox(width: 24),
-                          Expanded(child: _buildInfoSection('LOCALISATION', _locationCtrl.text, textColor)),
+                          Expanded(
+                            child: _buildInfoSection(
+                              'LOCALISATION',
+                              _locationCtrl.text,
+                              textColor,
+                            ),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 24),
-                      _buildInfoSection('URL DE L\'IMAGE', _urlCtrl.text, mutedTextColor),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildInfoSection(
+                              'PRIX',
+                              _priceCtrl.text.isEmpty ? 'Non renseigné' : '${_priceCtrl.text} €',
+                              textColor,
+                            ),
+                          ),
+                          const SizedBox(width: 24),
+                          Expanded(
+                            child: _buildInfoSection(
+                              'STOCK',
+                              _stockCtrl.text,
+                              textColor,
+                            ),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 24),
-                      _buildInfoSection('MODÈLE 3D (GLB/OBJ)', _model3dCtrl.text.isEmpty ? 'Aucun modèle configuré' : _model3dCtrl.text, Colors.orangeAccent),
+                      _buildInfoSection(
+                        'URL DE L\'IMAGE',
+                        _urlCtrl.text,
+                        mutedTextColor,
+                      ),
+                      const SizedBox(height: 24),
+                      _buildInfoSection(
+                        'MODÈLE 3D (GLB/OBJ)',
+                        _model3dCtrl.text.isEmpty
+                            ? 'Aucun modèle configuré'
+                            : _model3dCtrl.text,
+                        Colors.orangeAccent,
+                      ),
                       const SizedBox(height: 24),
                       _buildInfoSection(
                         'STATUT DE PUBLICATION',
-                        _isPublic ? 'Publiée (catalogue public)' : 'Non publiée (dashboard uniquement)',
-                        _isPublic ? const Color(0xFF4CAF50) : const Color(0xFFE53935),
+                        _isPublic
+                            ? 'Publiée (catalogue public)'
+                            : 'Non publiée (dashboard uniquement)',
+                        _isPublic
+                            ? const Color(0xFF4CAF50)
+                            : const Color(0xFFE53935),
                       ),
                     ] else ...[
-                      _buildTextField('Nom de la machine', _nameCtrl, Icons.title_outlined),
+                      _buildTextField(
+                        'Nom de la machine',
+                        _nameCtrl,
+                        Icons.title_outlined,
+                      ),
                       const SizedBox(height: 16),
                       Row(
                         children: [
-                          Expanded(child: _buildTextField('Catégorie', _typeCtrl, Icons.category_outlined)),
+                          Expanded(
+                            child: _buildTextField(
+                              'Catégorie',
+                              _typeCtrl,
+                              Icons.category_outlined,
+                            ),
+                          ),
                           const SizedBox(width: 16),
-                          Expanded(child: _buildTextField('Localisation', _locationCtrl, Icons.location_on_outlined)),
+                          Expanded(
+                            child: _buildTextField(
+                              'Localisation',
+                              _locationCtrl,
+                              Icons.location_on_outlined,
+                            ),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 16),
-                      _buildTextField('URL de l\'image', _urlCtrl, Icons.image_outlined, onUpload: () => _pickAndUploadFile(_urlCtrl, isImage: true)),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildTextField(
+                              'Prix',
+                              _priceCtrl,
+                              Icons.monetization_on_outlined,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _buildTextField(
+                              'Stock',
+                              _stockCtrl,
+                              Icons.pin_outlined,
+                            ),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 16),
-                      _buildTextField('Modèle 3D (URL)', _model3dCtrl, Icons.view_in_ar_outlined, onUpload: () => _pickAndUploadFile(_model3dCtrl)),
+                      _buildTextField(
+                        'URL de l\'image',
+                        _urlCtrl,
+                        Icons.image_outlined,
+                        onUpload:
+                            () => _pickAndUploadFile(_urlCtrl, isImage: true),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildTextField(
+                        'Modèle 3D (URL)',
+                        _model3dCtrl,
+                        Icons.view_in_ar_outlined,
+                        onUpload: () => _pickAndUploadFile(_model3dCtrl),
+                      ),
                       const SizedBox(height: 16),
                       SwitchListTile(
                         title: Text(
                           _isPublic ? 'Publiée' : 'Non publiée',
-                          style: GoogleFonts.inter(color: Colors.white, fontSize: 14),
+                          style: GoogleFonts.inter(
+                            color: Colors.white,
+                            fontSize: 14,
+                          ),
                         ),
                         subtitle: Text(
                           _isPublic
                               ? 'Activé : visible dans le catalogue public'
                               : 'Désactivé : visible uniquement dans votre dashboard',
-                          style: GoogleFonts.inter(color: mutedTextColor, fontSize: 12),
+                          style: GoogleFonts.inter(
+                            color: mutedTextColor,
+                            fontSize: 12,
+                          ),
                         ),
                         value: _isPublic,
                         activeColor: primaryColor,
@@ -8018,7 +9279,10 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.orangeAccent,
                         foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
                       ),
                       onPressed: () {
                         Navigator.pop(context);
@@ -8033,29 +9297,50 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                       style: OutlinedButton.styleFrom(
                         foregroundColor: primaryColor,
                         side: const BorderSide(color: primaryColor),
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 12,
+                        ),
                       ),
                       onPressed: () => setState(() => _editMode = true),
                     )
                   else ...[
                     TextButton(
-                      onPressed: () => setState(() {
-                        _editMode = false;
-                        if (id.isEmpty) Navigator.pop(context);
-                      }),
-                      child: const Text('ANNULER', style: TextStyle(color: mutedTextColor)),
+                      onPressed:
+                          () => setState(() {
+                            _editMode = false;
+                            if (id.isEmpty) Navigator.pop(context);
+                          }),
+                      child: const Text(
+                        'ANNULER',
+                        style: TextStyle(color: mutedTextColor),
+                      ),
                     ),
                     const SizedBox(width: 16),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryColor,
                         foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 32,
+                          vertical: 12,
+                        ),
                       ),
                       onPressed: _saving ? null : _save,
-                      child: _saving
-                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                          : const Text('ENREGISTRER', style: TextStyle(fontWeight: FontWeight.bold)),
+                      child:
+                          _saving
+                              ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.black,
+                                ),
+                              )
+                              : const Text(
+                                'ENREGISTRER',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
                     ),
                   ],
                 ],
@@ -8093,7 +9378,12 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController ctrl, IconData icon, {VoidCallback? onUpload}) {
+  Widget _buildTextField(
+    String label,
+    TextEditingController ctrl,
+    IconData icon, {
+    VoidCallback? onUpload,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -8106,7 +9396,11 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                 decoration: InputDecoration(
                   labelText: label,
                   labelStyle: const TextStyle(color: Color(0xFFA0A5BA)),
-                  prefixIcon: Icon(icon, color: const Color(0xFF00D1FF), size: 20),
+                  prefixIcon: Icon(
+                    icon,
+                    color: const Color(0xFF00D1FF),
+                    size: 20,
+                  ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: const BorderSide(color: Colors.white10),
@@ -8127,7 +9421,10 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                 child: Center(
                   child: IconButton(
                     onPressed: onUpload,
-                    icon: const Icon(Icons.file_upload_outlined, color: Color(0xFF00D1FF)),
+                    icon: const Icon(
+                      Icons.file_upload_outlined,
+                      color: Color(0xFF00D1FF),
+                    ),
                     tooltip: 'Téléverser depuis le PC',
                     style: IconButton.styleFrom(
                       backgroundColor: Colors.white.withOpacity(0.05),
@@ -8143,7 +9440,10 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
     );
   }
 
-  Future<void> _pickAndUploadFile(TextEditingController ctrl, {bool isImage = false}) async {
+  Future<void> _pickAndUploadFile(
+    TextEditingController ctrl, {
+    bool isImage = false,
+  }) async {
     try {
       final result = await FilePicker.pickFiles(
         type: isImage ? FileType.image : FileType.any,
@@ -8154,7 +9454,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
       if (result != null && result.files.single.bytes != null) {
         final file = result.files.single;
         setState(() => _saving = true);
-        
+
         final base64String = base64Encode(file.bytes!);
         final url = await ApiService.uploadFile(
           base64Data: base64String,
@@ -8165,7 +9465,10 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
           ctrl.text = url;
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Fichier téléversé avec succès !'), backgroundColor: Colors.green),
+              const SnackBar(
+                content: Text('Fichier téléversé avec succès !'),
+                backgroundColor: Colors.green,
+              ),
             );
           }
         }
@@ -8173,7 +9476,10 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur upload: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Erreur upload: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -8190,26 +9496,32 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
         'location': _locationCtrl.text.trim(),
         'imageUrl': _urlCtrl.text.trim(),
         'model3dUrl': _model3dCtrl.text.trim(),
+        'price': _priceCtrl.text.trim(),
+        'stock': int.tryParse(_stockCtrl.text.trim()) ?? 0,
         'isPublic': _isPublic,
       };
-      
-      final id = (widget.machine['id'] ?? widget.machine['_id'] ?? '').toString();
+
+      final id =
+          (widget.machine['id'] ?? widget.machine['_id'] ?? '').toString();
       if (id.isEmpty) {
         await ApiService.createStandaloneMachine(
-          payload, 
+          payload,
           actorRole: 'concepteur',
           concepterId: widget.concepterId, // Pass the owner ID here
         );
       } else {
         await ApiService.updateMachine(id, payload);
       }
-      
+
       widget.onUpdate();
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: const Color(0xFFD32F2F)),
+          SnackBar(
+            content: Text('Erreur: $e'),
+            backgroundColor: const Color(0xFFD32F2F),
+          ),
         );
       }
     } finally {
@@ -8221,19 +9533,37 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
     final id = (widget.machine['id'] ?? widget.machine['_id'] ?? '').toString();
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1D2E),
-        title: const Text('Supprimer la machine ?', style: TextStyle(color: Colors.white)),
-        content: const Text('Cette action est irréversible. Toutes les données liées seront perdues.', style: TextStyle(color: Color(0xFFA0A5BA))),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ANNULER', style: TextStyle(color: Color(0xFFA0A5BA)))),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('SUPPRIMER', style: TextStyle(color: Colors.white)),
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1A1D2E),
+            title: const Text(
+              'Supprimer la machine ?',
+              style: TextStyle(color: Colors.white),
+            ),
+            content: const Text(
+              'Cette action est irréversible. Toutes les données liées seront perdues.',
+              style: TextStyle(color: Color(0xFFA0A5BA)),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text(
+                  'ANNULER',
+                  style: TextStyle(color: Color(0xFFA0A5BA)),
+                ),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                ),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text(
+                  'SUPPRIMER',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
     );
 
     if (confirm == true) {
@@ -8244,7 +9574,12 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
         if (mounted) Navigator.pop(context);
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur suppression: $e'), backgroundColor: Colors.red));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur suppression: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
         }
       } finally {
         if (mounted) setState(() => _saving = false);
@@ -8321,9 +9656,10 @@ class GridPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1.0;
+    final paint =
+        Paint()
+          ..color = color
+          ..strokeWidth = 1.0;
 
     const spacing = 30.0;
     for (double i = 0; i < size.width; i += spacing) {
