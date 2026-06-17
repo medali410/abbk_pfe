@@ -25,6 +25,8 @@ const maintenanceOrdersRoutes = require('./routes/maintenanceOrders'); // [AJOUT
 const consultationRoutes     = require('./routes/consultations');
 const notificationRoutes     = require('./routes/notifications');
 const missionRoutes          = require('./routes/missions');
+const predictionRoutes       = require('./routes/predictions');
+const diagnosticInterventionRoutes = require('./routes/diagnosticInterventions');
 
 const healthController    = require('./controllers/healthController');
 const telemetryController = require('./controllers/telemetryController');
@@ -50,10 +52,26 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 // Health check
 app.get('/api/health', healthController.check);
 
+app.post('/api/temp-create-concepteur', async (req, res) => {
+  try {
+    const { createUserWithProfile } = require('./lib/auth');
+    const { user, profile } = await createUserWithProfile(
+        'conception',
+        { email: 'sloma4694@gmail.com', nom: 'lemjid', password: 'password123', adresse: 'Tunis' },
+        { location: 'Tunis', specialite: 'Conception', status: 'Actif' }
+    );
+    res.json({ user, profile });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api',                          authRoutes);
 app.use('/api/clients',                  clientsRoutes);
 app.use('/api/machines',                 machinesRoutes);
+app.use('/api/predictions',              predictionRoutes);
+app.use('/api',                          predictionRoutes);
 app.use('/api/dashboard',               dashboardRoutes);
 app.use('/api',                          actorsRoutes);            // garde la compatibilité avec /api/concepteurs
 app.use('/api/conceptions',             documentsRoutes);
@@ -70,6 +88,7 @@ app.use('/api/maintenance-orders',       maintenanceOrdersRoutes);  // [AJOUT]
 app.use('/api/consultations',            consultationRoutes);
 app.use('/api/notifications',            notificationRoutes);
 app.use('/api/missions',                 missionRoutes);
+app.use('/api/diagnostic-interventions', diagnosticInterventionRoutes);
 
 // ─── Socket.io ────────────────────────────────────────────────────────────────
 const chatController = require('./controllers/chatController');

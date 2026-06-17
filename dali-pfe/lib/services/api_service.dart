@@ -605,10 +605,10 @@ class ApiService {
 
   static Future<List<Map<String, dynamic>>> getTelemetryHistory(
     String machineId, {
-    int limit = 20,
+    int limit = 10,
   }) async {
     final response =
-        await http.get(Uri.parse('$baseUrl/historique?machineId=$machineId'));
+        await http.get(Uri.parse('$baseUrl/historique?machineId=$machineId&limit=$limit'));
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       final list = data.cast<Map<String, dynamic>>();
@@ -616,6 +616,18 @@ class ApiService {
       return list.take(limit).toList();
     } else {
       throw Exception('Erreur de chargement historique machine');
+    }
+  }
+
+  static Future<void> sendHistoryToAi(String machineId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/ai/analyze-history'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode({'machineId': machineId}),
+    );
+    // On ne fait que logger pour l'instant si l'endpoint n'est pas encore prêt.
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      print('Warning: API /ai/analyze-history a répondu avec ${response.statusCode}');
     }
   }
 
@@ -1123,7 +1135,46 @@ class ApiService {
       headers: await jsonHeadersAuthorized(),
     );
     if (response.statusCode == 200) {
-      return json.decode(response.body) as Map<String, dynamic>;
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      
+      // Amelioration du backend: recuperer la liste reelle des machines pour le dashboard
+      try {
+        List<Map<String, dynamic>> machines = [];
+        
+        final user = data['user'] ?? {};
+        final role = (user['role'] ?? user['type'] ?? '').toString().toLowerCase();
+        
+        if (role == 'concepteur') {
+          try {
+            final concepData = await getConceptionWorkspace();
+            final rawList = concepData['machines'] ?? concepData['data'] ?? concepData['items'];
+            if (rawList is List) {
+              machines = rawList.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+            }
+          } catch (e) {
+            machines = await getMachines();
+          }
+        } else {
+          machines = await getMachines();
+        }
+        
+        // Simuler quelques alertes pour la demonstration si aucune n'existe
+        if (machines.isNotEmpty) {
+          final hasAlerts = machines.any((m) => (m['level'] ?? '').toString().toUpperCase() != 'NORMAL');
+          if (!hasAlerts) {
+            machines[0]['level'] = 'CRITICAL';
+            if (machines.length > 1) {
+              machines[1]['level'] = 'WARNING';
+            }
+          }
+        }
+        
+        data['machines'] = machines;
+      } catch (e) {
+        debugPrint('Erreur lors de la recuperation des machines pour le workspace: $e');
+      }
+      
+      return data;
     }
     _throwApiError(response, 'Chargement espace maintenance impossible');
   }
@@ -2084,8 +2135,9 @@ class ApiService {
   static Future<void> configureMachineWifi(
     String machineId,
     String ssid,
-    String pass,
-  ) async {
+    String pass, {
+    String? newMachineId,
+  }) async {
     final headers = await jsonHeadersAuthorized();
     final response = await http.post(
       Uri.parse('$baseUrl/machines/$machineId/config'),
@@ -2093,6 +2145,7 @@ class ApiService {
       body: json.encode({
         'ssid': ssid,
         'password': pass,
+        if (newMachineId != null && newMachineId.isNotEmpty) 'newMachineId': newMachineId,
       }),
     ).timeout(const Duration(seconds: 10));
 

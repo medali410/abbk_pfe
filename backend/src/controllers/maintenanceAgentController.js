@@ -27,7 +27,8 @@ async function loadMachineData(profile) {
             telemetryMap[m.id] = {
                 ...t,
                 temperature: t.temp,
-                pressure: t.pression,
+                pressure: t.voltage,
+                voltage: t.voltage,
                 magnetic: t.magnet
             };
         }
@@ -238,7 +239,8 @@ async function getMyMachinesTelemetry(req, res) {
                 const mappedTelemetry = telemetry ? {
                     ...telemetry,
                     temperature: telemetry.temp,
-                    pressure: telemetry.pression,
+                    pressure: telemetry.voltage,
+                    voltage: telemetry.voltage,
                     magnetic: telemetry.magnet
                 } : null;
                 return { machine: machine || { id: mid, name: 'Inconnue' }, telemetry: mappedTelemetry };

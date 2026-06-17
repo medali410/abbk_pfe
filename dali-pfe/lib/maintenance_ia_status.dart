@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'machine_detail_ai_page.dart';
 
 /// Données agrégées par la chaîne IoT + modèle (probabilité panne, scénario, niveau).
 
@@ -198,11 +199,26 @@ class MaintenanceIaSidebarMachineRow extends StatelessWidget {
     final levelFr = iaLevelFr(machine);
     final scenario = iaScenarioShort(machine);
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: compact ? 8 : 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return InkWell(
+      onTap: () {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => MachineDetailAiPage(
+              machineId: (machine['machineId'] ?? '').toString(),
+              machineName: name,
+              viewerRole: 'maintenance',
+              viewerName: 'Opérateur',
+              machines: [], // Sera rempli plus tard si nécessaire
+            ),
+          ),
+        );
+      },
+      child: Padding(
+        padding: EdgeInsets.only(bottom: compact ? 8 : 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Container(
             width: 4,
             height: compact ? 44 : 48,
@@ -269,6 +285,7 @@ class MaintenanceIaSidebarMachineRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }

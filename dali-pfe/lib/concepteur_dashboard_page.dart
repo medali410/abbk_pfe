@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
@@ -78,6 +79,15 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
   /// Écoute missions / messages diagnostic pour notifier le concepteur (ex. technicien confirme).
   IO.Socket? _missionAckSocket;
+
+  /// ── Live telemetry polling (1s) ───────────────────────────────────────────
+  final Map<String, Map<String, dynamic>> _liveTelemetryByMachineId = <String, Map<String, dynamic>>{};
+  final Set<String> _polledMachineIds = <String>{};
+  Timer? _liveTelemetryTimer;
+  /// Notifies listeners every time telemetry is fetched to avoid global setState rebuilds
+  final ValueNotifier<int> _telemetryTick = ValueNotifier<int>(0);
+  /// Tracks the last risk level that triggered a toast to avoid spam.
+  final Map<String, String> _lastNotifiedRiskById = <String, String>{};
 
   final TextEditingController _searchController = TextEditingController();
   String _selectedCategory = 'Toutes les catégories';
@@ -889,6 +899,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
   @override
   void dispose() {
+    _liveTelemetryTimer?.cancel();
+    _telemetryTick.dispose();
     _missionAckSocket?.dispose();
     super.dispose();
   }
@@ -974,6 +986,166 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     _fetchMachines();
     _fetchPurchaseRequests();
     _initConcepteurMissionAckSocket();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  LIVE TELEMETRY POLLING + RISK TOAST NOTIFICATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Starts 1-second polling for all machines currently in [_polledMachineIds].
+  void _startLiveTelemetryPolling() {
+    if (_liveTelemetryTimer != null) return; // already running
+    _liveTelemetryTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _refreshAllLiveTelemetry();
+    });
+  }
+
+  /// Registers all current machines for telemetry polling.
+  void _registerMachinesForTelemetryPolling() {
+    for (final m in _allMachines) {
+      final id = _machineIdOf(m).trim();
+      if (id.isNotEmpty) _polledMachineIds.add(id);
+    }
+    _startLiveTelemetryPolling();
+  }
+
+  /// Fetches latest telemetry for every polled machine, stores it, and
+  /// evaluates risk for toast notifications.
+  Future<void> _refreshAllLiveTelemetry() async {
+    if (!mounted || _polledMachineIds.isEmpty) return;
+    for (final machineId in _polledMachineIds) {
+      try {
+        final tel = await ApiService.getLatestTelemetry(machineId);
+        if (tel != null && mounted) {
+          _liveTelemetryByMachineId[machineId] = tel;
+          // Evaluate risk
+          final risk = _computeRiskFromTelemetry(tel);
+          final prev = _lastNotifiedRiskById[machineId] ?? 'NORMAL';
+          if (risk != 'NORMAL' && risk != prev) {
+            _lastNotifiedRiskById[machineId] = risk;
+            final name = _allMachines.firstWhere(
+              (m) => _machineIdOf(m) == machineId,
+              orElse: () => <String, dynamic>{},
+            );
+            final mName = _machineNameOf(name.isEmpty ? {'name': machineId} : name);
+            _showRiskToast(
+              machineId: machineId,
+              machineName: mName,
+              riskLevel: risk,
+              telemetry: tel,
+            );
+          } else if (risk == 'NORMAL') {
+            _lastNotifiedRiskById[machineId] = 'NORMAL';
+          }
+        }
+      } catch (_) {
+        // Silently skip failed fetches
+      }
+    }
+    if (mounted) _telemetryTick.value++;
+  }
+
+  /// Computes overall risk label from raw telemetry map.
+  String _computeRiskFromTelemetry(Map<String, dynamic> tel) {
+    double? parseVal(dynamic v) {
+      if (v == null) return null;
+      if (v is num) return v.toDouble();
+      return double.tryParse(v.toString());
+    }
+    final temp = parseVal(tel['temperature'] ?? tel['temp']);
+    final vib = parseVal(tel['vibration']);
+
+    bool isDanger = false;
+    bool isRisk = false;
+
+    if (temp != null) {
+      if (temp > 75) isDanger = true;
+      else if (temp >= 55) isRisk = true;
+    }
+    if (vib != null) {
+      if (vib > 12) isDanger = true;
+      else if (vib >= 7) isRisk = true;
+    }
+
+    if (isDanger) return 'DANGER';
+    if (isRisk) return 'RISQUE';
+    return 'NORMAL';
+  }
+
+  /// Returns a human-readable description of the risk factors.
+  String _riskTypeDescription(Map<String, dynamic> tel) {
+    double? parseVal(dynamic v) {
+      if (v == null) return null;
+      if (v is num) return v.toDouble();
+      return double.tryParse(v.toString());
+    }
+    final parts = <String>[];
+    final temp = parseVal(tel['temperature'] ?? tel['temp']);
+    final vib = parseVal(tel['vibration']);
+    if (temp != null && temp > 75) parts.add('Température critique ${temp.toStringAsFixed(1)}°C');
+    else if (temp != null && temp >= 55) parts.add('Température élevée ${temp.toStringAsFixed(1)}°C');
+    if (vib != null && vib > 12) parts.add('Vibration critique ${vib.toStringAsFixed(1)} mm/s');
+    else if (vib != null && vib >= 7) parts.add('Vibration élevée ${vib.toStringAsFixed(1)} mm/s');
+    return parts.isNotEmpty ? parts.join(' · ') : 'Paramètres hors seuils';
+  }
+
+  /// Shows a styled risk toast (SnackBar) with an AFFICHER action.
+  void _showRiskToast({
+    required String machineId,
+    required String machineName,
+    required String riskLevel,
+    required Map<String, dynamic> telemetry,
+  }) {
+    if (!mounted) return;
+    final isDanger = riskLevel == 'DANGER';
+    final color = isDanger ? const Color(0xFFF44336) : const Color(0xFFFF9800);
+    final icon = isDanger ? Icons.error_outline : Icons.warning_amber_rounded;
+    final desc = _riskTypeDescription(telemetry);
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: color,
+        duration: const Duration(seconds: 8),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.only(bottom: 24, left: 24, right: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        content: Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$riskLevel — $machineName',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    desc,
+                    style: GoogleFonts.inter(color: Colors.white70, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        action: SnackBarAction(
+          label: 'AFFICHER',
+          textColor: Colors.white,
+          onPressed: () {
+            _openDetails(machineId);
+          },
+        ),
+      ),
+    );
   }
 
   Future<String> _trySilentSessionRecovery() async {
@@ -2626,6 +2798,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           _unreadMachineNotifications += newNotifications;
           _loading = false;
         });
+        // Start 1-second live telemetry polling for all machines
+        _registerMachinesForTelemetryPolling();
       }
     } catch (e) {
       final msg = e.toString().toLowerCase();
@@ -3642,6 +3816,115 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                           fontSize: 11,
                                           color: mutedTextColor,
                                         ),
+                                      ),
+                                      // ── Live telemetry state display ─────────────────────
+                                      ValueListenableBuilder<int>(
+                                        valueListenable: _telemetryTick,
+                                        builder: (context, _, __) {
+                                          final tel = _telemetryTick.value >= 0 ? _liveTelemetryByMachineId[mid] : null;
+                                          if (tel == null) {
+                                            return Container(
+                                              margin: const EdgeInsets.only(top: 6),
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white.withOpacity(0.04),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  const Icon(Icons.sensors_off, color: Color(0xFF8A8AA1), size: 12),
+                                                  const SizedBox(width: 6),
+                                                  Text(
+                                                    'Capteurs en attente…',
+                                                    style: GoogleFonts.inter(color: const Color(0xFF8A8AA1), fontSize: 9),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          }
+                                          double? parseVal(dynamic v) {
+                                            if (v == null) return null;
+                                            if (v is num) return v.toDouble();
+                                            return double.tryParse(v.toString());
+                                          }
+                                          final tempVal = parseVal(tel['temperature'] ?? tel['temp']);
+                                          final vibVal = parseVal(tel['vibration']);
+                                          final risk = _computeRiskFromTelemetry(tel);
+                                          final Color stateColor = risk == 'DANGER'
+                                              ? const Color(0xFFF44336)
+                                              : risk == 'RISQUE'
+                                                  ? const Color(0xFFFF9800)
+                                                  : const Color(0xFF4CAF50);
+                                          final IconData stateIcon = risk == 'DANGER'
+                                              ? Icons.error_outline
+                                              : risk == 'RISQUE'
+                                                  ? Icons.warning_amber_rounded
+                                                  : Icons.check_circle_outline;
+                                          return Container(
+                                            margin: const EdgeInsets.only(top: 6),
+                                            padding: const EdgeInsets.all(6),
+                                            decoration: BoxDecoration(
+                                              color: stateColor.withOpacity(0.08),
+                                              borderRadius: BorderRadius.circular(8),
+                                              border: Border.all(color: stateColor.withOpacity(0.25)),
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Icon(stateIcon, color: stateColor, size: 12),
+                                                    const SizedBox(width: 5),
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                      decoration: BoxDecoration(
+                                                        color: stateColor.withOpacity(0.15),
+                                                        borderRadius: BorderRadius.circular(4),
+                                                      ),
+                                                      child: Text(
+                                                        risk,
+                                                        style: GoogleFonts.spaceGrotesk(
+                                                          color: stateColor,
+                                                          fontSize: 8,
+                                                          fontWeight: FontWeight.bold,
+                                                          letterSpacing: 0.8,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Container(
+                                                      width: 5, height: 5,
+                                                      decoration: BoxDecoration(color: stateColor, shape: BoxShape.circle),
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    Text('LIVE', style: GoogleFonts.inter(color: stateColor, fontSize: 7, fontWeight: FontWeight.bold)),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 6),
+                                                Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Icon(Icons.thermostat_outlined, color: stateColor.withOpacity(0.7), size: 11),
+                                                    const SizedBox(width: 3),
+                                                    Text(
+                                                      tempVal != null ? '${tempVal.toStringAsFixed(1)}°C' : '--',
+                                                      style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                                    ),
+                                                    const SizedBox(width: 12),
+                                                    Icon(Icons.vibration, color: stateColor.withOpacity(0.7), size: 11),
+                                                    const SizedBox(width: 3),
+                                                    Text(
+                                                      vibVal != null ? '${vibVal.toStringAsFixed(1)} mm/s' : '--',
+                                                      style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        },
                                       ),
                                     ],
                                   ),
@@ -4900,6 +5183,115 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                               color: mutedTextColor,
                                             ),
                                           ),
+                                        // ── Live telemetry state display ─────────────────────
+                                        ValueListenableBuilder<int>(
+                                          valueListenable: _telemetryTick,
+                                          builder: (context, _, __) {
+                                            final tel = _telemetryTick.value >= 0 ? _liveTelemetryByMachineId[mid] : null;
+                                            if (tel == null) {
+                                              return Container(
+                                                margin: const EdgeInsets.only(top: 6),
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white.withOpacity(0.04),
+                                                  borderRadius: BorderRadius.circular(6),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    const Icon(Icons.sensors_off, color: Color(0xFF8A8AA1), size: 12),
+                                                    const SizedBox(width: 6),
+                                                    Text(
+                                                      'Capteurs en attente…',
+                                                      style: GoogleFonts.inter(color: const Color(0xFF8A8AA1), fontSize: 9),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                            }
+                                            double? parseVal(dynamic v) {
+                                              if (v == null) return null;
+                                              if (v is num) return v.toDouble();
+                                              return double.tryParse(v.toString());
+                                            }
+                                            final tempVal = parseVal(tel['temperature'] ?? tel['temp']);
+                                            final vibVal = parseVal(tel['vibration']);
+                                            final risk = _computeRiskFromTelemetry(tel);
+                                            final Color stateColor = risk == 'DANGER'
+                                                ? const Color(0xFFF44336)
+                                                : risk == 'RISQUE'
+                                                    ? const Color(0xFFFF9800)
+                                                    : const Color(0xFF4CAF50);
+                                            final IconData stateIcon = risk == 'DANGER'
+                                                ? Icons.error_outline
+                                                : risk == 'RISQUE'
+                                                    ? Icons.warning_amber_rounded
+                                                    : Icons.check_circle_outline;
+                                            return Container(
+                                              margin: const EdgeInsets.only(top: 6),
+                                              padding: const EdgeInsets.all(6),
+                                              decoration: BoxDecoration(
+                                                color: stateColor.withOpacity(0.08),
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(color: stateColor.withOpacity(0.25)),
+                                              ),
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      Icon(stateIcon, color: stateColor, size: 12),
+                                                      const SizedBox(width: 5),
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                        decoration: BoxDecoration(
+                                                          color: stateColor.withOpacity(0.15),
+                                                          borderRadius: BorderRadius.circular(4),
+                                                        ),
+                                                        child: Text(
+                                                          risk,
+                                                          style: GoogleFonts.spaceGrotesk(
+                                                            color: stateColor,
+                                                            fontSize: 8,
+                                                            fontWeight: FontWeight.bold,
+                                                            letterSpacing: 0.8,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Container(
+                                                        width: 5, height: 5,
+                                                        decoration: BoxDecoration(color: stateColor, shape: BoxShape.circle),
+                                                      ),
+                                                      const SizedBox(width: 4),
+                                                      Text('LIVE', style: GoogleFonts.inter(color: stateColor, fontSize: 7, fontWeight: FontWeight.bold)),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(height: 6),
+                                                  Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      Icon(Icons.thermostat_outlined, color: stateColor.withOpacity(0.7), size: 11),
+                                                      const SizedBox(width: 3),
+                                                      Text(
+                                                        tempVal != null ? '${tempVal.toStringAsFixed(1)}°C' : '--',
+                                                        style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                                      ),
+                                                      const SizedBox(width: 12),
+                                                      Icon(Icons.vibration, color: stateColor.withOpacity(0.7), size: 11),
+                                                      const SizedBox(width: 3),
+                                                      Text(
+                                                        vibVal != null ? '${vibVal.toStringAsFixed(1)} mm/s' : '--',
+                                                        style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          },
+                                        ),
                                       ],
                                     ),
                                   ),
@@ -6701,7 +7093,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
-            childAspectRatio: 0.80,
+            childAspectRatio: 0.58,
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
           ),
@@ -7964,7 +8356,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
-            childAspectRatio: 0.80,
+            childAspectRatio: 0.58,
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
           ),
@@ -8123,6 +8515,111 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                       color: mutedTextColor,
                       height: 1.25,
                     ),
+                  ),
+                  const SizedBox(height: 8),
+                  // ── Live telemetry state display ─────────────────────
+                  ValueListenableBuilder<int>(
+                    valueListenable: _telemetryTick,
+                    builder: (context, _, __) {
+                      final tel = _liveTelemetryByMachineId[id];
+                      if (tel == null) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.04),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.sensors_off, color: Color(0xFF8A8AA1), size: 12),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Capteurs en attente…',
+                                style: GoogleFonts.inter(color: const Color(0xFF8A8AA1), fontSize: 9),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                      double? parseVal(dynamic v) {
+                        if (v == null) return null;
+                        if (v is num) return v.toDouble();
+                        return double.tryParse(v.toString());
+                      }
+                      final tempVal = parseVal(tel['temperature'] ?? tel['temp']);
+                      final vibVal = parseVal(tel['vibration']);
+                      final risk = _computeRiskFromTelemetry(tel);
+                      final Color stateColor = risk == 'DANGER'
+                          ? const Color(0xFFF44336)
+                          : risk == 'RISQUE'
+                              ? const Color(0xFFFF9800)
+                              : const Color(0xFF4CAF50);
+                      final IconData stateIcon = risk == 'DANGER'
+                          ? Icons.error_outline
+                          : risk == 'RISQUE'
+                              ? Icons.warning_amber_rounded
+                              : Icons.check_circle_outline;
+                      return Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: stateColor.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: stateColor.withOpacity(0.25)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(stateIcon, color: stateColor, size: 12),
+                                const SizedBox(width: 5),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: stateColor.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    risk,
+                                    style: GoogleFonts.spaceGrotesk(
+                                      color: stateColor,
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                ),
+                                const Spacer(),
+                                Container(
+                                  width: 5, height: 5,
+                                  decoration: BoxDecoration(color: stateColor, shape: BoxShape.circle),
+                                ),
+                                const SizedBox(width: 4),
+                                Text('LIVE', style: GoogleFonts.inter(color: stateColor, fontSize: 7, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Icon(Icons.thermostat_outlined, color: stateColor.withOpacity(0.7), size: 11),
+                                const SizedBox(width: 3),
+                                Text(
+                                  tempVal != null ? '${tempVal.toStringAsFixed(1)}°C' : '--',
+                                  style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(width: 12),
+                                Icon(Icons.vibration, color: stateColor.withOpacity(0.7), size: 11),
+                                const SizedBox(width: 3),
+                                Text(
+                                  vibVal != null ? '${vibVal.toStringAsFixed(1)} mm/s' : '--',
+                                  style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                   const Spacer(),
                   Row(
@@ -8954,8 +9451,12 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
   late TextEditingController _model3dCtrl;
   late TextEditingController _priceCtrl;
   late TextEditingController _stockCtrl;
+  String _aiType = 'M';
   bool _saving = false;
   bool _isPublic = true;
+  String _companyId = '';
+  List<Map<String, dynamic>> _clients = [];
+  bool _loadingClients = true;
 
   @override
   void initState() {
@@ -8982,7 +9483,24 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
     _stockCtrl = TextEditingController(
       text: (widget.machine['stock'] ?? 0).toString(),
     );
+    _aiType = (widget.machine['aiType'] ?? 'M').toString();
     _isPublic = widget.machine['isPublic'] == true;
+    _companyId = (widget.machine['companyId'] ?? widget.machine['clientId'] ?? '').toString();
+    _fetchClients();
+  }
+
+  Future<void> _fetchClients() async {
+    try {
+      final clients = await ApiService.getClients();
+      if (mounted) {
+        setState(() {
+          _clients = clients;
+          _loadingClients = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingClients = false);
+    }
   }
 
   @override
@@ -9155,7 +9673,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                       const SizedBox(height: 24),
                       _buildInfoSection(
                         'URL DE L\'IMAGE',
-                        _urlCtrl.text,
+                        _urlCtrl.text.isEmpty ? 'Aucune image configurée' : _urlCtrl.text,
                         mutedTextColor,
                       ),
                       const SizedBox(height: 24),
@@ -9203,6 +9721,40 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                         ],
                       ),
                       const SizedBox(height: 16),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          DropdownButtonFormField<String>(
+                            value: ['L', 'M', 'H'].contains(_aiType) ? _aiType : 'M',
+                            dropdownColor: const Color(0xFF1A1D2E),
+                            style: const TextStyle(color: Colors.white),
+                            decoration: InputDecoration(
+                              labelText: 'Taille de la machine (Type IA)',
+                              labelStyle: const TextStyle(color: Color(0xFFA0A5BA)),
+                              prefixIcon: const Icon(Icons.psychology_outlined, color: Color(0xFF00D1FF), size: 20),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Colors.white10),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Color(0xFF00D1FF)),
+                              ),
+                              filled: true,
+                              fillColor: Colors.white.withOpacity(0.05),
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 'L', child: Text('Type L (Petite < 15kW)')),
+                              DropdownMenuItem(value: 'M', child: Text('Type M (Moyenne 15-75kW)')),
+                              DropdownMenuItem(value: 'H', child: Text('Type H (Grosse > 75kW)')),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) setState(() => _aiType = v);
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
                       Row(
                         children: [
                           Expanded(
@@ -9224,7 +9776,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                       ),
                       const SizedBox(height: 16),
                       _buildTextField(
-                        'URL de l\'image',
+                        'URL de l\'image (Optionnel)',
                         _urlCtrl,
                         Icons.image_outlined,
                         onUpload:
@@ -9237,6 +9789,51 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                         Icons.view_in_ar_outlined,
                         onUpload: () => _pickAndUploadFile(_model3dCtrl),
                       ),
+                      const SizedBox(height: 16),
+                      if (_loadingClients)
+                        const Center(child: CircularProgressIndicator())
+                      else ...[
+                        Text(
+                          'Assigner à un client',
+                          style: GoogleFonts.inter(
+                            color: mutedTextColor,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white10),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              isExpanded: true,
+                              dropdownColor: const Color(0xFF1A1D2E),
+                              icon: const Icon(Icons.arrow_drop_down, color: primaryColor),
+                              value: _companyId.isEmpty ? null : _companyId,
+                              hint: const Text('Aucun client assigné', style: TextStyle(color: Colors.white54)),
+                              items: [
+                                const DropdownMenuItem<String>(
+                                  value: null,
+                                  child: Text('Aucun client (Désassigner)', style: TextStyle(color: Colors.white)),
+                                ),
+                                ..._clients.map((c) {
+                                  final id = (c['id'] ?? c['_id'] ?? c['clientId'] ?? '').toString();
+                                  final name = (c['name'] ?? c['clientName'] ?? 'Client sans nom').toString();
+                                  return DropdownMenuItem<String>(
+                                    value: id,
+                                    child: Text(name, style: const TextStyle(color: Colors.white)),
+                                  );
+                                }),
+                              ],
+                              onChanged: (val) => setState(() => _companyId = val ?? ''),
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       SwitchListTile(
                         title: Text(
@@ -9493,12 +10090,14 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
       final payload = {
         'name': _nameCtrl.text.trim(),
         'type': _typeCtrl.text.trim(),
+        'aiType': _aiType,
         'location': _locationCtrl.text.trim(),
         'imageUrl': _urlCtrl.text.trim(),
         'model3dUrl': _model3dCtrl.text.trim(),
         'price': _priceCtrl.text.trim(),
         'stock': int.tryParse(_stockCtrl.text.trim()) ?? 0,
         'isPublic': _isPublic,
+        'companyId': _companyId,
       };
 
       final id =

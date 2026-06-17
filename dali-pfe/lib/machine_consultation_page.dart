@@ -28,6 +28,7 @@ class _MachineConsultationPageState extends State<MachineConsultationPage> {
   String _selectedMachineId = '';
   List<Map<String, dynamic>> _machines = [];
   bool _isLoading = true;
+  final TextEditingController _typeController = TextEditingController();
 
   final List<String> _timeSlots = [
     '08:00', '09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'
@@ -37,6 +38,12 @@ class _MachineConsultationPageState extends State<MachineConsultationPage> {
   void initState() {
     super.initState();
     _fetchMachines();
+  }
+
+  @override
+  void dispose() {
+    _typeController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchMachines() async {
@@ -73,11 +80,14 @@ class _MachineConsultationPageState extends State<MachineConsultationPage> {
     try {
       showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
       
+      final type = _typeController.text.trim();
+      final noteText = type.isNotEmpty ? 'Type : $type\nConsultation programmée via drag & drop' : 'Consultation programmée via drag & drop';
+
       await ApiService.createConsultation({
         'machineId': _selectedMachineId,
         'scheduledDate': dt.toIso8601String(),
         'durationMinutes': 60,
-        'note': 'Consultation programmée via drag & drop',
+        'note': noteText,
       });
       
       if (mounted) Navigator.pop(context); // close dialog
@@ -102,6 +112,10 @@ class _MachineConsultationPageState extends State<MachineConsultationPage> {
   }
 
   Widget _buildDraggableToken() {
+    final typeText = _typeController.text.trim().isNotEmpty 
+        ? _typeController.text.trim() 
+        : 'Nouvelle Consultation';
+
     return Draggable<String>(
       data: 'consultation_token',
       feedback: Material(
@@ -118,7 +132,7 @@ class _MachineConsultationPageState extends State<MachineConsultationPage> {
             children: [
               const Icon(Icons.event, color: Colors.white),
               const SizedBox(width: 8),
-              Text('Glissez-moi', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold)),
+              Text(typeText, style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold)),
             ],
           ),
         ),
@@ -134,7 +148,7 @@ class _MachineConsultationPageState extends State<MachineConsultationPage> {
           children: [
             const Icon(Icons.event, color: Colors.grey),
             const SizedBox(width: 8),
-            Text('Glissez-moi', style: GoogleFonts.inter(color: Colors.grey)),
+            Text('En deplacement...', style: GoogleFonts.inter(color: Colors.grey)),
           ],
         ),
       ),
@@ -165,6 +179,10 @@ class _MachineConsultationPageState extends State<MachineConsultationPage> {
       },
       builder: (context, candidateData, rejectedData) {
         final isHovered = candidateData.isNotEmpty;
+        final typeText = _typeController.text.trim().isNotEmpty 
+            ? _typeController.text.trim() 
+            : 'Deposer ici';
+
         return Container(
           margin: const EdgeInsets.symmetric(vertical: 8),
           padding: const EdgeInsets.all(16),
@@ -178,7 +196,13 @@ class _MachineConsultationPageState extends State<MachineConsultationPage> {
             children: [
               Text(time, style: GoogleFonts.inter(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
               if (isHovered)
-                const Icon(Icons.archive, color: Color(0xFFFF6E00))
+                Row(
+                  children: [
+                    Text(typeText, style: GoogleFonts.inter(color: const Color(0xFFFF6E00), fontWeight: FontWeight.bold)),
+                    const SizedBox(width: 8),
+                    const Icon(Icons.archive, color: Color(0xFFFF6E00)),
+                  ],
+                )
               else
                 Text('Disponible', style: GoogleFonts.inter(color: Colors.greenAccent, fontStyle: FontStyle.italic)),
             ],
@@ -260,8 +284,28 @@ class _MachineConsultationPageState extends State<MachineConsultationPage> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 24),
+                  Text('2. Type de consultation', style: GoogleFonts.inter(color: Colors.white70, fontSize: 16)),
+                  const SizedBox(height: 12),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1D1D38),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: TextField(
+                      controller: _typeController,
+                      onChanged: (val) => setState(() {}),
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        hintText: 'Ex: Maintenance préventive, réparation...',
+                        hintStyle: TextStyle(color: Colors.white.withOpacity(0.3)),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 40),
-                  Text('2. Glisser ce jeton vers un créneau horaire', style: GoogleFonts.inter(color: Colors.white70, fontSize: 16)),
+                  Text('3. Glisser ce jeton vers un créneau horaire', style: GoogleFonts.inter(color: Colors.white70, fontSize: 16)),
                   const SizedBox(height: 20),
                   Center(child: _buildDraggableToken()),
                 ],

@@ -162,8 +162,8 @@ class _MotorAnalyticsPanelState extends State<MotorAnalyticsPanel> with TickerPr
   List<Map<String, dynamic>> get _chrono {
     final h = List<Map<String, dynamic>>.from(widget.history);
     h.sort((a, b) {
-      final ta = DateTime.tryParse((a['createdAt'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final tb = DateTime.tryParse((b['createdAt'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final ta = DateTime.tryParse((a['createdAt'] ?? a['timestamp'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final tb = DateTime.tryParse((b['createdAt'] ?? b['timestamp'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
       return ta.compareTo(tb);
     });
     return h;
@@ -874,7 +874,7 @@ class _MotorAnalyticsPanelState extends State<MotorAnalyticsPanel> with TickerPr
       );
     }
 
-    final createdAt = (widget.latest?['createdAt'] ?? widget.latest?['updatedAt'] ?? '').toString();
+    final createdAt = (widget.latest?['createdAt'] ?? widget.latest?['updatedAt'] ?? widget.latest?['timestamp'] ?? '').toString();
     final temperature = _fmtNum(_latestValue('thermal'), decimals: 1) == '—'
         ? _fmtNum(_latestValue('temperature'), decimals: 1)
         : _fmtNum(_latestValue('thermal'), decimals: 1);
@@ -931,8 +931,8 @@ class _MotorAnalyticsPanelState extends State<MotorAnalyticsPanel> with TickerPr
   Widget _recentFramesCard() {
     final latestFirst = List<Map<String, dynamic>>.from(widget.history)
       ..sort((a, b) {
-        final ta = DateTime.tryParse((a['createdAt'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final tb = DateTime.tryParse((b['createdAt'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final ta = DateTime.tryParse((a['createdAt'] ?? a['timestamp'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final tb = DateTime.tryParse((b['createdAt'] ?? b['timestamp'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
         return tb.compareTo(ta);
       });
     final rows = latestFirst.take(10).toList();
@@ -944,7 +944,7 @@ class _MotorAnalyticsPanelState extends State<MotorAnalyticsPanel> with TickerPr
     }
 
     String when(Map<String, dynamic> p) {
-      final raw = (p['createdAt'] ?? p['updatedAt'] ?? '').toString();
+      final raw = (p['createdAt'] ?? p['updatedAt'] ?? p['timestamp'] ?? '').toString();
       final dt = DateTime.tryParse(raw);
       if (dt == null) return raw.isEmpty ? '—' : raw;
       return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';

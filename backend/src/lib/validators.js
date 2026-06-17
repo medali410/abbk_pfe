@@ -135,8 +135,8 @@ function validateConcepteurProfileUpdate(body = {}) {
     const imageUrl = body.imageUrl ?? body.photoUrl ?? body.avatarUrl;
     if (imageUrl !== undefined && String(imageUrl || '').trim()) {
         const v = String(imageUrl).trim();
-        if (!URL_REGEX.test(v) && !v.toLowerCase().startsWith('data:image/')) {
-            errors.push('URL photo invalide — doit commencer par http://, https:// ou data:image/');
+        if (!URL_REGEX.test(v) && !v.toLowerCase().startsWith('data:image/') && !v.startsWith('/uploads/')) {
+            errors.push('URL photo invalide – doit commencer par http://, https://, data:image/ ou /uploads/');
         }
     }
 
@@ -230,7 +230,7 @@ function validateUpdateMachine(body = {}) {
     }
     if (body.imageUrl !== undefined && String(body.imageUrl || '').trim()) {
         const v = String(body.imageUrl).trim();
-        if (!URL_REGEX.test(v) && !v.toLowerCase().startsWith('data:image/')) {
+        if (!URL_REGEX.test(v) && !v.toLowerCase().startsWith('data:image/') && !v.startsWith('/uploads/')) {
             errors.push('imageUrl invalide');
         }
     }

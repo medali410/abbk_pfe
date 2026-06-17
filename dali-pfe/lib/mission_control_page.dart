@@ -60,6 +60,12 @@ class _MissionControlPageState extends State<MissionControlPage> {
   /// Évite plusieurs chargements ; `_findActiveIntervention` doit partir après `techId` / `machineId` (didChangeDependencies).
   bool _interventionLogsLoaded = false;
   bool _scheduledInterventionBootstrap = false;
+  
+  List<Map<String, dynamic>> _technicians = [];
+  bool _isLoadingTechnicians = false;
+  
+  List<Map<String, dynamic>> _allMachines = [];
+  bool _isLoadingMachines = false;
 
   @override
   void didChangeDependencies() {
@@ -89,8 +95,39 @@ class _MissionControlPageState extends State<MissionControlPage> {
     if (!_scheduledInterventionBootstrap) {
       _scheduledInterventionBootstrap = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _findActiveIntervention();
+        if (mounted) {
+          _findActiveIntervention();
+          if (_isMaintenanceViewer) {
+            _loadTechnicians();
+          }
+        }
       });
+    }
+  }
+
+  Future<void> _loadTechnicians() async {
+    setState(() {
+      _isLoadingTechnicians = true;
+      _isLoadingMachines = true;
+    });
+    try {
+      final techs = await ApiService.getTechnicians();
+      final machines = await ApiService.getMachines();
+      if (mounted) {
+        setState(() {
+          _technicians = techs;
+          _allMachines = machines;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading technicians or machines: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingTechnicians = false;
+          _isLoadingMachines = false;
+        });
+      }
     }
   }
 
@@ -172,6 +209,9 @@ class _MissionControlPageState extends State<MissionControlPage> {
 
       if (active.isEmpty) {
         final midArg = _resolvedMachineId.toUpperCase().trim();
+        final techIdNav = _technicianNavId.toUpperCase().trim();
+        final techName = _techId.toUpperCase().trim();
+
         active = list.firstWhere(
           (i) {
             final isOpen = i['status'] != 'DONE' && i['status'] != 'CANCELLED';
@@ -180,11 +220,19 @@ class _MissionControlPageState extends State<MissionControlPage> {
             final mId = (i['machineId'] ?? '').toString().toUpperCase();
             final mName = (i['machineName'] ?? '').toString().toUpperCase();
             final tId = (i['technicianId'] ?? '').toString().toUpperCase();
+            final tName = (i['technicianName'] ?? '').toString().toUpperCase();
+
+            final matchMachine = (midArg.isNotEmpty && mId == midArg) || (mName.isNotEmpty && mName == midArg);
+            
+            if (_isMaintenanceViewer && techIdNav.isNotEmpty) {
+                // En mode maintenance avec technicien sélectionné, on exige machine ET technicien
+                return matchMachine && (tId == techIdNav || tName == techName);
+            }
 
             return mId == _techId ||
                 mName == _techId ||
                 tId == _techId ||
-                (midArg.isNotEmpty && mId == midArg);
+                matchMachine;
           },
           orElse: () => <String, dynamic>{},
         );
@@ -293,13 +341,16 @@ class _MissionControlPageState extends State<MissionControlPage> {
               _latestNoteId = nId;
               _latestCoordNote = (note['content'] ?? '').toString().toUpperCase();
 
+              final mNamePrefix = (active['machineName'] ?? _machineDisplayName).toString();
+              final prefix = mNamePrefix.isNotEmpty ? '[$mNamePrefix] ' : '[$_resolvedMachineId] ';
+
               _logs.add({
                 "type": displayMissionAsYou
                     ? "YOU"
                     : (isM ? "CRITICAL_EVENT" : "OP_TECH"),
                 "text": displayMissionAsYou
-                    ? (note['content'] ?? '').toString()
-                    : _latestCoordNote,
+                    ? '$prefix${(note['content'] ?? '').toString()}'
+                    : '$prefix$_latestCoordNote',
                 "timestamp": note['createdAt'] != null 
                     ? TimeOfDay.fromDateTime(DateTime.parse(note['createdAt'])).format(context)
                     : '--:--',
@@ -714,13 +765,16 @@ class _MissionControlPageState extends State<MissionControlPage> {
 
       final ts = _coordinationTimestampFromNote(note);
 
+      final mNamePrefix = _machineDisplayName.isNotEmpty ? _machineDisplayName : _resolvedMachineId;
+      final prefix = mNamePrefix.isNotEmpty ? '[$mNamePrefix] ' : '';
+
       _logs.add({
         'type': displayMissionAsYou
             ? 'YOU'
             : (isM ? 'CRITICAL_EVENT' : 'MAINT_HUB // $author'),
         'text': displayMissionAsYou
-            ? (note['content'] ?? '').toString()
-            : upperCoord,
+            ? '$prefix${(note['content'] ?? '').toString()}'
+            : '$prefix$upperCoord',
         'timestamp': ts,
         'isMission': isM,
         'noteId': parsedId,
@@ -739,15 +793,33 @@ class _MissionControlPageState extends State<MissionControlPage> {
     _scrollToBottom();
   }
 
-  void _sendCommand() {
+  Future<void> _sendCommand() async {
     final cmd = _commandController.text.trim();
     if (cmd.isEmpty) return;
 
     _socket!.emit('mission_control_command', {'command': cmd});
 
     if (_interventionId == null) {
-      _appendLocalOutgoingChat(cmd);
-      return;
+      if (_isMaintenanceViewer && _technicianNavId.isNotEmpty) {
+        try {
+          final newIntervention = await ApiService.createDiagnosticIntervention({
+            'machineId': _resolvedMachineId,
+            'machineName': _machineDisplayName.isNotEmpty ? _machineDisplayName : _resolvedMachineId,
+            'technicianId': _technicianNavId,
+            'technicianName': _techId,
+            'status': 'IN_PROGRESS',
+            'severity': 'MEDIUM',
+          });
+          _interventionId = newIntervention['id']?.toString() ?? newIntervention['_id']?.toString();
+        } catch (e) {
+          debugPrint('Failed to create intervention: $e');
+        }
+      }
+
+      if (_interventionId == null) {
+        _appendLocalOutgoingChat(cmd);
+        return;
+      }
     }
 
     // Mission terrain : persistance `coordinationNotes` + table Mission + diffusion websocket au technicien.
@@ -895,7 +967,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
                 : Row(
                     children: [
                       Expanded(flex: 3, child: _buildTerminalArea()),
-                      Expanded(flex: 1, child: _buildMetricsPanel()),
+                      Expanded(flex: 1, child: _isMaintenanceViewer ? _buildTechnicianSidebar() : _buildMetricsPanel()),
                     ],
                   ),
           ),
@@ -921,6 +993,12 @@ class _MissionControlPageState extends State<MissionControlPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white70),
+            tooltip: 'Retour',
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          const SizedBox(width: 8),
           Tooltip(
             message: 'Vider le fil d’affichage (historique local uniquement).',
             child: IconButton(
@@ -1095,11 +1173,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
     final content = (_latestMission!['content'] ?? '').toString().toUpperCase();
 
     if (_isMaintenanceViewer) {
-      return _missionReadOnlyBanner(
-        title: 'MISSION TERRAIN · SUIVI',
-        content: content,
-        status: rawStatus,
-      );
+      return const SizedBox.shrink();
     }
 
     if (_normalizeMissionStatusString(missionStat) == 'COMPLETED') {
@@ -1554,76 +1628,200 @@ class _MissionControlPageState extends State<MissionControlPage> {
     );
   }
 
-  Widget _buildMetricsPanel() {
+  Widget _buildTechnicianSidebar() {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: const Color(0xFF090D18),
         border: Border(left: BorderSide(color: Colors.white.withOpacity(0.05))),
       ),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSectionHeader('MACHINE_METRICS'),
-            if (_resolvedMachineId.isNotEmpty) ...[
-              const SizedBox(height: 14),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF6E00),
-                    foregroundColor: Colors.black87,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  onPressed: _marcheBusy ? null : _declarerMachineEnTravail,
-                  icon: _marcheBusy
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54),
-                        )
-                      : const Icon(Icons.play_circle_outline_rounded, size: 22),
-                  label: Text(
-                    'Machine en travail',
-                    style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w800, fontSize: 13),
-                  ),
-                ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader('TECHNICIENS_DISPONIBLES'),
+          const SizedBox(height: 14),
+          if (_isLoadingTechnicians)
+            const Center(child: CircularProgressIndicator(color: Color(0xFF00FFCC)))
+          else if (_technicians.isEmpty)
+            Text('Aucun technicien trouvé.',
+                style: GoogleFonts.spaceGrotesk(color: Colors.white54, fontSize: 13))
+          else
+            Expanded(
+              child: ListView.builder(
+                itemCount: _technicians.length,
+                itemBuilder: (context, index) {
+                  final t = _technicians[index];
+                  final name = (t['name'] ?? '').toString();
+                  final tId = (t['_id'] ?? t['id'] ?? '').toString();
+                  final isSelected = _technicianNavId == tId;
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? const Color(0xFF00FFCC).withOpacity(0.15)
+                          : Colors.white.withOpacity(0.02),
+                      border: Border.all(
+                        color: isSelected
+                            ? const Color(0xFF00FFCC)
+                            : Colors.white.withOpacity(0.05),
+                      ),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Theme(
+                      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                      child: ExpansionTile(
+                        tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                        iconColor: isSelected ? const Color(0xFF00FFCC) : Colors.white70,
+                        collapsedIconColor: isSelected ? const Color(0xFF00FFCC) : Colors.white70,
+                        title: Text(
+                          name.toUpperCase(),
+                          style: GoogleFonts.spaceGrotesk(
+                            color: isSelected ? const Color(0xFF00FFCC) : Colors.white70,
+                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.normal,
+                            fontSize: 13,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'ID: $tId',
+                          style: GoogleFonts.spaceGrotesk(
+                            color: Colors.white38,
+                            fontSize: 11,
+                          ),
+                        ),
+                        onExpansionChanged: (expanded) {
+                          // No dynamic fetching needed anymore
+                        },
+                        children: [
+                          if (_isLoadingMachines)
+                            const Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(color: Color(0xFF00FFCC), strokeWidth: 2),
+                                ),
+                              ),
+                            )
+                          else if (_allMachines.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: Text('Aucune machine trouvée', style: GoogleFonts.spaceGrotesk(color: Colors.white54, fontSize: 11)),
+                            )
+                          else
+                            ...(_allMachines.map((m) {
+                              final mId = (m['_id'] ?? m['id'] ?? '').toString();
+                              final mName = (m['name'] ?? m['machineName'] ?? mId).toString();
+                              final isMachineSelected = isSelected && _resolvedMachineId == mId;
+                              return ListTile(
+                                dense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 0),
+                                leading: Icon(Icons.precision_manufacturing, color: isMachineSelected ? Colors.cyanAccent : Colors.white54, size: 16),
+                                title: Text(
+                                  mName,
+                                  style: GoogleFonts.spaceGrotesk(
+                                    color: isMachineSelected ? Colors.cyanAccent : Colors.white70,
+                                    fontSize: 12,
+                                    fontWeight: isMachineSelected ? FontWeight.w600 : FontWeight.normal,
+                                  ),
+                                ),
+                                onTap: () async {
+                                  setState(() {
+                                    _technicianNavId = tId;
+                                    _techId = name.toUpperCase();
+                                    _resolvedMachineId = mId;
+                                    _machineDisplayName = mName;
+                                    _interventionLogsLoaded = false;
+                                    _logs.clear();
+                                    _interventionId = null;
+                                  });
+                                  await _findActiveIntervention();
+                                  
+                                  // Pré-remplir le champ de texte avec le nom de la machine
+                                  _commandController.text = '$mName : ';
+                                },
+                              );
+                            }).toList()),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Déclare la machine en service et enregistre l’heure de début pour le calcul du temps de marche.',
-                style: GoogleFonts.inter(color: Colors.blueGrey, fontSize: 10, height: 1.35),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricsPanel() {
+    List<Map<String, dynamic>> displayedMachines = _allMachines;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF090D18),
+        border: Border(left: BorderSide(color: Colors.white.withOpacity(0.05))),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader('MACHINES ASSIGNÉES'),
+          const SizedBox(height: 20),
+          if (_isLoadingMachines)
+            const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
+          else if (displayedMachines.isEmpty)
+            Text('Aucune machine trouvée', style: GoogleFonts.inter(color: Colors.blueGrey))
+          else
+            Expanded(
+              child: ListView.builder(
+                itemCount: displayedMachines.length,
+                itemBuilder: (context, index) {
+                  final m = displayedMachines[index];
+                  final mId = m['id']?.toString() ?? m['_id']?.toString() ?? '';
+                  final mName = m['name']?.toString() ?? m['reference'] ?? 'Machine $mId';
+                  final isSelected = _resolvedMachineId == mId;
+                  
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    decoration: BoxDecoration(
+                      color: isSelected ? Colors.cyanAccent.withOpacity(0.1) : const Color(0xFF161B28),
+                      border: Border.all(color: isSelected ? Colors.cyanAccent : Colors.white10),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: ListTile(
+                      leading: Icon(Icons.precision_manufacturing, color: isSelected ? Colors.cyanAccent : Colors.white54, size: 20),
+                      title: Text(
+                        mName,
+                        style: GoogleFonts.spaceGrotesk(
+                          color: isSelected ? Colors.cyanAccent : Colors.white,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          fontSize: 14,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'ID: $mId',
+                        style: GoogleFonts.inter(color: Colors.blueGrey, fontSize: 10),
+                      ),
+                      onTap: () {
+                        setState(() {
+                          _resolvedMachineId = mId;
+                          _machineDisplayName = mName;
+                          _logs.clear();
+                          _interventionId = null;
+                        });
+                        _findActiveIntervention();
+                        _commandController.text = '$mName : ';
+                      },
+                    ),
+                  );
+                },
               ),
-            ],
-            const SizedBox(height: 20),
-            _buildMetricInfo('ID_IDENTIFIER', _techId),
-            const SizedBox(height: 15),
-            _buildMetricInfoWithIcon('LOCALISATION', 'SECTOR_04 // GRID_B2 // PARIS_HUB', Icons.location_on),
-            const SizedBox(height: 20),
-            _buildCircuitVisual(),
-            const SizedBox(height: 20),
-            _buildStatCard('HEALTH_SCORE', '$_healthScore%', double.parse(_healthScore) / 100, Colors.pinkAccent, "STATUS: $_status"),
-            const SizedBox(height: 15),
-            _buildStatCard('CORE_TEMP', '$_coreTemp°C', double.parse(_coreTemp) / 100, Colors.orangeAccent, "WARNING"),
-            const SizedBox(height: 25),
-            _buildOverrideBox(),
-            const SizedBox(height: 25),
-            if (_resolvedMachineId.isNotEmpty)
-              MachineControlCalendarPanel(
-                machineId: _resolvedMachineId,
-                machineName: _machineDisplayName,
-                panelColor: const Color(0xFF0C1322),
-                accentOrange: const Color(0xFFFF6E00),
-                accentCyan: Colors.cyanAccent,
-                textColor: Colors.white,
-                mutedColor: Colors.blueGrey,
-                compact: true,
-              )
-            else
-              _buildBandwidthChart(),
-          ],
-        ),
+            ),
+          const SizedBox(height: 25),
+          _buildOverrideBox(),
+        ],
       ),
     );
   }

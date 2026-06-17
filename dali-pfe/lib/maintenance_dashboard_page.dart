@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'maintenance_ai_analysis_content.dart';
+import 'maintenance_ai_chat_page.dart';
 import 'maintenance_home_dashboard_content.dart';
 import 'maintenance_machine_hub_page.dart';
 import 'maintenance_mission_history_content.dart';
 import 'maintenance_profile_page.dart';
 import 'services/api_service.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'machine_detail_ai_page.dart';
 
 class MaintenanceDashboardPage extends StatefulWidget {
   const MaintenanceDashboardPage({super.key});
@@ -20,6 +22,8 @@ class MaintenanceDashboardPage extends StatefulWidget {
 class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
   late Future<Map<String, dynamic>> _future;
   IO.Socket? _socket;
+  final Map<String, DateTime> _lastToastTime = {};
+  final Map<String, String> _machineLiveStates = {};
 
   /// Vue shell : `dashboard` · `profile` · `machineDetail` · `missionHistory` · `aiAnalysis` (défaut : dashboard).
   String _shellNav = 'dashboard';
@@ -42,6 +46,112 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
       });
 
       _socket!.onConnect((_) => debugPrint('[Dashboard] Socket Connected'));
+
+      _future.then((data) {
+        if (!mounted) return;
+        final machines = data['machines'] as List? ?? [];
+        for (final m in machines) {
+          if (m is Map) {
+            final mId = (m['machineId'] ?? m['id'] ?? m['_id'] ?? '').toString();
+            final mName = (m['machineName'] ?? m['name'] ?? mId).toString();
+            void handleAiEvent(payload) {
+              if (!mounted) return;
+              final p = payload is Map ? Map<String, dynamic>.from(payload) : <String, dynamic>{};
+              final sourceData = p.containsKey('metrics') && p['metrics'] is Map ? p['metrics'] as Map : p;
+              
+              double? getDouble(String k1, [String? k2, String? k3]) {
+                final val = sourceData[k1] ?? (k2 != null ? sourceData[k2] : null) ?? (k3 != null ? sourceData[k3] : null);
+                if (val == null) return null;
+                if (val is num) return val.toDouble();
+                return double.tryParse(val.toString());
+              }
+
+              final thermal = getDouble('thermal', 'temperature', 'temperature_contact') ?? getDouble('temp');
+              final vibration = getDouble('vibration', 'vibration_x', 'vibration_y');
+              
+              bool isDanger = false;
+              String dangerType = '';
+              
+              if (thermal != null && thermal >= 75) {
+                isDanger = true;
+                dangerType = 'Température critique (${thermal.toStringAsFixed(1)} °C)';
+              } else if (vibration != null && vibration >= 12) {
+                isDanger = true;
+                dangerType = 'Forte vibration (${vibration.toStringAsFixed(1)} mm/s)';
+              }
+              
+              final probPanne = getDouble('prob_panne') ?? getDouble('scenarioProbPanne');
+              if (probPanne != null && probPanne >= 70) {
+                isDanger = true;
+                if (dangerType.isEmpty) dangerType = 'Risque de panne élevé IA';
+              }
+              
+              String newState = 'NORMAL';
+              if (isDanger) {
+                newState = 'DANGER';
+              } else if ((thermal != null && thermal > 55) || (vibration != null && vibration > 7)) {
+                newState = 'WARNING';
+              }
+              
+              if (_machineLiveStates[mId] != newState) {
+                setState(() {
+                  _machineLiveStates[mId] = newState;
+                });
+              }
+              
+              if (isDanger) {
+                final now = DateTime.now();
+                final last = _lastToastTime[mId];
+                // Throttle to 1 toast every 2 minutes per machine
+                if (last == null || now.difference(last).inMinutes >= 2) {
+                  _lastToastTime[mId] = now;
+                  
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      backgroundColor: const Color(0xFFF44336),
+                      content: Row(
+                        children: [
+                          const Icon(Icons.warning_rounded, color: Colors.white),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'DANGER SUR $mName : $dangerType',
+                              style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                      action: SnackBarAction(
+                        label: 'AFFICHER',
+                        textColor: Colors.white,
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => MachineDetailAiPage(
+                                machineId: mId,
+                                machineName: mName,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      duration: const Duration(seconds: 10),
+                    ),
+                  );
+                }
+              }
+            }
+
+            if (mId.isNotEmpty) {
+              _socket!.on('ai:$mId', handleAiEvent);
+            }
+            if (mName.isNotEmpty && mName != mId) {
+              _socket!.on('ai:$mName', handleAiEvent);
+            }
+          }
+        }
+      });
 
       _socket!.on('diagnostic_coordination_update', (data) {
         if (mounted) {
@@ -505,6 +615,7 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
                 if (_shellNav == 'dashboard') {
                   return MaintenanceHomeDashboardContent(
                     data: data,
+                    liveStates: _machineLiveStates,
                     onTabSelect: (id) => setState(() => _shellNav = id),
                     onWorkspaceReload: _reload,
                   );
@@ -586,22 +697,8 @@ class _MaintenanceTopNav extends StatelessWidget {
                 mutedColor: mutedColor,
                 onTap: () => onShellSelect('profile'),
               ),
-              _MaintenanceTopNavItem(
-                icon: Icons.precision_manufacturing_outlined,
-                label: 'DÉTAIL MACHINE',
-                selected: selectedShellId == 'machineDetail',
-                accentColor: accentColor,
-                mutedColor: mutedColor,
-                onTap: () => onShellSelect('machineDetail'),
-              ),
-              _MaintenanceTopNavItem(
-                icon: Icons.history_rounded,
-                label: 'HISTORIQUE MAINTENANCE',
-                selected: selectedShellId == 'missionHistory',
-                accentColor: accentColor,
-                mutedColor: mutedColor,
-                onTap: () => onShellSelect('missionHistory'),
-              ),
+
+
               _MaintenanceTopNavItem(
                 icon: Icons.analytics_outlined,
                 label: 'ANALYSE IA',

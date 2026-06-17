@@ -1,0 +1,152 @@
+[
+  {
+    "id": "1781454110495",
+    "machineId": "MAC-8CF9A879",
+    "technicianId": "TEC-1C05C0",
+    "scenarioType": "SENSOR_COMM",
+    "summary": "Mission coordination initiée depuis Mission Control.",
+    "status": "PENDING",
+    "messages": [
+      {
+        "id": "1781454110542",
+        "content": "H1",
+        "authorName": "AGENT MAINTENANCE",
+        "createdAt": "2026-06-14T16:21:50.542Z",
+        "missionStatus": "COMPLETED"
+      },
+      {
+        "id": "1781454439016",
+        "content": "hi",
+        "authorName": "AGENT MAINTENANCE",
+        "createdAt": "2026-06-14T16:27:19.016Z",
+        "missionStatus": "COMPLETED"
+      },
+      {
+        "id": "1781463382384",
+        "content": "h2",
+        "authorName": "AGENT MAINTENANCE",
+        "createdAt": "2026-06-14T18:56:22.384Z",
+        "missionStatus": "COMPLETED"
+      },
+      {
+        "id": "1781481060614",
+        "content": "hi",
+        "authorName": "AGENT MAINTENANCE",
+        "createdAt": "2026-06-14T23:51:00.614Z",
+        "missionStatus": "COMPLETED"
+      },
+      {
+        "id": "1781481537252",
+        "content": "hi",
+        "authorName": "AGENT MAINTENANCE",
+        "createdAt": "2026-06-14T23:58:57.252Z",
+        "missionStatus": "COMPLETED"
+      },
+      {
+        "id": "1781481669472",
+        "content": "perceuse industrielle",
+        "authorName": "AGENT MAINTENANCE",
+        "createdAt": "2026-06-15T00:01:09.472Z",
+        "missionStatus": "COMPLETED"
+      },
+      {
+        "id": "1781481674849",
+        "content": "perceuse industrielle",
+        "authorName": "AGENT MAINTENANCE",
+        "createdAt": "2026-06-15T00:01:14.849Z",
+        "missionStatus": "COMPLETED"
+      },
+      {
+        "id": "1781481836516",
+        "content": "perceuse industrielle : c1",
+        "authorName": "AGENT MAINTENANCE",
+        "createdAt": "2026-06-15T00:03:56.516Z",
+        "missionStatus": "COMPLETED"
+      },
+      {
+        "id": "1781524598813",
+        "content": "perceuse industrielle : R1",
+        "authorName": "AGENT MAINTENANCE",
+        "createdAt": "2026-06-15T11:56:38.813Z",
+        "missionStatus": "COMPLETED"
+      }
+    ],
+    "coordinationNotes": [
+      {
+        "id": "1781464040403",
+        "content": "h2",
+        "authorName": "AGENT MAINTENANCE",
+        "isMission": true,
+        "missionStatus": "COMPLETED",
+        "createdAt": "2026-06-14T19:07:20.403Z",
+        "missionConfirmedAt": "2026-06-14T19:14:12.189Z",
+        "missionCompletedAt": "2026-06-14T19:14:13.070Z"
+      },
+      {
+        "id": "1781464443075",
+        "content": "h3",
+        "authorName": "AGENT MAINTENANCE",
+        "isMission": true,
+        "missionStatus": "COMPLETED",
+        "createdAt": "2026-06-14T19:14:03.075Z",
+        "missionConfirmedAt": "2026-06-14T19:14:14.352Z",
+        "missionCompletedAt": "2026-06-14T19:14:15.246Z"
+      },
+      {
+        "id": "1781465168383",
+        "content": "control machine kghgsrkmuvh",
+        "authorName": "AGENT MAINTENANCE",
+        "isMission": true,
+        "missionStatus": "COMPLETED",
+        "createdAt": "2026-06-14T19:26:08.383Z",
+        "missionConfirmedAt": "2026-06-14T19:26:21.531Z",
+        "missionCompletedAt": "2026-06-14T19:26:22.629Z"
+      },
+      {
+        "id": "1781465192516",
+        "content": "h5",
+        "authorName": "AGENT MAINTENANCE",
+        "isMission": true,
+        "missionStatus": "COMPLETED",
+        "createdAt": "2026-06-14T19:26:32.516Z",
+        "missionConfirmedAt": "2026-06-14T19:26:58.669Z",
+        "missionCompletedAt": "2026-06-14T19:27:00.375Z"
+      },
+      {
+        "id": "1781465233283",
+        "content": "h6",
+        "authorName": "AGENT MAINTENANCE",
+        "isMission": true,
+        "missionStatus": "COMPLETED",
+        "createdAt": "2026-06-14T19:27:13.283Z",
+        "missionConfirmedAt": "2026-06-14T19:27:53.815Z",
+        "missionCompletedAt": "2026-06-14T19:28:14.099Z"
+      }
+    ],
+    "createdAt": "2026-06-14T16:21:50.495Z"
+  },
+  {
+    "id": "1781624975479",
+    "machineId": "MAC-TEST-VERIN",
+    "technicianId": "TEC-1C05C0",
+    "scenarioType": "DEFAULT",
+    "summary": "",
+    "status": "PENDING",
+    "messages": [
+      {
+        "id": "1781624975501",
+        "content": "verin : hi",
+        "authorName": "AGENT MAINTENANCE",
+        "createdAt": "2026-06-16T15:49:35.501Z"
+      },
+      {
+        "id": "1781625056776",
+        "content": "hfedfsdf",
+        "authorName": "AGENT MAINTENANCE",
+        "createdAt": "2026-06-16T15:50:56.776Z"
+      }
+    ],
+    "coordinationNotes": [],
+    "createdAt": "2026-06-16T15:49:35.479Z"
+  }
+]

@@ -121,7 +121,9 @@ class _MaintenanceTelemetryMiniChartsState
           );
         }
         final docs = snap.data ?? [];
-        if (docs.length < 2) {
+        final bool isDisconnected = widget.machineId == 'MAC-8CF9A879';
+
+        if (!isDisconnected && docs.length < 2) {
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Text(
@@ -134,9 +136,17 @@ class _MaintenanceTelemetryMiniChartsState
           );
         }
 
-        final temps = docs.map(_readThermal).toList();
-        final vibs = docs.map(_readVibration).toList();
-        final powers = docs.map(_readPower).toList();
+        List<double> temps, vibs, powers;
+
+        if (isDisconnected) {
+          temps = List.filled(72, 0.0);
+          vibs = List.filled(72, 0.0);
+          powers = List.filled(72, 0.0);
+        } else {
+          temps = docs.map(_readThermal).toList();
+          vibs = docs.map(_readVibration).toList();
+          powers = docs.map(_readPower).toList();
+        }
 
         final h = widget.compact ? 56.0 : 62.0;
         final gap = widget.compact ? 6.0 : 8.0;
@@ -144,14 +154,42 @@ class _MaintenanceTelemetryMiniChartsState
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'Courbes récentes',
-              style: GoogleFonts.inter(
-                fontSize: widget.compact ? 10 : 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.5,
-                color: _accent,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Courbes récentes',
+                  style: GoogleFonts.inter(
+                    fontSize: widget.compact ? 10 : 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                    color: _accent,
+                  ),
+                ),
+                if (isDisconnected)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.wifi_off_rounded, size: 12, color: Colors.redAccent),
+                        const SizedBox(width: 4),
+                        Text(
+                          'MACHINE NON CONNECTÉE',
+                          style: GoogleFonts.inter(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.redAccent,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
             SizedBox(height: gap),
             _miniChart(

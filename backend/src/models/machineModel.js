@@ -46,6 +46,7 @@ async function create(data) {
             id: String(id),
             name,
             type: String(data.type || ''),
+            aiType: String(data.aiType || 'M'),
             companyId: String(data.companyId || ''),
             status: String(data.status || 'STOPPED'),
             motorType: String(data.motorType || 'air_cooled'),
@@ -77,6 +78,7 @@ async function update(machineId, data) {
     const updateData = {};
     if (data.name !== undefined) updateData.name = String(data.name).trim();
     if (data.type !== undefined) updateData.type = String(data.type);
+    if (data.aiType !== undefined) updateData.aiType = String(data.aiType);
     if (data.status !== undefined) updateData.status = String(data.status);
     if (data.location !== undefined) updateData.location = String(data.location);
     if (data.imageUrl !== undefined) updateData.imageUrl = String(data.imageUrl);

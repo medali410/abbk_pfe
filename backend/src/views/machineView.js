@@ -6,6 +6,7 @@ function serializeMachine(m) {
         machineId: m.id,
         name: m.name,
         type: m.type,
+        aiType: m.aiType,
         disponible: m.disponible,
         status: m.status,
         companyId: m.companyId || '',

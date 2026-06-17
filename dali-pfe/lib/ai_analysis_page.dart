@@ -38,8 +38,12 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
   int _historyDays = 5;
   Timer? _liveRefreshTimer;
   double _diagTemperature = 0;
-  double _diagPressure = 0;
+  double _diagVoltage = 0;
   double _diagHumidity = 0;
+  double _diagPower = 0;
+  double _diagVibration = 0;
+  double _diagMagnetic = 0;
+  double _diagInfrared = 0;
 
   // ── Colors from Tailwind config ──
   static const _bg = Color(0xFF10102B);
@@ -72,7 +76,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
         _loadTelemetryHistory();
       }
     });
-    _liveRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+    _liveRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted || widget.machineId.isEmpty || _predictLoading) return;
       _runLivePrediction();
     });
@@ -159,29 +163,285 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.white.withOpacity(0.08)),
       ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final isWide = constraints.maxWidth >= 1024;
-          if (!isWide) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildMainDashboardArea(),
-                const SizedBox(height: 12),
-                _diagRightPanel(),
-              ],
-            );
-          }
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(flex: 62, child: _buildMainDashboardArea()),
-              const SizedBox(width: 12),
-              Expanded(flex: 38, child: _diagRightPanel()),
-            ],
-          );
-        },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildAdvancedHeader(),
+          const SizedBox(height: 16),
+          _buildSensorsGrid(),
+          const SizedBox(height: 16),
+          _buildRisksGrid(),
+        ],
       ),
+    );
+  }
+
+  Widget _buildAdvancedHeader() {
+    final statusColor = _machineStatusColor;
+    final statusText = _machineStatus == 'CRITIQUE' ? 'Mode CRITIQUE' : 'Mode ${_machineStatus}';
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: statusColor.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: statusColor.withOpacity(0.3)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedBuilder(
+                animation: _pulseCtrl,
+                builder: (_, __) => Opacity(
+                  opacity: 0.3 + 0.7 * _pulseCtrl.value,
+                  child: Container(
+                    width: 10, height: 10,
+                    decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                statusText,
+                style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: statusColor),
+              ),
+            ],
+          ),
+        ),
+        const Spacer(),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(width: 8, height: 8, decoration: const BoxDecoration(color: _green, shape: BoxShape.circle)),
+            const SizedBox(width: 6),
+            Text('MQTT Live', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: _green)),
+            const SizedBox(width: 16),
+            Text(
+              'Risque IA : $_gaugePercent%',
+              style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: statusColor),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSensorsGrid() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = constraints.maxWidth > 900 ? 3 : (constraints.maxWidth > 600 ? 2 : 1);
+        return GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: crossAxisCount,
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 16,
+          childAspectRatio: 2.3,
+          children: [
+            _sensorTile('THERMIQUE', '${_diagTemperature.toStringAsFixed(1)} °C', Icons.thermostat, _diagTemperature > 50 ? _error : (_diagTemperature >= 35 ? _primary : _green)),
+            _sensorTile('VOLTAGE', '${_diagVoltage.toStringAsFixed(1)} V', Icons.flash_on, _diagVoltage > 250 ? _error : _green),
+            _sensorTile('VIBRATION', '${_diagVibration.toStringAsFixed(2)} mm/s', Icons.vibration, _diagVibration > 20 ? _error : (_diagVibration >= 14 ? _primary : _green)),
+            _sensorTile('MAGNÉTIQUE', '${_diagMagnetic.toStringAsFixed(2)} mT', Icons.explore, _green),
+            _sensorTile('INFRA-ROUGE', _diagInfrared <= 0 ? 'N/A' : 'ACTIF', Icons.wb_sunny, _green),
+          ],
+        );
+      }
+    );
+  }
+
+  Widget _buildRisksGrid() {
+    // Use AI model values if available, fallback to local calculation
+    final double heatRisk = (_predictResult?['heat_risk'] is num)
+        ? (_predictResult!['heat_risk'] as num).toDouble()
+        : (_diagTemperature / 100.0).clamp(0.0, 1.0) * 100;
+    final double vibRisk = (_predictResult?['vibration_risk'] is num)
+        ? (_predictResult!['vibration_risk'] as num).toDouble()
+        : (_diagVibration / 20.0).clamp(0.0, 1.0) * 100;
+    
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = constraints.maxWidth > 900 ? 3 : 1;
+        return GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: crossAxisCount,
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 16,
+          childAspectRatio: 2.1,
+          children: [
+            _riskTile('RISQUE CHAUFFAGE', heatRisk, 'Thermique - ${_diagTemperature.toStringAsFixed(1)} °C', [
+              _riskSegment('0-35 °C', _green),
+              _riskSegment('35-50 °C', _primary),
+              _riskSegment('> 50 °C', _error),
+            ]),
+            _riskTile('RISQUE VIBRATION', vibRisk, 'Mécanique - ${_diagVibration.toStringAsFixed(2)} mm/s', [
+              _riskSegment('0-14 mm/s', _green),
+              _riskSegment('14-20 mm/s', _primary),
+              _riskSegment('> 20 mm/s', _error),
+            ]),
+            _riskTile('RISQUE GLOBAL IA', _gaugePercent.toDouble(), _gaugePercent >= 70 ? 'État critique' : (_gaugePercent >= 40 ? 'Surveillance requise' : 'Fonctionnement optimal'), [
+              _riskSegment('Normal', _green),
+              _riskSegment('Surveillance', _primary),
+              _riskSegment('Panne', _error),
+            ], isGlobal: true),
+          ],
+        );
+      }
+    );
+  }
+
+  Widget _sensorTile(String label, String value, IconData icon, Color statusColor) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _surfaceContainer.withOpacity(0.8),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: statusColor),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onSurfaceVariant, fontWeight: FontWeight.w700, letterSpacing: 1.0),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  statusColor == _error
+                      ? 'DANGER'
+                      : (statusColor == _primary ? 'RISQUE' : 'NORMAL'),
+                  style: GoogleFonts.inter(fontSize: 8, fontWeight: FontWeight.w800, color: statusColor),
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: GoogleFonts.inter(fontSize: 26, fontWeight: FontWeight.w800, color: statusColor == _error ? _error : _onSurface),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            height: 3,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(2),
+              gradient: LinearGradient(
+                colors: [statusColor, statusColor.withOpacity(0.1)],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _riskTile(String label, double percentage, String subtitle, List<Widget> segments, {bool isGlobal = false}) {
+    final color = percentage >= 70 ? _error : (percentage >= 40 ? _primary : _green);
+    final isDanger = percentage >= 70;
+    return Container(
+      decoration: BoxDecoration(
+        color: isGlobal ? _surfaceContainer : _surfaceContainer.withOpacity(0.8),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: isGlobal ? color.withOpacity(0.3) : Colors.white.withOpacity(0.06)),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(isGlobal ? Icons.warning_rounded : Icons.local_fire_department, size: 16, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onSurfaceVariant, fontWeight: FontWeight.w700, letterSpacing: 1.0),
+                ),
+              ),
+              if (!isGlobal)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    isDanger ? 'CRITIQUE' : 'NORMAL',
+                    style: GoogleFonts.inter(fontSize: 8, fontWeight: FontWeight.w800, color: color),
+                  ),
+                ),
+              if (isGlobal)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    isDanger ? 'CRITIQUE' : (percentage >= 40 ? 'SURVEILLANCE' : 'NORMAL'),
+                    style: GoogleFonts.inter(fontSize: 8, fontWeight: FontWeight.w800, color: color),
+                  ),
+                ),
+            ],
+          ),
+          const Spacer(),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '${percentage.toStringAsFixed(0)}%',
+                style: GoogleFonts.inter(fontSize: 30, fontWeight: FontWeight.w800, color: color),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    subtitle,
+                    style: GoogleFonts.inter(fontSize: 10, color: _onSurfaceVariant),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: segments.map((s) => Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 2), child: s))).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _riskSegment(String label, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          height: 6,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.8),
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: GoogleFonts.spaceGrotesk(fontSize: 8, color: _onSurfaceVariant, fontWeight: FontWeight.w600),
+        ),
+      ],
     );
   }
 
@@ -219,8 +479,8 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
             const SizedBox(width: 8),
             Expanded(
               child: _diagMiniCard(
-                'PRESSION',
-                '${_diagPressure.toStringAsFixed(1)} bar',
+                'VOLTAGE',
+                '${_diagVoltage.toStringAsFixed(1)} V',
               ),
             ),
             const SizedBox(width: 8),
@@ -668,6 +928,13 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
   }
 
   String get _machineStatus {
+    final status = _predictResult?['status']?.toString().toUpperCase() ?? '';
+    if (status.isNotEmpty && status != 'UNKNOWN') {
+      if (status == 'CRITICAL') return 'CRITIQUE';
+      if (status == 'WARNING') return 'SURVEILLANCE';
+      if (status == 'NORMAL') return 'STABLE';
+      return status;
+    }
     final p = _gaugePercent;
     if (p >= 70) return 'CRITIQUE';
     if (p >= 40) return 'SURVEILLANCE';
@@ -675,6 +942,12 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
   }
 
   Color get _machineStatusColor {
+    final status = _predictResult?['status']?.toString().toUpperCase() ?? '';
+    if (status.isNotEmpty && status != 'UNKNOWN') {
+      if (status == 'CRITICAL') return _error;
+      if (status == 'WARNING') return _primary;
+      if (status == 'NORMAL') return _green;
+    }
     final p = _gaugePercent;
     if (p >= 70) return _error;
     if (p >= 40) return _primary;
@@ -690,14 +963,32 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white10),
       ),
-      child: Wrap(
-        runSpacing: 10,
-        spacing: 10,
-        crossAxisAlignment: WrapCrossAlignment.center,
+      child: Row(
         children: [
-          _chipInfo('MACHINE', widget.machineName.toUpperCase(), _secondary),
-          _chipInfo('ID', widget.machineId, _onSurfaceVariant),
-          _chipInfo('ÉTAT', _machineStatus, _machineStatusColor),
+          Wrap(
+            runSpacing: 10,
+            spacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _chipInfo('MACHINE', widget.machineName.toUpperCase(), _secondary),
+              _chipInfo('ID', widget.machineId, _onSurfaceVariant),
+              _chipInfo('ÉTAT', _machineStatus, _machineStatusColor),
+            ],
+          ),
+          const Spacer(),
+          ElevatedButton.icon(
+            onPressed: () {
+              _showIaDetailsDialog();
+            },
+            icon: const Icon(Icons.auto_awesome, size: 18),
+            label: Text('IA', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 14)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
         ],
       ),
     );
@@ -726,6 +1017,187 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
                   fontSize: 12, fontWeight: FontWeight.w700, color: color)),
         ],
       ),
+    );
+  }
+
+  // Diagnostics locaux basés sur le type de panne (miroir du backend Python)
+  static const Map<String, Map<String, String>> _localDiagnostics = {
+    'NORMAL': {
+      'message': '✅ Machine en bon état de fonctionnement.',
+      'recommandation': 'Aucune action requise. Continuer la surveillance.',
+    },
+    'SURCHAUFFE': {
+      'message': '🌡️ Température anormalement élevée détectée.',
+      'recommandation': 'Vérifier le système de refroidissement. Réduire la charge si possible.',
+    },
+    'SURCHARGE': {
+      'message': '⚡ Surcharge électrique détectée — courant et puissance hors limites.',
+      'recommandation': "Réduire immédiatement la charge machine. Vérifier l'alimentation électrique.",
+    },
+    'ELECTRIQUE': {
+      'message': '🔌 Anomalie électrique détectée — variation de tension ou de fréquence.',
+      'recommandation': 'Inspecter le câblage et les connexions. Contacter un électricien.',
+    },
+    'ROULEMENT': {
+      'message': '🔧 Vibrations anormales — usure probable des roulements.',
+      'recommandation': "Planifier une inspection mécanique. Vérifier les roulements et l'alignement.",
+    },
+    'USURE_GENERALE': {
+      'message': '📉 Dégradation progressive détectée — usure générale de la machine.',
+      'recommandation': 'Programmer une maintenance préventive dans les prochains jours.',
+    },
+  };
+
+  void _showIaDetailsDialog() {
+    if (_predictResult == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Aucune donnée IA disponible pour le moment.')),
+      );
+      return;
+    }
+
+    // Vraies clés retournées par l'API
+    final panneType = (_predictResult?['panne_type'] ?? _predictResult?['type_panne'] ?? 'NORMAL').toString().toUpperCase();
+    final localDiag = _localDiagnostics[panneType] ?? _localDiagnostics['NORMAL']!;
+
+    // Diagnostic : essai clé directe, sinon génération locale depuis panne_type
+    final diag = (_predictResult?['diagnostic'] != null && _predictResult!['diagnostic'].toString().isNotEmpty)
+        ? _predictResult!['diagnostic'].toString()
+        : localDiag['message']!;
+
+    // Recommandation : essai clé directe, sinon génération locale
+    final rec = (_predictResult?['recommandation'] != null && _predictResult!['recommandation'].toString().isNotEmpty)
+        ? _predictResult!['recommandation'].toString()
+        : localDiag['recommandation']!;
+
+    // RUL : clé directe rul_estime ou dans details.rul_cycles
+    final rulRaw = _predictResult?['rul_estime'] ?? _predictResult?['details']?['rul_cycles'];
+    final rul = rulRaw != null ? rulRaw.toString() : 'N/A';
+
+    // Risque global : prob_panne (0-100 int) ou risk_percentage
+    final risk = _predictResult?['prob_panne'] ?? _predictResult?['risk_percentage'] ?? 0;
+
+    // Scénarios : directement dans scenario_scores ou dans details.scenario_scores
+    final scenarios = (_predictResult?['scenario_scores'] ??
+        _predictResult?['details']?['scenario_scores']) as Map<String, dynamic>? ?? {};
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: _surfaceContainerLow,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.white.withOpacity(0.08)),
+          ),
+          child: Container(
+            width: 600,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'DÉTAILS DU MODÈLE IA',
+                      style: GoogleFonts.spaceGrotesk(fontSize: 16, fontWeight: FontWeight.bold, color: _onSurfaceVariant, letterSpacing: 1.2),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _primaryLight.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Anomalie Globale: $risk%',
+                        style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: _primaryLight),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Text('Diagnostic:', style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: _secondary)),
+                const SizedBox(height: 6),
+                Text(diag, style: GoogleFonts.inter(fontSize: 15, color: _onSurface)),
+                const SizedBox(height: 16),
+                Text('Recommandation:', style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: _secondary)),
+                const SizedBox(height: 6),
+                Text(rec, style: GoogleFonts.inter(fontSize: 15, color: _onSurface)),
+                const SizedBox(height: 16),
+                Text('Vie utile restante (RUL):', style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: _secondary)),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(Icons.timer_outlined, size: 18, color: _error),
+                    const SizedBox(width: 8),
+                    Text('~$rul heures', style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: _error)),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Text('Répartition des Scénarios:', style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold, color: _onSurface)),
+                const SizedBox(height: 16),
+                ...scenarios.entries.map((e) {
+                  final sName = e.key;
+                  final sVal = (e.value as num).toDouble() * 100;
+                  Color barColor = _primaryLight;
+                  if (sName == 'NORMAL') barColor = _green;
+                  else if (sVal > 50) barColor = _error;
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12.0),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 140,
+                          child: Text(
+                            sName,
+                            style: GoogleFonts.spaceGrotesk(fontSize: 12, color: _onSurfaceVariant, letterSpacing: 1.0, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: LinearProgressIndicator(
+                              value: sVal / 100,
+                              backgroundColor: Colors.white.withOpacity(0.05),
+                              color: barColor,
+                              minHeight: 8,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        SizedBox(
+                          width: 50,
+                          child: Text(
+                            '${sVal.toStringAsFixed(1)}%',
+                            textAlign: TextAlign.right,
+                            style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold, color: _onSurface),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                const SizedBox(height: 24),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: TextButton.styleFrom(
+                      foregroundColor: _onSurface,
+                      backgroundColor: Colors.white.withOpacity(0.05),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    ),
+                    child: Text('Fermer', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -784,6 +1256,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
                 style: GoogleFonts.inter(color: _error, fontSize: 12))
           else ...[
             _combinedMetricChart(),
+            _historyDataTable(),
           ],
           if (!_historyLoading && _historyError == null && _history5Days.isEmpty)
             Padding(
@@ -793,6 +1266,80 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
                 style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 11),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _historyDataTable() {
+    if (_history5Days.isEmpty) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(top: 24),
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: _surfaceContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              'Tableau Historique',
+              style: GoogleFonts.spaceGrotesk(fontSize: 14, fontWeight: FontWeight.w700, color: _onSurface),
+            ),
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowColor: MaterialStateProperty.all(_surfaceContainerHighest.withOpacity(0.5)),
+              columns: [
+                DataColumn(label: Text('Date', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: _onSurface))),
+                DataColumn(label: Text('Température', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: _onSurface))),
+                DataColumn(label: Text('Vibration', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: _onSurface))),
+                DataColumn(label: Text('Puissance', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: _onSurface))),
+                DataColumn(label: Text('Etat Machine', style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: _onSurface))),
+              ],
+              rows: _history5Days.reversed.take(10).map((item) {
+                final dt = _readItemDate(item);
+                final temp = (item['temperature'] as num?)?.toDouble() ?? (item['metrics']?['thermal'] as num?)?.toDouble() ?? 0.0;
+                final vib = (item['vibration'] as num?)?.toDouble() ?? (item['metrics']?['vibration'] as num?)?.toDouble() ?? 0.0;
+                final pow = (item['powerConsumption'] as num?)?.toDouble() ?? (item['metrics']?['power'] as num?)?.toDouble() ?? 0.0;
+                
+                String etat = 'NORMAL';
+                Color etatColor = _green;
+                
+                 if (temp > 50 || vib > 20) {
+                  etat = 'DANGER';
+                  etatColor = _error;
+                } else if ((temp >= 35 && temp <= 50) || (vib >= 14 && vib <= 20)) {
+                  etat = 'RISQUE';
+                  etatColor = _primary;
+                }
+                
+                final dateStr = dt != null ? "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}" : "-";
+                
+                return DataRow(cells: [
+                  DataCell(Text(dateStr, style: GoogleFonts.inter(fontSize: 12, color: _onSurfaceVariant))),
+                  DataCell(Text('${temp.toStringAsFixed(1)} °C', style: GoogleFonts.inter(fontSize: 12, color: _onSurface))),
+                  DataCell(Text('${vib.toStringAsFixed(2)} mm/s', style: GoogleFonts.inter(fontSize: 12, color: _onSurface))),
+                  DataCell(Text('${pow.toStringAsFixed(1)} kW', style: GoogleFonts.inter(fontSize: 12, color: _onSurface))),
+                  DataCell(
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: etatColor.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(etat, style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w800, color: etatColor)),
+                    ),
+                  ),
+                ]);
+              }).toList(),
+            ),
+          ),
         ],
       ),
     );
@@ -1036,21 +1583,29 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
       } catch (_) {}
 
       double temp = 0;
-      double pressure = 0;
+      double voltage = 0;
       double power = 0;
       double vibration = 0;
       int presence = 0;
       double magnetic = 0;
       double infrared = 0;
+      double courant = 0;
       int rpm = 0;
       int torque = 0;
       int toolWear = 0;
 
       final diagTemp = (latest?['temperature'] as num?)?.toDouble() ??
+          (latest?['temp'] as num?)?.toDouble() ??
           (metrics?['thermal'] as num?)?.toDouble() ??
           0;
-      final diagPressure = (latest?['pressure'] as num?)?.toDouble() ??
+      final diagVoltage = (latest?['voltage'] as num?)?.toDouble() ??
+          (latest?['tension'] as num?)?.toDouble() ??
+          (latest?['pressure'] as num?)?.toDouble() ??
+          (latest?['pression'] as num?)?.toDouble() ??
+          (metrics?['voltage'] as num?)?.toDouble() ??
+          (metrics?['tension'] as num?)?.toDouble() ??
           (metrics?['pressure'] as num?)?.toDouble() ??
+          (metrics?['pression'] as num?)?.toDouble() ??
           0;
       final diagHumidity = (latest?['humidity'] as num?)?.toDouble() ??
           (metrics?['humidity'] as num?)?.toDouble() ??
@@ -1058,42 +1613,105 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
 
       if (latest != null) {
         temp = (latest['temperature'] as num?)?.toDouble() ??
+            (latest['temp'] as num?)?.toDouble() ??
             (metrics?['thermal'] as num?)?.toDouble() ??
             temp;
         vibration = (latest['vibration'] as num?)?.toDouble() ??
             (metrics?['vibration'] as num?)?.toDouble() ??
             vibration;
-        power = (latest['powerConsumption'] as num?)?.toDouble() ??
+        power = (latest['puissance'] as num?)?.toDouble() ??
+            (latest['power'] as num?)?.toDouble() ??
+            (latest['powerConsumption'] as num?)?.toDouble() ??
+            (metrics?['puissance'] as num?)?.toDouble() ??
             (metrics?['power'] as num?)?.toDouble() ??
+            (metrics?['powerConsumption'] as num?)?.toDouble() ??
             power;
-        pressure = (metrics?['pressure'] as num?)?.toDouble() ?? pressure;
-        magnetic = (metrics?['magnetic'] as num?)?.toDouble() ?? magnetic;
-        infrared = (metrics?['infrared'] as num?)?.toDouble() ?? infrared;
-        presence = (metrics?['presence'] as num?)?.round() ?? presence;
+        voltage = (latest['voltage'] as num?)?.toDouble() ??
+            (latest['tension'] as num?)?.toDouble() ??
+            (latest['pressure'] as num?)?.toDouble() ??
+            (latest['pression'] as num?)?.toDouble() ??
+            (metrics?['voltage'] as num?)?.toDouble() ??
+            (metrics?['tension'] as num?)?.toDouble() ??
+            (metrics?['pressure'] as num?)?.toDouble() ??
+            (metrics?['pression'] as num?)?.toDouble() ??
+            voltage;
+        courant = (latest['courant'] as num?)?.toDouble() ??
+            (latest['current'] as num?)?.toDouble() ??
+            (metrics?['courant'] as num?)?.toDouble() ??
+            (metrics?['current'] as num?)?.toDouble() ??
+            courant;
+        magnetic = (latest['magnetic'] as num?)?.toDouble() ??
+            (latest['magnet'] as num?)?.toDouble() ??
+            (metrics?['magnetic'] as num?)?.toDouble() ??
+            (metrics?['magnet'] as num?)?.toDouble() ??
+            magnetic;
+        infrared = (latest['infrared'] as num?)?.toDouble() ??
+            (latest['infrarouge'] as num?)?.toDouble() ??
+            (metrics?['infrared'] as num?)?.toDouble() ??
+            (metrics?['infrarouge'] as num?)?.toDouble() ??
+            infrared;
+        presence = (latest['presence'] as num?)?.round() ??
+            (metrics?['presence'] as num?)?.round() ??
+            presence;
       }
+
+      final recentHistory = _history5Days.length > 10
+          ? _history5Days.sublist(_history5Days.length - 10)
+          : _history5Days;
+
+      final historyPayload = recentHistory.map((h) => {
+            'temperature': _metricOf(h, 'temperature'),
+            'vibration': _metricOf(h, 'vibration'),
+            'power': _metricOf(h, 'powerConsumption'),
+          }).toList();
 
       final result = await ApiService.predictMachine(
         {
           'type_moteur': widget.motorType.toUpperCase(),
           'temperature': temp,
-          'pressure': pressure,
+          'pressure': voltage, // send voltage as pressure for backward compatibility
+          'voltage': voltage,
+          'tension': voltage,
           'power': power,
+          'puissance': power,
           'vibration': vibration,
           'presence': presence,
           'magnetic': magnetic,
           'infrared': infrared,
+          'courant': courant,
+          'current': courant,
           'rpm': rpm,
           'torque': torque,
           'tool_wear': toolWear,
+          'history': historyPayload,
         },
         machineId: widget.machineId,
       );
       if (!mounted) return;
+      final newHistoryItem = {
+        'createdAt': DateTime.now().toIso8601String(),
+        'temperature': temp,
+        'vibration': vibration,
+        'powerConsumption': power,
+        'metrics': {
+          'thermal': temp,
+          'vibration': vibration,
+          'power': power,
+        },
+      };
+
       setState(() {
+        _history5Days.add(newHistoryItem);
+        if (_history5Days.length > 500) _history5Days.removeAt(0);
+
         _predictResult = result;
         _diagTemperature = diagTemp;
-        _diagPressure = diagPressure;
+        _diagVoltage = diagVoltage;
         _diagHumidity = diagHumidity;
+        _diagPower = power;
+        _diagVibration = vibration;
+        _diagMagnetic = magnetic;
+        _diagInfrared = infrared;
       });
     } catch (e) {
       if (!mounted) return;

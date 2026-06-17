@@ -12,6 +12,7 @@ import 'maintenance_agent_detail_page.dart';
 import 'maintenance_module_page.dart';
 import 'widgets/machine_control_calendar_panel.dart';
 import 'widgets/machine_history_view.dart';
+import 'maintenance_ml_model_sidebar.dart';
 import 'dart:async';
 
 class MachineDetailAiPage extends StatefulWidget {
@@ -23,6 +24,7 @@ class MachineDetailAiPage extends StatefulWidget {
   final String? viewerName;
   final bool embedded;
   final VoidCallback? onBack;
+  final List<Map<String, dynamic>>? machines;
   const MachineDetailAiPage({
     super.key,
     required this.machineId,
@@ -33,6 +35,7 @@ class MachineDetailAiPage extends StatefulWidget {
     this.viewerName,
     this.embedded = false,
     this.onBack,
+    this.machines,
   });
 
   @override
@@ -47,6 +50,7 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
   bool _socketConnected = false;
   bool _wifiConnected = false;
   Timer? _mqttHeartbeatTimer;
+  Timer? _pollTimer;
   late Set<String> _acceptedMachineIds;
   late Future<List<Map<String, dynamic>>> _historyFuture;
 
@@ -74,6 +78,11 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
   String _scenarioExplanation = '';
   double? _iaRulEstime;
   double? _iaRulHeuresIndicatif;
+  String _iaDiagnostic = '';
+  String _iaRecommandation = '';
+  String _iaUrgence = '';
+  double _iaAnomalieProbability = 0.0;
+  Map<String, double> _scenarioScoresMap = {};
   String _machineIaMotorType = 'EL_M';
   final TextEditingController _adminRulScaleController =
       TextEditingController();
@@ -132,6 +141,10 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
     _loadSidebarMachines();
     _checkActiveIntervention();
     _initSocket();
+    
+    _pollTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) _loadInitialTelemetry();
+    });
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _loadMachineIaProfile(),
     );
@@ -528,29 +541,62 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: const Color(0xFF4A0A0A),
-            duration: const Duration(seconds: 6),
-            content: Row(
-              children: [
-                const Icon(
-                  Icons.warning_amber_rounded,
-                  color: Color(0xFFFFDAD6),
+        showGeneralDialog(
+          context: context,
+          barrierDismissible: true,
+          barrierLabel: 'Danger Alert',
+          transitionDuration: const Duration(milliseconds: 400),
+          pageBuilder: (context, anim1, anim2) {
+            return Center(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 24),
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF161826),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.redAccent, width: 2),
+                  boxShadow: [
+                    BoxShadow(color: Colors.redAccent.withOpacity(0.3), blurRadius: 20, spreadRadius: 5),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    alertText,
-                    style: GoogleFonts.inter(
-                      color: const Color(0xFFFFDAD6),
-                      fontSize: 12,
-                    ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.1), shape: BoxShape.circle),
+                        child: const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 48),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'DANGER DÉTECTÉ',
+                        style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        alertText,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(color: Colors.white70, fontSize: 14),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                        ),
+                        child: Text('COMPRIS', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       }
     }
@@ -562,7 +608,7 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
   void _initSocket() {
     debugPrint('🔌 Initialisation Socket.io pour la machine $_machineId');
     _socket = io.io(ApiService.socketBaseUrl, <String, dynamic>{
-      'transports': <String>['websocket', 'polling'],
+      'transports': <String>['polling', 'websocket'],
       'autoConnect': true,
     });
     _socket.on('nouvelle_prediction', (raw) {
@@ -594,6 +640,33 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
         debugPrint('❌ Erreur parsing nouvelle_prediction: $e');
       }
     });
+    _socket.on('ai:$_machineId', (raw) {
+      try {
+        final d = raw is String ? jsonDecode(raw) : raw;
+        if (d is! Map) return;
+        final data = Map<String, dynamic>.from(d);
+        if (mounted) {
+          setState(() {
+            _iaDiagnostic = (data['diagnostic'] ?? '').toString();
+            _iaRecommandation = (data['recommandation'] ?? '').toString();
+            _iaUrgence = (data['urgence'] ?? '').toString();
+            
+            if (data['anomalieProbability'] != null) {
+              _iaAnomalieProbability = _toDouble(data['anomalieProbability'], 0.0);
+            }
+            if (data['scenarioScores'] != null) {
+              final scores = data['scenarioScores'] as Map;
+              _scenarioScoresMap.clear();
+              scores.forEach((key, value) {
+                _scenarioScoresMap[key.toString()] = _toDouble(value, 0.0);
+              });
+            }
+          });
+        }
+      } catch (e) {
+        debugPrint('🔌 Erreur parsing ai:$_machineId : $e');
+      }
+    });
     _socket.onConnect((_) {
       debugPrint('✅ Socket CONNECTÉ à ${ApiService.socketBaseUrl}');
       if (mounted) {
@@ -621,6 +694,7 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
     _pulseCtrl.dispose();
     _adminRulScaleController.dispose();
     _mqttHeartbeatTimer?.cancel();
+    _pollTimer?.cancel();
     _socket.dispose();
     super.dispose();
   }
@@ -999,71 +1073,108 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
       ),
     );
 
-    if (widget.embedded) {
-      return ColoredBox(color: _bg, child: inner);
+      if (widget.embedded) {
+        return ColoredBox(color: _bg, child: inner);
+      }
+      
+      Widget finalBody = inner;
+      if (widget.machines != null && widget.machines!.isNotEmpty && MediaQuery.of(context).size.width > 1000) {
+        finalBody = Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: 300,
+              child: MaintenanceMlModelSidebar(
+                compact: false,
+                machines: widget.machines,
+              ),
+            ),
+            Expanded(child: inner),
+          ],
+        );
+      }
+      
+      final Color dynBg = _iaProbPanne >= 70 ? const Color(0xFF2A0A0A) : (_iaProbPanne >= 60 ? const Color(0xFF2A1A0A) : _bg);
+      return Scaffold(backgroundColor: dynBg, body: finalBody);
     }
-    return Scaffold(backgroundColor: _bg, body: inner);
-  }
-
-  Widget _topNav() {
-    final unitTitle =
-        (_machineName != null && _machineName!.trim().isNotEmpty)
+  
+    Widget _topNav() {
+      final unitTitle =
+          (_machineName != null && _machineName!.trim().isNotEmpty)
             ? _machineName!.trim().toUpperCase()
             : 'MACHINE ${_machineId.length > 6 ? _machineId.substring(_machineId.length - 6) : _machineId}';
+            
+    final showBack = widget.onBack != null || Navigator.of(context).canPop();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (widget.onBack != null || Navigator.of(context).canPop()) ...[
-              IconButton(
-                onPressed: widget.onBack ?? () => Navigator.of(context).pop(),
-                icon: const Icon(
-                  Icons.arrow_back_ios_new,
-                  color: _orange,
-                  size: 20,
+        if (showBack)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: widget.onBack ?? () => Navigator.of(context).pop(),
+                  borderRadius: BorderRadius.circular(6),
+                  hoverColor: Colors.white.withOpacity(0.05),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF131824),
+                      border: Border.all(color: Colors.white.withOpacity(0.08)),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.arrow_back_ios_new, color: _orange, size: 12),
+                        const SizedBox(width: 8),
+                        Text(
+                          'RETOUR', 
+                          style: GoogleFonts.spaceGrotesk(
+                            color: Colors.white70, 
+                            fontSize: 11, 
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.2,
+                          )
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-                tooltip: 'Retour',
-              ),
-              const SizedBox(width: 4),
-            ],
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'ASSET TERMINAL // $_machineId',
-                    style: GoogleFonts.spaceGrotesk(
-                      fontSize: 10,
-                      color: _orange,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.35,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    unitTitle,
-                    style: GoogleFonts.spaceGrotesk(
-                      fontSize: 22,
-                      color: _text,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.4,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'S/N: $_machineId · STATUS: ${_machineStopped ? 'ARRÊT' : (_iaProbPanne >= 70 ? 'INSTABLE' : 'OPÉRATIONNEL')}',
-                    style: GoogleFonts.inter(
-                      fontSize: 10,
-                      color: _text.withOpacity(0.45),
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
               ),
             ),
-          ],
+          ),
+        Text(
+          'ASSET TERMINAL // $_machineId',
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 10,
+            color: _orange,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.35,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          unitTitle,
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 22,
+            color: _text,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'S/N: $_machineId • STATUS: ${_machineStopped ? 'ARRÊT' : (_iaProbPanne >= 70 ? 'INSTABLE' : 'OPÉRATIONNEL')}',
+          style: GoogleFonts.inter(
+            fontSize: 10,
+            color: _text.withOpacity(0.45),
+            fontWeight: FontWeight.w500,
+          ),
         ),
         const SizedBox(height: 20),
         SingleChildScrollView(
@@ -1947,68 +2058,264 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
               ),
             ],
           ),
-          // MQTT status bar removed
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: _panel.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: (_lastMqttPacketAt != null ? _green : _orange).withOpacity(0.15),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  _lastMqttPacketAt == null ? Icons.sensors_off_rounded : Icons.sensors_rounded,
+                  size: 16,
+                  color: _lastMqttPacketAt == null ? _orange : _green,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _lastMqttPacketAt == null
+                        ? 'Flux MQTT : en attente de données...'
+                        : 'Flux MQTT actif · $_mqttPacketCount paquets reçus · Dernier : ${_lastMqttPacketAt!.hour.toString().padLeft(2, '0')}:${_lastMqttPacketAt!.minute.toString().padLeft(2, '0')}:${_lastMqttPacketAt!.second.toString().padLeft(2, '0')}',
+                    style: GoogleFonts.inter(
+                      fontSize: 10.5,
+                      color: _text.withOpacity(0.85),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: (_lastMqttPacketAt != null ? _green : _orange).withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    _lastMqttPacketAt != null ? 'ACTIF' : 'ATTENTE',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 8,
+                      fontWeight: FontWeight.w800,
+                      color: _lastMqttPacketAt != null ? _green : _orange,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_lastMqttPacketAt == null) ...[
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                'Les valeurs affichées ci-dessous proviennent de la dernière télémétrie enregistrée (API) en attente de flux temps réel.',
+                style: GoogleFonts.inter(
+                  fontSize: 9,
+                  color: _muted.withOpacity(0.7),
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           LayoutBuilder(
             builder: (context, constraints) {
               final isSmall = constraints.maxWidth < 450;
-              final int crossAxisCount = isSmall ? 2 : 3;
-              final double childAspectRatio = isSmall ? 2.5 : 1.8;
+              
+              double? parseVal(dynamic v) {
+                if (v == null) return null;
+                if (v is num) return v.toDouble();
+                return double.tryParse(v.toString());
+              }
 
-              return GridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisCount: crossAxisCount,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: childAspectRatio,
-                children: [
-                  _sensorTile(
-                    'THERMIQUE',
-                    '${_thermal.toStringAsFixed(1)} °C',
-                    Icons.thermostat_rounded,
-                    _thermal >= 75 ? _red : _cyan,
-                    panneKey: 'thermal',
-                    isZeroError: _thermal == 0,
+              final tempVal = parseVal(_thermal);
+              late Color tempColor;
+              late double tempRisk;
+              late String tempState;
+              if (tempVal == null || (tempVal == 0 && !_machineStopped)) {
+                tempColor = Colors.grey;
+                tempRisk = 0;
+                tempState = '--';
+              } else if (tempVal < 55) {
+                tempColor = const Color(0xFF4CAF50);
+                tempRisk = (tempVal / 55.0 * 40.0).clamp(0, 40);
+                tempState = 'NORMAL';
+              } else if (tempVal <= 75) {
+                tempColor = const Color(0xFFFF9800);
+                tempRisk = 40 + ((tempVal - 55) / 20.0 * 30.0);
+                tempState = 'RISQUE';
+              } else {
+                tempColor = const Color(0xFFF44336);
+                tempRisk = (70 + ((tempVal - 75) / 25.0 * 30.0)).clamp(70, 100);
+                tempState = 'DANGER';
+              }
+
+              final vibVal = parseVal(_vibration);
+              late Color vibColor;
+              late double vibRisk;
+              late String vibState;
+              if (vibVal == null || (vibVal == 0 && !_machineStopped)) {
+                vibColor = Colors.grey;
+                vibRisk = 0;
+                vibState = '--';
+              } else if (vibVal < 7) {
+                vibColor = const Color(0xFF4CAF50);
+                vibRisk = (vibVal / 7.0 * 40.0).clamp(0, 40);
+                vibState = 'NORMAL';
+              } else if (vibVal <= 12) {
+                vibColor = const Color(0xFFFF9800);
+                vibRisk = 40 + ((vibVal - 7) / 5.0 * 30.0);
+                vibState = 'RISQUE';
+              } else {
+                vibColor = const Color(0xFFF44336);
+                vibRisk = (70 + ((vibVal - 12) / 8.0 * 30.0)).clamp(70, 100);
+                vibState = 'DANGER';
+              }
+
+              final rpmVal = parseVal(_power != 0 ? _power * 10 : null);
+              final pressVal = parseVal(_pressure);
+
+              final overallRisk = tempRisk > vibRisk ? tempRisk : vibRisk;
+              final overallColor = overallRisk >= 70 ? const Color(0xFFF44336) : overallRisk >= 40 ? const Color(0xFFFF9800) : const Color(0xFF4CAF50);
+              final overallState = overallRisk >= 70 ? 'DANGER' : overallRisk >= 40 ? 'RISQUE' : 'NORMAL';
+
+              Widget buildSensorTile(String label, String valueStr, IconData icon, Color color, String stateStr, double risk) {
+                return Container(
+                  width: isSmall ? constraints.maxWidth / 2 - 20 : 160,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.03),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
                   ),
-                  _sensorTile(
-                    'PRESSION',
-                    pressureStr,
-                    Icons.speed_rounded,
-                    _cyan,
-                    panneKey: 'pressure',
-                    isZeroError: _pressure == 0,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(icon, color: Colors.white70, size: 14),
+                          const SizedBox(width: 6),
+                          Text(label, style: GoogleFonts.inter(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(valueStr.replaceAll(RegExp(r'[^\d.-]'), ''), style: GoogleFonts.inter(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700, height: 1)),
+                          const SizedBox(width: 4),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 3),
+                            child: Text(valueStr.replaceAll(RegExp(r'[\d.-]'), '').trim(), style: GoogleFonts.inter(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w500)),
+                          ),
+                        ],
+                      ),
+                      if (stateStr.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(stateStr, style: GoogleFonts.inter(color: color, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+                            Text('${risk.toInt()}%', style: GoogleFonts.inter(color: color, fontSize: 10, fontWeight: FontWeight.w700)),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(2),
+                          child: LinearProgressIndicator(
+                            value: risk / 100,
+                            backgroundColor: Colors.white.withOpacity(0.05),
+                            valueColor: AlwaysStoppedAnimation<Color>(color),
+                            minHeight: 3,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                  _sensorTile(
-                    'PUISSANCE',
-                    '${_power.toStringAsFixed(1)} kW',
-                    Icons.bolt_rounded,
-                    const Color(0xFFFFD54F),
-                    panneKey: 'power',
-                    isZeroError: _power == 0,
+                );
+              }
+
+              return Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF1E3A2F), Color(0xFF12221C)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                  _sensorTile(
-                    'VIBRATION',
-                    '${_vibration.toStringAsFixed(2)} mm/s',
-                    Icons.vibration_rounded,
-                    _vibration >= 4 ? _red : _cyan,
-                    panneKey: 'vibration',
-                    isZeroError: _vibration == 0,
-                  ),
-                  _sensorTile(
-                    'MAGNÉTIQUE',
-                    '${_magnetic.toStringAsFixed(2)} mT',
-                    Icons.explore_rounded,
-                    const Color(0xFF90CAF9),
-                    isZeroError: _magnetic == 0,
-                  ),
-                  _sensorTile(
-                    'INFRA-ROUGE',
-                    irLabel,
-                    Icons.local_fire_department_outlined,
-                    const Color(0xFFFFAB91),
-                  ),
-                ],
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF4CAF50).withOpacity(0.3), width: 1),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4)),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'DERNIÈRES VALEURS CAPTEURS',
+                          style: GoogleFonts.inter(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.2),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: overallColor.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: overallColor.withOpacity(0.5), width: 1),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(width: 6, height: 6, decoration: BoxDecoration(color: overallColor, shape: BoxShape.circle)),
+                              const SizedBox(width: 6),
+                              Text(overallState, style: GoogleFonts.inter(color: overallColor, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Wrap(
+                      spacing: 16,
+                      runSpacing: 16,
+                      children: [
+                        buildSensorTile('Température', '${tempVal?.toStringAsFixed(1) ?? '--'} °C', Icons.thermostat, tempColor, tempState, tempRisk),
+                        buildSensorTile('Vibration', '${vibVal?.toStringAsFixed(1) ?? '--'} mm/s', Icons.vibration, vibColor, vibState, vibRisk),
+                        buildSensorTile('Vitesse', '${rpmVal?.toStringAsFixed(0) ?? '--'} tr/min', Icons.speed, const Color(0xFF90CAF9), '', 0),
+                        buildSensorTile('Voltage', '${pressVal?.toStringAsFixed(1) ?? '--'} V', Icons.flash_on, const Color(0xFF4DD0E1), '', 0),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        Text('Risque global :', style: GoogleFonts.inter(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: overallRisk / 100,
+                              backgroundColor: Colors.white.withOpacity(0.05),
+                              valueColor: AlwaysStoppedAnimation<Color>(overallColor),
+                              minHeight: 6,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text('${overallRisk.toInt()}%', style: GoogleFonts.inter(color: overallColor, fontSize: 12, fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                  ],
+                ),
               );
             },
           ),
@@ -3507,7 +3814,7 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                         columns: const [
                           DataColumn(label: Text('Heure')),
                           DataColumn(label: Text('Temp °C')),
-                          DataColumn(label: Text('Pression')),
+                          DataColumn(label: Text('Voltage')),
                           DataColumn(label: Text('Puissance')),
                           DataColumn(label: Text('Risque IA %')),
                         ],
@@ -3536,8 +3843,8 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                                 cells: [
                                   DataCell(Text(t)),
                                   DataCell(Text(temp.toStringAsFixed(1))),
-                                  DataCell(Text(pressure.toStringAsFixed(2))),
-                                  DataCell(Text(power.toStringAsFixed(2))),
+                                  DataCell(Text('${pressure.toStringAsFixed(1)} V')),
+                                  DataCell(Text(power.toStringAsFixed(1))),
                                   DataCell(Text(risk.toStringAsFixed(0))),
                                 ],
                               );

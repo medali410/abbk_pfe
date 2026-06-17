@@ -58,6 +58,24 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   Key _inlineHistoryKey = const ValueKey<String>('hist_embed');
   final Map<String, dynamic> _profileOverrides = <String, dynamic>{};
 
+  /// Live telemetry refreshed every second from the API for all visible machine cards.
+  final Map<String, Map<String, dynamic>> _liveTelemetryByMachineId = <String, Map<String, dynamic>>{};
+  final Set<String> _polledMachineIds = <String>{};
+  Timer? _liveTelemetryTimer;
+
+  /// Maps machineId → display name for toast notifications.
+  final Map<String, String> _machineNameById = <String, String>{};
+  /// Tracks the last risk level that triggered a toast, to avoid spam.
+  /// Key = machineId, value = 'NORMAL' | 'RISQUE' | 'DANGER'
+  final Map<String, String> _lastNotifiedRiskById = <String, String>{};
+  /// machineId → client ID for navigation to MachineDetailAiPage.
+  final Map<String, String> _machineClientIdById = <String, String>{};
+
+  /// Cached Future for the machines mapping panel – created once to prevent
+  /// the FutureBuilder from re-triggering on every 1-second setState.
+  Future<Map<String, dynamic>>? _machinesMappingFuture;
+  String _machinesMappingFutureKey = ''; // invalidated when client / machines change
+
   static const _bg = Color(0xFF10102B);
   static const _surfaceContainerLow = Color(0xFF191934);
   static const _surfaceContainer = Color(0xFF1D1D38);
@@ -77,10 +95,241 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
 
   @override
   void dispose() {
+    _liveTelemetryTimer?.cancel();
     _chatInputController.dispose();
     _chatSocket?.dispose();
     _notifSocket?.dispose();
     super.dispose();
+  }
+
+  /// Registers [machines] for 1-second live telemetry polling.
+  /// Each entry must have `id` and `name` (and optionally `clientId`).
+  /// Safe to call multiple times — duplicates are ignored.
+  void _startLiveTelemetryPolling(Iterable<String> machineIds) {
+    _polledMachineIds.addAll(machineIds.where((id) => id.isNotEmpty));
+    if (_liveTelemetryTimer != null) return; // already running
+    _liveTelemetryTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _refreshAllLiveTelemetry();
+    });
+  }
+
+  /// Registers machines with full metadata for polling + toast navigation.
+  void _registerMachinesForPolling(List<Map<String, dynamic>> machines) {
+    for (final m in machines) {
+      final id = _machineIdFromDoc(m);
+      if (id.isEmpty) continue;
+      _machineNameById[id] = (m['name'] ?? id).toString();
+      _machineClientIdById[id] = (m['companyId'] ?? _clientId).toString();
+    }
+    _startLiveTelemetryPolling(_machineNameById.keys);
+  }
+
+  /// Computes overall risk label from raw telemetry map.
+  /// Returns 'NORMAL', 'RISQUE', or 'DANGER'.
+  String _computeRiskFromTelemetry(Map<String, dynamic> tel) {
+    double? parseVal(dynamic v) {
+      if (v == null) return null;
+      if (v is num) return v.toDouble();
+      return double.tryParse(v.toString());
+    }
+
+    final temp = parseVal(tel['temperature'] ?? tel['temp']);
+    final vib  = parseVal(tel['vibration']);
+
+    String stateForTemp = 'NORMAL';
+    if (temp != null) {
+      if (temp > 75) stateForTemp = 'DANGER';
+      else if (temp >= 55) stateForTemp = 'RISQUE';
+    }
+
+    String stateForVib = 'NORMAL';
+    if (vib != null) {
+      if (vib > 12) stateForVib = 'DANGER';
+      else if (vib >= 7) stateForVib = 'RISQUE';
+    }
+
+    // Return worst state.
+    if (stateForTemp == 'DANGER' || stateForVib == 'DANGER') return 'DANGER';
+    if (stateForTemp == 'RISQUE' || stateForVib == 'RISQUE') return 'RISQUE';
+    return 'NORMAL';
+  }
+
+  /// Returns a human-readable description of what triggered the risk.
+  String _riskTypeDescription(Map<String, dynamic> tel) {
+    double? parseVal(dynamic v) {
+      if (v == null) return null;
+      if (v is num) return v.toDouble();
+      return double.tryParse(v.toString());
+    }
+    final temp = parseVal(tel['temperature'] ?? tel['temp']);
+    final vib  = parseVal(tel['vibration']);
+    final parts = <String>[];
+    if (temp != null && temp > 55) {
+      parts.add('Température ${temp.toStringAsFixed(1)} °C');
+    }
+    if (vib != null && vib > 7) {
+      parts.add('Vibration ${vib.toStringAsFixed(1)} mm/s');
+    }
+    return parts.isEmpty ? 'Valeurs anormales détectées' : parts.join(' · ');
+  }
+
+  /// Shows a styled risk toast (SnackBar) with an AFFICHER action.
+  void _showRiskToast({
+    required String machineId,
+    required String machineName,
+    required String riskLevel,
+    required String riskDescription,
+    required String clientId,
+  }) {
+    if (!mounted) return;
+    final isD = riskLevel == 'DANGER';
+    final bgColor  = isD ? const Color(0xFFC62828) : const Color(0xFFE65100);
+    final icon     = isD ? Icons.warning_amber_rounded : Icons.warning_rounded;
+    final label    = isD ? '🔴 DANGER DÉTECTÉ' : '🟠 RISQUE DÉTECTÉ';
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 8),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.only(bottom: 24, left: 16, right: 16),
+        content: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.25),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: bgColor.withValues(alpha: 0.55),
+                blurRadius: 24,
+                spreadRadius: 2,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: Colors.white, size: 28),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      style: GoogleFonts.spaceGrotesk(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      machineName,
+                      style: GoogleFonts.inter(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      riskDescription,
+                      style: GoogleFonts.inter(
+                        color: Colors.white.withValues(alpha: 0.75),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () {
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => MachineDetailAiPage(
+                        machineId: machineId,
+                        machineName: machineName,
+                        clientId: clientId,
+                        viewerRole: 'technician',
+                        viewerName: _chatSenderName,
+                      ),
+                    ),
+                  );
+                },
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.white.withValues(alpha: 0.18),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: BorderSide(color: Colors.white.withValues(alpha: 0.35)),
+                  ),
+                ),
+                child: Text(
+                  'AFFICHER',
+                  style: GoogleFonts.spaceGrotesk(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Polls the API once for every registered machine, updates state,
+  /// and fires a risk toast when state transitions to RISQUE / DANGER.
+  Future<void> _refreshAllLiveTelemetry() async {
+    final ids = List<String>.from(_polledMachineIds);
+    for (final id in ids) {
+      if (!mounted) return;
+      try {
+        final data = await ApiService.getLatestTelemetry(id);
+        if (!mounted) return;
+        if (data == null) continue;
+
+        final fresh = Map<String, dynamic>.from(data);
+        setState(() {
+          _liveTelemetryByMachineId[id] = fresh;
+        });
+
+        // ── Risk notification ──────────────────────────────────────────────
+        final newRisk  = _computeRiskFromTelemetry(fresh);
+        final lastRisk = _lastNotifiedRiskById[id] ?? 'NORMAL';
+
+        // Only notify when risk escalates (NORMAL→RISQUE, *→DANGER, NORMAL→DANGER).
+        final escalated = (newRisk == 'RISQUE' && lastRisk == 'NORMAL') ||
+                          (newRisk == 'DANGER' && lastRisk != 'DANGER');
+        if (escalated) {
+          _lastNotifiedRiskById[id] = newRisk;
+          _showRiskToast(
+            machineId: id,
+            machineName: _machineNameById[id] ?? id,
+            riskLevel: newRisk,
+            riskDescription: _riskTypeDescription(fresh),
+            clientId: _machineClientIdById[id] ?? _clientId,
+          );
+        } else if (newRisk == 'NORMAL' && lastRisk != 'NORMAL') {
+          // Risk resolved — reset so it can trigger again next time.
+          _lastNotifiedRiskById[id] = 'NORMAL';
+        }
+      } catch (_) {}
+    }
   }
 
   bool _technicianMeSynced = false;
@@ -1024,7 +1273,10 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
       setState(() => _machinesSectionVersion++);
     }
 
-    notifSocket.on('diagnostic_coordination', (_) => bumpMachinesForMission());
+    notifSocket.on('diagnostic_coordination', (_) {
+      bumpMachinesForMission();
+      _checkPendingInterventions(techId);
+    });
     notifSocket.on('diagnostic_coordination_update', (_) => bumpMachinesForMission());
     notifSocket.on('diagnostic_message', (_) => bumpMachinesForMission());
     notifSocket.on('diagnostic_message_update', (_) => bumpMachinesForMission());
@@ -1282,17 +1534,24 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   }
   // ─────────────────────────────────────────────────────────────────────────
 
+  String? _lastAlertedInterventionId;
+
   Future<void> _checkPendingInterventions(String techId) async {
     try {
       final interventions = await ApiService.getDiagnosticInterventions();
-      // On cherche une intervention OPEN assignée à ce tech
-      final pending = interventions.where((i) => 
-        i['technicianId']?.toString() == techId && 
-        i['status'] == 'OPEN'
-      ).toList();
+      // On cherche une intervention assignée à ce tech (OPEN ou PENDING)
+      final pending = interventions.where((i) {
+        final st = i['status']?.toString().toUpperCase();
+        return i['technicianId']?.toString() == techId && 
+               (st == 'OPEN' || st == 'PENDING');
+      }).toList();
 
       if (pending.isNotEmpty && mounted) {
         final last = pending.first;
+        final interventionId = (last['id'] ?? last['_id'])?.toString();
+        if (_lastAlertedInterventionId == interventionId) return;
+        _lastAlertedInterventionId = interventionId;
+        
         _showAcceptAssignmentDialog(last);
       }
     } catch (e) {
@@ -1308,12 +1567,12 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         backgroundColor: _surfaceContainerLow,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: _primaryContainer, width: 2)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Colors.redAccent, width: 3)),
         title: Row(
           children: [
-            const Icon(Icons.warning_amber_rounded, color: _primaryContainer, size: 28),
+            const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 32),
             const SizedBox(width: 12),
-            Text('NOUVELLE MISSION', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w900)),
+            Text('NOUVELLE MISSION CRITIQUE', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18)),
           ],
         ),
         content: Column(
@@ -1354,25 +1613,29 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(ctx);
-              // Optionnel: on pourrait passer le status en 'ACCEPTED' ici
-              // Mais pour l'instant on ouvre directement la page de la machine
               if (mounted) {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => MachineDetailAiPage(
-                      machineId: machineId,
-                      viewerRole: 'technician',
-                      viewerName: _chatSenderName,
+                    builder: (_) => MissionControlPage(
+                      initialArgs: {
+                        'machineId': machineId,
+                        'techId': _technicianId,
+                        'name': _chatSenderName,
+                        'viewerRole': 'technician',
+                      },
                     ),
                   ),
                 );
               }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: _primaryContainer,
+              backgroundColor: Colors.redAccent.shade700,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              elevation: 8,
+              shadowColor: Colors.redAccent.withOpacity(0.5),
             ),
             child: Text('ACCEPTER & OUVRIR', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
           ),
@@ -3239,6 +3502,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
       if (machineId.isEmpty) continue;
       try {
         final latest = await ApiService.getLatestTelemetry(machineId);
+        m['_telemetry'] = latest;
         final riskRaw = latest?['prob_panne'] ?? latest?['panne_probability'] ?? latest?['scenarioProbPanne'];
         final num? riskNum = riskRaw is num ? riskRaw : num.tryParse(riskRaw?.toString() ?? '');
         final int riskPercent = riskNum == null ? 0 : (riskNum <= 1 ? (riskNum * 100).round() : riskNum.round());
@@ -3364,7 +3628,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                   ],
                   rows: rows.map((r) {
                     final machineId = (r['_machineId'] ?? '').toString();
-                    final dt = _fmtDate((r['createdAt'] ?? '').toString());
+                    final dt = _fmtDate((r['createdAt'] ?? r['timestamp'] ?? '').toString());
                     final temp = _n(r['temperature'] ?? r['thermal']);
                     final pressure = _n(r['pressure']);
                     final power = _n(r['power']);
@@ -3519,8 +3783,8 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
       } catch (_) {}
     }
     rows.sort((a, b) {
-      final ad = DateTime.tryParse((a['createdAt'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final bd = DateTime.tryParse((b['createdAt'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final ad = DateTime.tryParse((a['createdAt'] ?? a['timestamp'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bd = DateTime.tryParse((b['createdAt'] ?? b['timestamp'] ?? '').toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
       return bd.compareTo(ad);
     });
     if (rows.length > 25) return rows.take(25).toList();
@@ -4475,7 +4739,26 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     return _parseDebutSessionMarche(m) ?? _sessionDebutByMachineId[machineId];
   }
 
-  Widget _buildMachinesMappingDetailsPanel(List<String> assignedMachineIds, String clientId) {
+   Widget _buildMachinesMappingDetailsPanel(List<String> assignedMachineIds, String clientId) {
+    // Build a cache key so the future is only recreated when the set of
+    // assigned machines or the client actually changes.
+    final cacheKey = '$clientId|${assignedMachineIds.join(",")}';
+    if (_machinesMappingFuture == null || _machinesMappingFutureKey != cacheKey) {
+      _machinesMappingFutureKey = cacheKey;
+      _machinesMappingFuture = () async {
+        final machinesData = await _loadMachinesForProfileSection(assignedMachineIds, clientId, null);
+        final clients = await ApiService.getClients();
+        final concepteurs = await ApiService.getConcepteurs();
+        final maintenanceAgents = await ApiService.getMaintenanceAgentsForClient(clientId);
+        return {
+          'machines': machinesData.machines,
+          'clients': clients,
+          'concepteurs': concepteurs,
+          'maintenance': maintenanceAgents,
+        };
+      }();
+    }
+
     return Column(
       children: [
         _buildTopHeader(null),
@@ -4486,18 +4769,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               child: Container(
                 constraints: const BoxConstraints(maxWidth: 1200),
                 child: FutureBuilder<Map<String, dynamic>>(
-                  future: () async {
-                    final machinesData = await _loadMachinesForProfileSection(assignedMachineIds, clientId, null);
-                    final clients = await ApiService.getClients();
-                    final concepteurs = await ApiService.getConcepteurs();
-                    final maintenanceAgents = await ApiService.getMaintenanceAgentsForClient(clientId);
-                    return {
-                      'machines': machinesData.machines,
-                      'clients': clients,
-                      'concepteurs': concepteurs,
-                      'maintenance': maintenanceAgents,
-                    };
-                  }(),
+                  future: _machinesMappingFuture,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Center(child: CircularProgressIndicator(color: _secondary));
@@ -4516,6 +4788,13 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                     final clients = data['clients'] as List<Map<String, dynamic>>? ?? [];
                     final concepteurs = data['concepteurs'] as List<Map<String, dynamic>>? ?? [];
                     final maintenance = data['maintenance'] as List<Map<String, dynamic>>? ?? [];
+
+                    // Start (or extend) live 1-second polling for all machines in this panel.
+                    if (machines.isNotEmpty) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _registerMachinesForPolling(machines);
+                      });
+                    }
 
                     if (machines.isEmpty) {
                       return Center(
@@ -4549,6 +4828,19 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                           final mName = (m['name'] ?? mId).toString();
                           final mStatus = (m['status'] ?? 'STOPPED').toString();
                           
+                          // AI Analysis data
+                          final riskPercent = (m['_riskPercent'] as int?) ?? 0;
+                          final requiresStop = m['_requiresStop'] == true;
+                          final isDanger = requiresStop || mStatus.toUpperCase() == 'PANNE';
+                          final isRisk = riskPercent > 60 && !isDanger;
+                          final isNormal = !isDanger && !isRisk;
+
+                          final Color aiColor = isDanger ? Colors.redAccent : (isRisk ? Colors.orangeAccent : Colors.green);
+                          final String aiStatus = isDanger ? 'DANGER / PANNE' : (isRisk ? 'RISQUE ÉLEVÉ' : 'NORMAL');
+                          final String aiNotification = isDanger 
+                              ? 'Alerte Critique : Arrêt recommandé ou panne détectée par l\'IA. Intervention immédiate requise.' 
+                              : (isRisk ? 'Analyse IA : Risque de défaillance imminent ($riskPercent%). Maintenance préventive fortement conseillée.' : 'Analyse IA : Fonctionnement optimal. Aucun risque détecté.');
+
                           // Find associated client
                           final mClientId = (m['companyId'] ?? '').toString().trim();
                           final clientObj = clients.firstWhere(
@@ -4580,9 +4872,17 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Icon(Icons.precision_manufacturing, color: _secondary, size: 28),
-                                    const SizedBox(width: 12),
+                                    Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: _secondary.withOpacity(0.1),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.precision_manufacturing, color: _secondary, size: 28),
+                                    ),
+                                    const SizedBox(width: 16),
                                     Expanded(
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4595,15 +4895,48 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                               fontWeight: FontWeight.bold,
                                             ),
                                           ),
-                                          Text(
-                                            'ID: $mId · Statut: $mStatus',
-                                            style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 11),
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              Text(
+                                                'ID: $mId · Statut: $mStatus',
+                                                style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 12),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                decoration: BoxDecoration(
+                                                  color: aiColor.withOpacity(0.15),
+                                                  borderRadius: BorderRadius.circular(6),
+                                                  border: Border.all(color: aiColor.withOpacity(0.3)),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                      isDanger ? Icons.error_outline : (isRisk ? Icons.warning_amber_rounded : Icons.check_circle_outline),
+                                                      color: aiColor,
+                                                      size: 12,
+                                                    ),
+                                                    const SizedBox(width: 6),
+                                                    Text(
+                                                      'IA: $aiStatus',
+                                                      style: GoogleFonts.spaceGrotesk(
+                                                        color: aiColor,
+                                                        fontSize: 10,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ],
                                       ),
                                     ),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                       decoration: BoxDecoration(
                                         color: mStatus == 'RUNNING' ? Colors.green.withOpacity(0.15) : Colors.red.withOpacity(0.15),
                                         borderRadius: BorderRadius.circular(12),
@@ -4612,14 +4945,52 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                         mStatus,
                                         style: GoogleFonts.spaceGrotesk(
                                           color: mStatus == 'RUNNING' ? _green : _error,
-                                          fontSize: 11,
+                                          fontSize: 12,
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 20),
+                                if (!isNormal) ...[
+                                  const SizedBox(height: 20),
+                                  Container(
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: aiColor.withOpacity(0.08),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: aiColor.withOpacity(0.2)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(isDanger ? Icons.warning_rounded : Icons.info_outline, color: aiColor, size: 24),
+                                        const SizedBox(width: 16),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                isDanger ? 'DANGER DÉTECTÉ' : 'AVERTISSEMENT IA',
+                                                style: GoogleFonts.spaceGrotesk(
+                                                  color: aiColor,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.bold,
+                                                  letterSpacing: 1.0,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                aiNotification,
+                                                style: GoogleFonts.inter(color: Colors.white.withOpacity(0.9), fontSize: 13, height: 1.4),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 24),
                                 const Divider(color: Colors.white10),
                                 const SizedBox(height: 16),
                                 LayoutBuilder(
@@ -4757,6 +5128,341 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                       );
                                     }
                                   },
+                                ),
+                                const SizedBox(height: 20),
+                                if (m['_telemetry'] != null && m['_telemetry'] is Map || _liveTelemetryByMachineId.containsKey(mId)) ...[
+                                  Builder(
+                                    builder: (context) {
+                                      // Prefer live-polled telemetry (refreshed every 1s); fall back to the
+                                      // snapshot loaded at initial page build.
+                                      final _liveData = _liveTelemetryByMachineId[mId];
+                                      final telemetry = (_liveData != null
+                                          ? _liveData
+                                          : m['_telemetry'] is Map
+                                              ? m['_telemetry'] as Map<String, dynamic>
+                                              : <String, dynamic>{}) as Map;
+
+                                      // ── Helper parse ─────────────────────────────────────
+                                      double? parseVal(dynamic v) {
+                                        if (v == null) return null;
+                                        if (v is num) return v.toDouble();
+                                        return double.tryParse(v.toString());
+                                      }
+
+                                      // ── Température thresholds ────────────────────────────
+                                      final tempVal = parseVal(telemetry['temperature'] ?? telemetry['temp']);
+                                      late Color tempColor;
+                                      late double tempRisk;
+                                      late String tempState;
+                                      if (tempVal == null) {
+                                        tempColor = Colors.grey;
+                                        tempRisk = 0;
+                                        tempState = '--';
+                                      } else if (tempVal < 55) {
+                                        tempColor = const Color(0xFF4CAF50);
+                                        tempRisk = (tempVal / 55.0 * 40.0).clamp(0, 40);
+                                        tempState = 'NORMAL';
+                                      } else if (tempVal <= 75) {
+                                        tempColor = const Color(0xFFFF9800);
+                                        tempRisk = 40 + ((tempVal - 55) / 20.0 * 30.0);
+                                        tempState = 'RISQUE';
+                                      } else {
+                                        tempColor = const Color(0xFFF44336);
+                                        tempRisk = (70 + ((tempVal - 75) / 25.0 * 30.0)).clamp(70, 100);
+                                        tempState = 'DANGER';
+                                      }
+
+                                      // ── Vibration thresholds ──────────────────────────────
+                                      final vibVal = parseVal(telemetry['vibration']);
+                                      late Color vibColor;
+                                      late double vibRisk;
+                                      late String vibState;
+                                      if (vibVal == null) {
+                                        vibColor = Colors.grey;
+                                        vibRisk = 0;
+                                        vibState = '--';
+                                      } else if (vibVal < 7) {
+                                        vibColor = const Color(0xFF4CAF50);
+                                        vibRisk = (vibVal / 7.0 * 40.0).clamp(0, 40);
+                                        vibState = 'NORMAL';
+                                      } else if (vibVal <= 12) {
+                                        vibColor = const Color(0xFFFF9800);
+                                        vibRisk = 40 + ((vibVal - 7) / 5.0 * 30.0);
+                                        vibState = 'RISQUE';
+                                      } else {
+                                        vibColor = const Color(0xFFF44336);
+                                        vibRisk = (70 + ((vibVal - 12) / 8.0 * 30.0)).clamp(70, 100);
+                                        vibState = 'DANGER';
+                                      }
+
+                                      // ── Other sensors (no threshold logic) ───────────────
+                                      final rpmVal   = parseVal(telemetry['rpm']);
+                                      final pressVal = parseVal(telemetry['pressure'] ?? telemetry['pression']);
+
+                                      // ── Overall state (worst of temp / vib) ──────────────
+                                      final overallRisk  = tempRisk > vibRisk ? tempRisk : vibRisk;
+                                      final Color overallColor = overallRisk >= 70
+                                          ? const Color(0xFFF44336)
+                                          : overallRisk >= 40
+                                              ? const Color(0xFFFF9800)
+                                              : const Color(0xFF4CAF50);
+                                      final String overallState = overallRisk >= 70
+                                          ? 'DANGER'
+                                          : overallRisk >= 40
+                                              ? 'RISQUE'
+                                              : 'NORMAL';
+
+                                      // ── Sensor tile builder ───────────────────────────────
+                                      Widget buildSensorTile({
+                                        required IconData icon,
+                                        required String label,
+                                        required String value,
+                                        required String unit,
+                                        required Color color,
+                                        double? riskPercent,
+                                        String? stateLabel,
+                                      }) {
+                                        return Container(
+                                          width: 138,
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                            color: color.withValues(alpha: 0.07),
+                                            borderRadius: BorderRadius.circular(10),
+                                            border: Border.all(color: color.withValues(alpha: 0.3), width: 1.5),
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Container(
+                                                    padding: const EdgeInsets.all(5),
+                                                    decoration: BoxDecoration(
+                                                      color: color.withValues(alpha: 0.18),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                    ),
+                                                    child: Icon(icon, size: 13, color: color),
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  Expanded(
+                                                    child: Text(
+                                                      label,
+                                                      style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 10, fontWeight: FontWeight.w600),
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Row(
+                                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                                textBaseline: TextBaseline.alphabetic,
+                                                children: [
+                                                  Text(value, style: GoogleFonts.spaceGrotesk(color: color, fontSize: 18, fontWeight: FontWeight.bold)),
+                                                  const SizedBox(width: 3),
+                                                  Text(unit, style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 9)),
+                                                ],
+                                              ),
+                                              if (riskPercent != null) ...[
+                                                const SizedBox(height: 6),
+                                                ClipRRect(
+                                                  borderRadius: BorderRadius.circular(4),
+                                                  child: LinearProgressIndicator(
+                                                    value: riskPercent / 100.0,
+                                                    backgroundColor: Colors.white.withValues(alpha: 0.06),
+                                                    valueColor: AlwaysStoppedAnimation<Color>(color),
+                                                    minHeight: 3,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Row(
+                                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                  children: [
+                                                    if (stateLabel != null)
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                                        decoration: BoxDecoration(
+                                                          color: color.withValues(alpha: 0.15),
+                                                          borderRadius: BorderRadius.circular(4),
+                                                        ),
+                                                        child: Text(stateLabel, style: GoogleFonts.inter(color: color, fontSize: 8, fontWeight: FontWeight.bold)),
+                                                      ),
+                                                    Text('${riskPercent.toStringAsFixed(0)}%', style: GoogleFonts.spaceGrotesk(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+                                                  ],
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        );
+                                      }
+
+                                      return Container(
+                                        padding: const EdgeInsets.all(16),
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                            colors: [_surfaceContainer, overallColor.withValues(alpha: 0.06)],
+                                          ),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: overallColor.withValues(alpha: 0.25), width: 1.5),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            // ── Header ─────────────────────────────────────
+                                            Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Text(
+                                                  'DERNIÈRES VALEURS CAPTEURS',
+                                                  style: GoogleFonts.spaceGrotesk(
+                                                    color: _onSurfaceVariant,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.bold,
+                                                    letterSpacing: 1.0,
+                                                  ),
+                                                ),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: overallColor.withValues(alpha: 0.15),
+                                                    borderRadius: BorderRadius.circular(20),
+                                                    border: Border.all(color: overallColor.withValues(alpha: 0.45)),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      Container(
+                                                        width: 6,
+                                                        height: 6,
+                                                        decoration: BoxDecoration(color: overallColor, shape: BoxShape.circle),
+                                                      ),
+                                                      const SizedBox(width: 5),
+                                                      Text(
+                                                        overallState,
+                                                        style: GoogleFonts.spaceGrotesk(
+                                                          color: overallColor,
+                                                          fontSize: 10,
+                                                          fontWeight: FontWeight.bold,
+                                                          letterSpacing: 0.8,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 14),
+                                            // ── Sensor tiles ───────────────────────────────
+                                            Wrap(
+                                              spacing: 10,
+                                              runSpacing: 10,
+                                              children: [
+                                                buildSensorTile(
+                                                  icon: Icons.thermostat_outlined,
+                                                  label: 'Température',
+                                                  value: tempVal != null ? tempVal.toStringAsFixed(1) : '--',
+                                                  unit: '°C',
+                                                  color: tempColor,
+                                                  riskPercent: tempRisk,
+                                                  stateLabel: tempState,
+                                                ),
+                                                buildSensorTile(
+                                                  icon: Icons.vibration,
+                                                  label: 'Vibration',
+                                                  value: vibVal != null ? vibVal.toStringAsFixed(1) : '--',
+                                                  unit: 'mm/s',
+                                                  color: vibColor,
+                                                  riskPercent: vibRisk,
+                                                  stateLabel: vibState,
+                                                ),
+                                                buildSensorTile(
+                                                  icon: Icons.speed,
+                                                  label: 'Vitesse',
+                                                  value: rpmVal != null ? rpmVal.toStringAsFixed(0) : '--',
+                                                  unit: 'tr/min',
+                                                  color: const Color(0xFFB39DDB),
+                                                ),
+                                                buildSensorTile(
+                                                  icon: Icons.compress,
+                                                  label: 'Pression',
+                                                  value: pressVal != null ? pressVal.toStringAsFixed(1) : '--',
+                                                  unit: 'bar',
+                                                  color: const Color(0xFF4DD0E1),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 14),
+                                            // ── Global risk bar ─────────────────────────────
+                                            Row(
+                                              children: [
+                                                Text('Risque global :', style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 10)),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: ClipRRect(
+                                                    borderRadius: BorderRadius.circular(4),
+                                                    child: LinearProgressIndicator(
+                                                      value: overallRisk / 100.0,
+                                                      backgroundColor: Colors.white.withValues(alpha: 0.06),
+                                                      valueColor: AlwaysStoppedAnimation<Color>(overallColor),
+                                                      minHeight: 5,
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  '${overallRisk.toStringAsFixed(0)}%',
+                                                  style: GoogleFonts.spaceGrotesk(color: overallColor, fontSize: 11, fontWeight: FontWeight.bold),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(height: 20),
+                                ],
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: ElevatedButton.icon(
+                                    onPressed: () {
+                                      if (mId.isEmpty) return;
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => MachineDetailAiPage(
+                                            machineId: mId,
+                                            machineName: mName,
+                                            clientId: clientId,
+                                            viewerRole: 'technician',
+                                            viewerName: _chatSenderName,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.analytics_outlined, size: 18, color: Colors.black87),
+                                    label: Text(
+                                      'AFFICHER LES DÉTAILS',
+                                      style: GoogleFonts.spaceGrotesk(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                        letterSpacing: 1.0,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _secondary,
+                                      foregroundColor: Colors.black87,
+                                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      elevation: 4,
+                                      shadowColor: _secondary.withOpacity(0.35),
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),

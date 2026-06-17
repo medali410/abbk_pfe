@@ -1,0 +1,22 @@
+// Ajouter dans ton schema.prisma existant
+
+model Prediction {
+  id               Int      @id @default(autoincrement())
+  machineId        String
+  riskScore        Float
+  riskPercentage   Int
+  status           String   // "Normal" | "Warning" | "Critical"
+  needsMaintenance Boolean  @default(false)
+  message          String?
+  anomalies        String[] @default([])
+  timestamp        DateTime @default(now())
+
+  machine          Machine  @relation(fields: [machineId], references: [id])
+
+  @@index([machineId])
+  @@index([timestamp])
+  @@index([status])
+}
+
+// Dans le model Machine existant, ajouter :
+// predictions  Prediction[]

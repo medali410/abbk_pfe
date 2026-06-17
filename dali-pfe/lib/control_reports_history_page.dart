@@ -198,17 +198,8 @@ class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage> {
 
     return Scaffold(
       backgroundColor: _bg,
-      appBar: AppBar(
+      appBar: widget.onClose != null ? null : AppBar(
         backgroundColor: _surfaceHeader,
-        automaticallyImplyLeading: widget.onClose == null,
-        leading:
-            widget.onClose != null
-                ? IconButton(
-                  tooltip: 'Fermer',
-                  icon: const Icon(Icons.close),
-                  onPressed: widget.onClose,
-                )
-                : null,
         title: Text(
           _historyMode == 'reports' ? 'Historique des rapports' : 'Historique des contrôles',
           style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
@@ -237,64 +228,117 @@ class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage> {
                   child: ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
-                      Text(
-                        'TECHNICIEN ${_technicianName.toUpperCase()}',
-                        style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 18),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _historyMode == 'reports'
-                            ? 'Rapports avec compte-rendu : ${_reports.length}'
-                            : 'Contrôles terminés (base de données) : ${_reports.length}',
-                        style: GoogleFonts.inter(color: _muted),
-                      ),
-                      const SizedBox(height: 14),
                       Container(
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: _surfaceHeader,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            const CircleAvatar(
+                              backgroundColor: _accent,
+                              child: Icon(Icons.person, color: Colors.white),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'TECHNICIEN',
+                                    style: GoogleFonts.inter(color: _muted, fontSize: 10, letterSpacing: 1.2),
+                                  ),
+                                  Text(
+                                    _technicianName.toUpperCase(),
+                                    style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: _accent.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: _accent.withOpacity(0.5)),
+                              ),
+                              child: Text(
+                                _historyMode == 'reports'
+                                    ? '${_reports.length} rapports'
+                                    : '${_reports.length} contrôles',
+                                style: GoogleFonts.inter(color: _accent, fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Container(
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           color: _surface,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.white.withOpacity(0.08)),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: _accent.withOpacity(0.3), width: 1.5),
+                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4))],
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Filtres', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w700)),
-                            const SizedBox(height: 10),
-                            DropdownButtonFormField<String>(
-                              value: machines.contains(_machineFilter) ? _machineFilter : 'Toutes',
-                              items: machines.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
-                              onChanged: (v) => setState(() => _machineFilter = v ?? 'Toutes'),
-                              decoration: const InputDecoration(labelText: 'Machine', border: OutlineInputBorder()),
+                            Row(
+                              children: [
+                                const Icon(Icons.tune, color: _accent, size: 20),
+                                const SizedBox(width: 8),
+                                Text('Filtres de recherche', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
+                              ],
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 16),
+                            Container(
+                              decoration: BoxDecoration(color: const Color(0xFF272743), borderRadius: BorderRadius.circular(8)),
+                              child: DropdownButtonFormField<String>(
+                                value: machines.contains(_machineFilter) ? _machineFilter : 'Toutes',
+                                dropdownColor: const Color(0xFF272743),
+                                items: machines.map((m) => DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(color: Colors.white)))).toList(),
+                                onChanged: (v) => setState(() => _machineFilter = v ?? 'Toutes'),
+                                decoration: InputDecoration(labelText: 'Machine', labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)), border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
                             Row(
                               children: [
                                 Expanded(
-                                  child: DropdownButtonFormField<_ReportStatusFilter>(
-                                    value: _statusFilter,
-                                    items: _ReportStatusFilter.values
-                                        .map((s) => DropdownMenuItem(value: s, child: Text(_statusLabel(s))))
-                                        .toList(),
-                                    onChanged: (v) => setState(() => _statusFilter = v ?? _ReportStatusFilter.all),
-                                    decoration: const InputDecoration(labelText: 'Statut', border: OutlineInputBorder()),
+                                  child: Container(
+                                    decoration: BoxDecoration(color: const Color(0xFF272743), borderRadius: BorderRadius.circular(8)),
+                                    child: DropdownButtonFormField<_ReportStatusFilter>(
+                                      value: _statusFilter,
+                                      dropdownColor: const Color(0xFF272743),
+                                      items: _ReportStatusFilter.values
+                                          .map((s) => DropdownMenuItem(value: s, child: Text(_statusLabel(s), style: const TextStyle(color: Colors.white))))
+                                          .toList(),
+                                      onChanged: (v) => setState(() => _statusFilter = v ?? _ReportStatusFilter.all),
+                                      decoration: InputDecoration(labelText: 'Statut', labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)), border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)),
+                                    ),
                                   ),
                                 ),
-                                const SizedBox(width: 10),
+                                const SizedBox(width: 12),
                                 Expanded(
-                                  child: DropdownButtonFormField<DateTime?>(
-                                    value: _selectedWeekStart,
-                                    items: [
-                                      const DropdownMenuItem<DateTime?>(value: null, child: Text('Toutes semaines')),
-                                      ...weeks.map(
-                                        (w) => DropdownMenuItem<DateTime?>(
-                                          value: w,
-                                          child: Text('Semaine ${_displayDate(w)}'),
+                                  child: Container(
+                                    decoration: BoxDecoration(color: const Color(0xFF272743), borderRadius: BorderRadius.circular(8)),
+                                    child: DropdownButtonFormField<DateTime?>(
+                                      value: _selectedWeekStart,
+                                      dropdownColor: const Color(0xFF272743),
+                                      items: [
+                                        const DropdownMenuItem<DateTime?>(value: null, child: Text('Toutes semaines', style: TextStyle(color: Colors.white))),
+                                        ...weeks.map(
+                                          (w) => DropdownMenuItem<DateTime?>(
+                                            value: w,
+                                            child: Text('Semaine ${_displayDate(w)}', style: const TextStyle(color: Colors.white)),
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                    onChanged: (v) => setState(() => _selectedWeekStart = v),
-                                    decoration: const InputDecoration(labelText: 'Semaine', border: OutlineInputBorder()),
+                                      ],
+                                      onChanged: (v) => setState(() => _selectedWeekStart = v),
+                                      decoration: InputDecoration(labelText: 'Semaine', labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)), border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)),
+                                    ),
                                   ),
                                 ),
                               ],
@@ -305,9 +349,17 @@ class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage> {
                       const SizedBox(height: 14),
                       if (filtered.isEmpty)
                         Padding(
-                          padding: const EdgeInsets.only(top: 16),
+                          padding: const EdgeInsets.only(top: 40),
                           child: Center(
-                            child: Text('Aucun rapport trouvé avec ces filtres.', style: GoogleFonts.inter(color: _muted)),
+                            child: Column(
+                              children: [
+                                Icon(Icons.history_toggle_off, size: 64, color: _muted.withOpacity(0.5)),
+                                const SizedBox(height: 16),
+                                Text('Aucun rapport trouvé', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 8),
+                                Text('Essayez de modifier vos filtres de recherche.', style: GoogleFonts.inter(color: _muted)),
+                              ],
+                            ),
                           ),
                         )
                       else

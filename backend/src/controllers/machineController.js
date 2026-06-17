@@ -100,35 +100,50 @@ async function start(req, res) {
     }
 }
 
+const { prisma } = require('../lib/prisma');
 const mqtt = require('../lib/mqtt');
 
 async function saveConfigAndPublish(req, res) {
     try {
         const { machineId } = req.params;
-        const { ssid, password } = req.body;
+        const { ssid, password, newMachineId } = req.body;
 
         if (!ssid || !password) {
             return res.status(400).json({ error: 'SSID et mot de passe WiFi obligatoires' });
         }
 
-        // 1. Sauvegarde en DB
-        const row = await MachineModel.update(machineId, {
-            wifiSsid: ssid,
-            wifiPassword: password
-        });
-
-        // 2. Publication MQTT
+        // 1. Publication MQTT (sur l'ancien topic pour que l'ESP32 reçoive la config)
         const topic = `machines/${machineId}/config`;
         const payload = {
             ssid,
             password,
-            machineId
+            machineId: newMachineId || machineId
         };
         mqtt.publish(topic, payload);
 
+        // 2. Sauvegarde en DB
+        let row;
+        if (newMachineId && newMachineId !== machineId) {
+            // Mettre à jour l'ID (clé primaire) et les infos WiFi dans la DB
+            row = await prisma.machine.update({
+                where: { id: String(machineId) },
+                data: {
+                    id: String(newMachineId),
+                    wifiSsid: ssid,
+                    wifiPassword: password
+                }
+            });
+            console.log(`🆔 ID de la machine mis à jour en DB de ${machineId} à ${newMachineId}`);
+        } else {
+            row = await MachineModel.update(machineId, {
+                wifiSsid: ssid,
+                wifiPassword: password
+            });
+        }
+
         return res.json({
             success: true,
-            message: 'WiFi configuré et publié sur MQTT avec succès',
+            message: 'WiFi et ID configurés et publiés sur MQTT avec succès',
             machine: serializeMachine(row)
         });
     } catch (err) {

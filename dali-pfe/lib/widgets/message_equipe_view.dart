@@ -358,11 +358,40 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
         _conversations = await ApiService.getConceptionConversations();
       } else {
         if (_technicianId.isNotEmpty) {
-          _conversations = await ApiService.getTechnicianConversations(_technicianId);
+          final allConvs = await ApiService.getTechnicianConversations(_technicianId);
+          _conversations = allConvs.where((c) {
+            final roomId = (c['roomId'] ?? '').toString();
+            if (_technicianId.isNotEmpty && !roomId.contains(_technicianId)) return false;
+            return true;
+          }).toList();
         }
       }
-      // Ne pas auto-sélectionner — l'utilisateur doit cliquer sur une conversation
-      if (!isConcepteur && mounted) setState(() {});
+      
+      // Load last message and resolve names for ALL roles
+      for (final conv in _conversations) {
+        final roomName = (conv['name'] ?? conv['roomId'] ?? '').toString();
+        // If name is raw roomId, try to make it prettier
+        if (roomName.startsWith('chat_')) {
+          final parts = roomName.split('_');
+          if (parts.length >= 3) {
+            // chat_maintenance_1_TEC -> Admin 1, etc.
+            conv['name'] = 'Contact ${parts[2]}';
+          }
+        }
+        
+        try {
+          final messages = await ApiService.getChatMessages(conv['roomId'], limit: 1);
+          if (messages.isNotEmpty) {
+            conv['lastText'] = messages.first['text'] ?? '';
+            conv['lastAt'] = messages.first['createdAt'] ?? '';
+            conv['senderName'] = messages.first['senderName'] ?? '';
+          } else {
+            conv['lastText'] = 'Aucun message';
+          }
+        } catch (_) {}
+      }
+
+      if (mounted) setState(() {});
     } catch (_) {}
   }
 

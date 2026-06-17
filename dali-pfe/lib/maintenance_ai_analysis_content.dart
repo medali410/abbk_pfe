@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'ai_analysis_page.dart';
+import 'maintenance_ai_chat_page.dart';
 import 'maintenance_ia_status.dart';
 import 'maintenance_telemetry_mini_charts.dart';
 
@@ -56,6 +57,40 @@ class MaintenanceAiAnalysisContent extends StatelessWidget {
                   ),
                 ),
               ),
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => Scaffold(
+                        backgroundColor: const Color(0xFF0D0D1F),
+                        appBar: AppBar(
+                          backgroundColor: const Color(0xFF1A1A2E),
+                          title: Text(
+                            'Assistant IA',
+                            style: GoogleFonts.spaceGrotesk(
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFFE2DFFF),
+                            ),
+                          ),
+                          iconTheme: const IconThemeData(color: Color(0xFFE2DFFF)),
+                        ),
+                        body: MaintenanceAiChatPage(data: data),
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18, color: Color(0xFFB388FF)),
+                label: Text(
+                  'Chat IA',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFFB388FF),
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
               TextButton.icon(
                 onPressed: onWorkspaceReload,
                 icon: const Icon(Icons.refresh_rounded, size: 18, color: _accent),

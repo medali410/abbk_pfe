@@ -1,5 +1,10 @@
+// ================================================================
+// ABBK Backend — src/lib/mqtt.js
+// ================================================================
+
 const mqtt = require('mqtt');
 const telemetryController = require('../controllers/telemetryController');
+const { predictMachineRisk, handleAIPrediction } = require('./aiPredictionService');
 
 let client = null;
 
@@ -11,10 +16,9 @@ function initMqtt(io) {
 
     client.on('connect', () => {
         console.log('✅ Connecté au broker MQTT');
-        // S'abonne aux télémétries de toutes les machines
         client.subscribe('machines/+/telemetry', (err) => {
             if (err) {
-                console.error('❌ Erreur d\'abonnement au topic MQTT:', err);
+                console.error('❌ Erreur abonnement MQTT:', err);
             } else {
                 console.log('📡 Abonné au topic : machines/+/telemetry');
             }
@@ -28,27 +32,39 @@ function initMqtt(io) {
 
             const data = JSON.parse(payloadStr);
 
-            // Extraire le machineId depuis le topic si absent du JSON
-            // Le topic est "machines/{machineId}/telemetry"
             const topicParts = topic.split('/');
             if (topicParts.length >= 2 && !data.machineId) {
                 data.machineId = topicParts[1];
             }
 
-            // Sauvegarde en base de données
+            // 1. Sauvegarder télémétrie
             await telemetryController.saveTelemetry(data);
 
-            // Diffusion temps réel via Socket.io
-            if (io) {
-                if (data.power === undefined && data.torque !== undefined && data.rpm !== undefined) {
-                    data.power = parseFloat(data.torque) * parseFloat(data.rpm);
-                }
-                io.emit('nouvelle_prediction', data);
-                console.log(`⚡ Télémétrie de la machine ${data.machineId} diffusée via Socket.io`);
+            // 2. Calcul puissance si absent
+            if (data.power === undefined && data.torque !== undefined && data.rpm !== undefined) {
+                data.power = parseFloat(data.torque) * parseFloat(data.rpm);
             }
 
+            // 3. Diffusion télémétrie brute Socket.IO
+            if (io) {
+                io.emit('nouvelle_prediction', data);
+                console.log(`⚡ Télémétrie machine ${data.machineId} diffusée`);
+            }
+
+            // 4. Appel service IA
+            const aiResult = await predictMachineRisk(data.machineId, data);
+            console.log(
+                `🤖 IA [${data.machineId}] → ` +
+                `${aiResult.type_panne} | ` +
+                `Risque: ${aiResult.risk_percentage}% | ` +
+                `Status: ${aiResult.status}`
+            );
+
+            // 5. Sauvegarde + alertes + Socket.IO
+            await handleAIPrediction(data.machineId, aiResult, io);
+
         } catch (err) {
-            console.error('❌ Erreur de traitement du message MQTT:', err.message);
+            console.error('❌ Erreur traitement message MQTT:', err.message);
         }
     });
 
@@ -57,7 +73,7 @@ function initMqtt(io) {
     });
 
     client.on('close', () => {
-        console.log('⚠️ Connexion au broker MQTT fermée');
+        console.log('⚠️ Connexion MQTT fermée');
     });
 
     return client;
@@ -65,19 +81,18 @@ function initMqtt(io) {
 
 function publish(topic, payload) {
     if (!client) {
-        console.error('❌ Impossible de publier : le client MQTT n\'est pas initialisé');
+        console.error('❌ Client MQTT non initialisé');
         return false;
     }
     const message = typeof payload === 'string' ? payload : JSON.stringify(payload);
     client.publish(topic, message, { qos: 1 }, (err) => {
         if (err) {
-            console.error(`❌ Erreur de publication sur ${topic}:`, err);
+            console.error(`❌ Erreur publication ${topic}:`, err);
         } else {
-            console.log(`📡 Message MQTT publié sur ${topic}`);
+            console.log(`📡 MQTT publié sur ${topic}`);
         }
     });
     return true;
 }
 
 module.exports = { initMqtt, publish };
-

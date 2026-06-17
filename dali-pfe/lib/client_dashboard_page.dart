@@ -15,12 +15,16 @@ import 'widgets/hero_looping_video_background.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'machine_detail_pro_page.dart';
+import 'widgets/telemetry_history_widget.dart';
 import 'dart:async';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
-// ─────────────────────────────────────────────────────────────
-// ClientDashboardPage — shown after a client logs in
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ClientDashboardPage â€” shown after a client logs in
 // Mirrors the HTML "Predictive Cloud - Liste des Machines" page
-// ─────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class ClientDashboardPage extends StatefulWidget {
   final String? clientName;
   final String? clientId;
@@ -41,7 +45,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     with SingleTickerProviderStateMixin {
   // Sidebar nav index: 0=Home, 1=Machines, 2=IA, 3=Team, 4=Docs
   int _navIndex = 0;
-  /// Machine choisie pour l’onglet Analyse IA (null = liste de sélection).
+  /// Machine choisie pour lâ€™onglet Analyse IA (null = liste de sÃ©lection).
   Map<String, dynamic>? _iaSelectedMachine;
   bool _iaNoMachinesAssigned = false;
   /// Machine choisie depuis Mes Machines.
@@ -75,9 +79,108 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   final Map<String, double> _realtimeVibrations = {};
   final Map<String, double> _realtimeFrictions = {};
   final Map<String, double> _realtimePressures = {};
+  final Map<String, double> _realtimeMagnetics = {};
+  final Map<String, double> _realtimeRisks = {};
   final Map<String, DateTime> _lastTelemetryTime = {};
   Timer? _controlTicker;
   Timer? _machinesAutoRefreshTimer;
+
+  final Map<String, String> _lastGlobalAlertMode = {};
+  final Set<String> _dangerDialogShownFor = {}; // afficher la fenêtre de panne une seule fois par machine
+
+  void _checkGlobalRisk(String mId, String mName, double temp, double vib, double mag, double iaRisk, Map<String, dynamic> machineData) {
+    String newMode = 'normal';
+    List<String> risques = [];
+    if (temp >= 75.0) {
+      newMode = 'danger';
+      risques.add("Chauffage critique (>= 75°C)");
+    } else if (temp >= 55.0) {
+      if (newMode == 'normal') newMode = 'risque';
+      risques.add("Surchauffe détectée (>= 55°C)");
+    }
+
+    if (vib >= 12.0) {
+      newMode = 'danger';
+      risques.add("Vibration critique (>= 12 mm/s)");
+    } else if (vib >= 7.0) {
+      if (newMode == 'normal') newMode = 'risque';
+      risques.add("Vibration anormale (>= 7 mm/s)");
+    }
+
+
+
+    if (iaRisk >= 70) {
+      newMode = 'danger';
+      risques.add("IA: Probabilité de panne critique");
+    } else if (iaRisk >= 40) {
+      if (newMode == 'normal') newMode = 'risque';
+      risques.add("IA: Anomalie détectée");
+    }
+
+    final lastMode = _lastGlobalAlertMode[mId] ?? 'normal';
+    if ((newMode == 'danger' || newMode == 'risque') && !_dangerDialogShownFor.contains(mId)) {
+      _dangerDialogShownFor.add(mId);
+      _lastGlobalAlertMode[mId] = newMode;
+      _showGlobalDangerDialog(mId, mName, newMode, risques.join("\n\u2022 "), machineData);
+    }
+  }
+
+  void _showGlobalDangerDialog(String mId, String mName, String mode, String typeRisque, Map<String, dynamic> machineData) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        final color = mode == 'danger' ? const Color(0xFFFFB4AB) : const Color(0xFFFF6E00);
+        final title = mode == 'danger' ? 'ALERTE DANGER' : 'ALERTE RISQUE';
+        return AlertDialog(
+          backgroundColor: const Color(0xFF272743),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: color, width: 2),
+          ),
+          title: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: color, size: 32),
+              const SizedBox(width: 10),
+              Text(title, style: GoogleFonts.spaceGrotesk(color: color, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Machine: ' + mName.toUpperCase(), 
+                style: GoogleFonts.inter(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              Text('Le système a détecté une anomalie :', 
+                style: GoogleFonts.inter(color: const Color(0xFFE2BFB0), fontSize: 13)),
+              const SizedBox(height: 8),
+              Text('• ' + typeRisque, 
+                style: GoogleFonts.inter(color: color, fontSize: 14, fontWeight: FontWeight.w600)),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('IGNORER', style: GoogleFonts.spaceGrotesk(color: const Color(0xFFE2BFB0))),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: color),
+              onPressed: () {
+                Navigator.of(context).pop();
+                setState(() {
+                  _navIndex = 2; // AI Analysis page
+                  _iaSelectedMachine = machineData;
+                });
+              },
+              child: Text('AFFICHER', style: GoogleFonts.spaceGrotesk(color: Colors.black, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      }
+    );
+  }
 
   // Public catalogue (same data as HomePage) shown inside the client dashboard (tab index=0).
   Future<List<Map<String, dynamic>>>? _publicCatalogFuture;
@@ -136,7 +239,38 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             .trim();
     if (cId.isNotEmpty) {
       setState(() {
-        _machinesFuture = ApiService.getMachinesForClient(cId);
+        _machinesFuture = ApiService.getMachinesForClient(cId).then((list) {
+          for (final m in list) {
+            final mId = (m['machineId'] ?? m['id'] ?? m['_id'] ?? '').toString();
+            final mName = (m['name'] ?? m['nom'] ?? 'Machine').toString();
+            if (mId.isNotEmpty) {
+              _socket.on('ai:$mId', (data) {
+                if (!mounted || data is! Map) return;
+                setState(() {
+                  _realtimeRisks[mId] = _toDouble(data['prob_panne'] ?? data['riskPercentage'], 0.0);
+                });
+                _checkGlobalRisk(mId, mName, _realtimeTemps[mId] ?? 0.0, _realtimeVibrations[mId] ?? 0.0, _realtimeMagnetics[mId] ?? 0.0, _realtimeRisks[mId] ?? 0.0, m);
+              });
+              
+              ApiService.getLatestTelemetry(mId).then((tel) {
+                if (tel != null && mounted) {
+                  setState(() {
+                    final rawMetrics = tel['metrics'];
+                    final metrics = rawMetrics is Map ? Map<String, dynamic>.from(rawMetrics) : null;
+                    _realtimeTemps[mId] = _toDouble(tel['temperature'] ?? tel['temp'] ?? metrics?['thermal'] ?? metrics?['temp'], 0.0);
+                    _realtimeVibrations[mId] = _toDouble(tel['vibration'] ?? metrics?['vibration'], 0.0);
+                    _realtimeFrictions[mId] = _toDouble(tel['friction'] ?? metrics?['friction'], 0.0);
+                    _realtimePressures[mId] = _toDouble(tel['pressure'] ?? tel['pression'] ?? metrics?['pressure'] ?? metrics?['pression'], 0.0);
+                    _realtimeMagnetics[mId] = _toDouble(tel['magnetic'] ?? tel['magnet'] ?? metrics?['magnetic'] ?? metrics?['magnet'], 0.0);
+                    _lastTelemetryTime[mId] = DateTime.tryParse((tel['createdAt'] ?? tel['timestamp'] ?? '').toString()) ?? DateTime.now();
+                  });
+                  _checkGlobalRisk(mId, mName, _realtimeTemps[mId] ?? 0.0, _realtimeVibrations[mId] ?? 0.0, _realtimeMagnetics[mId] ?? 0.0, _realtimeRisks[mId] ?? 0.0, m);
+                }
+              }).catchError((_) {});
+            }
+          }
+          return list;
+        });
         _techniciansFuture = Future.wait([
           ApiService.getTechniciansForClient(cId),
           ApiService.getMaintenanceAgentsForClient(cId)
@@ -233,7 +367,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     final qp = _readMergedWebQueryParams();
     if (qp['googleAuth'] == null) return;
     if (qp['googleAuth'] != '1') {
-      final msg = (qp['error'] ?? 'Connexion Google refusée').trim();
+      final msg = (qp['error'] ?? 'Connexion Google refusÃ©e').trim();
       if (!mounted) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -297,21 +431,29 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   }
 
   void _initSocket() {
-    debugPrint('🔌 ClientDashboard: Initialisation Socket.io');
+    debugPrint('ðŸ”Œ ClientDashboard: Initialisation Socket.io');
     _socket = IO.io(ApiService.socketBaseUrl, <String, dynamic>{
-      'transports': <String>['websocket'],
+      'transports': <String>['polling', 'websocket'],
       'autoConnect': true,
     });
 
-    _socket.onConnect((_) => debugPrint('✅ ClientDashboard: Connecté au serveur Socket.io'));
-    _socket.onDisconnect((_) => debugPrint('❌ ClientDashboard: Déconnecté du serveur'));
+    _socket.onConnect((_) {
+      debugPrint('âœ… ClientDashboard: ConnectÃ© au serveur Socket.io');
+      if (mounted) setState(() {});
+    });
+    _socket.onDisconnect((_) {
+      debugPrint('âŒ ClientDashboard: DÃ©connectÃ© du serveur');
+      if (mounted) setState(() {});
+    });
+    _socket.onConnectError((err) => debugPrint('âŒ ClientDashboard: Erreur de connexion Socket.io: $err'));
+    _socket.onError((err) => debugPrint('âŒ ClientDashboard: Erreur gÃ©nÃ©rale Socket.io: $err'));
 
     _socket.on('controle_notification', (data) {
       if (!mounted) return;
       setState(() {
         _clientNotifications.insert(0, {
-          'title': data['title']?.toString() ?? 'Nouveau Contrôle',
-          'body': data['body']?.toString() ?? 'Détails du contrôle non disponibles.',
+          'title': data['title']?.toString() ?? 'Nouveau ContrÃ´le',
+          'body': data['body']?.toString() ?? 'DÃ©tails du contrÃ´le non disponibles.',
         });
         if (_clientNotifications.length > 50) {
           _clientNotifications.removeLast();
@@ -320,7 +462,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(data['body']?.toString() ?? 'Nouveau contrôle enregistré.'),
+          content: Text(data['body']?.toString() ?? 'Nouveau contrÃ´le enregistrÃ©.'),
           backgroundColor: _primary,
           duration: const Duration(seconds: 4),
         ),
@@ -337,10 +479,10 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
 
         final rawMetrics = data['metrics'];
         final metrics = rawMetrics is Map ? Map<String, dynamic>.from(rawMetrics) : null;
-        final temp = _toDouble(data['temperature'] ?? metrics?['thermal'], 0.0);
-        final vibration = _toDouble(data['vibration'] ?? metrics?['vibration'], 0.0);
-        final friction = _toDouble(data['friction'] ?? metrics?['friction'], 0.0);
-        final pressure = _toDouble(data['pressure'] ?? metrics?['pressure'], 0.0);
+        final temp = _toDouble(data['temperature'] ?? data['temp'] ?? metrics?['thermal'] ?? metrics?['temp'], _realtimeTemps[mId] ?? 0.0);
+        final vibration = _toDouble(data['vibration'] ?? metrics?['vibration'], _realtimeVibrations[mId] ?? 0.0);
+        final friction = _toDouble(data['friction'] ?? metrics?['friction'], _realtimeFrictions[mId] ?? 0.0);
+        final pressure = _toDouble(data['pressure'] ?? data['pression'] ?? metrics?['pressure'] ?? metrics?['pression'], _realtimePressures[mId] ?? 0.0);
 
         setState(() {
           _realtimeTemps[mId] = temp;
@@ -378,7 +520,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       final accepted = data['accepted'] == true;
       final who = (data['responderName'] ?? 'Technicien').toString();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(accepted ? '$who a accepté l\'appel' : '$who a refusé l\'appel')),
+        SnackBar(content: Text(accepted ? '$who a acceptÃ© l\'appel' : '$who a refusÃ© l\'appel')),
       );
       if (accepted && _activeCallRoomId != null) {
         _createOffer(_activeCallRoomId!);
@@ -453,7 +595,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     });
   }
 
-  // ── Colour tokens (mirror Tailwind config) ──
+  // â”€â”€ Colour tokens (mirror Tailwind config) â”€â”€
   static const _bg = Color(0xFF0F0F1E);
   static const _surfaceContainerLowest = Color(0xFF0B0B1A);
   static const _surfaceContainerLow = Color(0xFF161626);
@@ -479,9 +621,9 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       backgroundColor: _bg,
       body: Row(
         children: [
-          // ── Sidebar ──
+          // â”€â”€ Sidebar â”€â”€
           if (isDesktop) _buildSidebar(),
-          // ── Main area ──
+          // â”€â”€ Main area â”€â”€
           Expanded(
             child: Column(
               children: [
@@ -542,7 +684,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           isDesktop: isDesktop,
           title: 'Documents techniques',
           subtitle:
-              "Choisissez une machine pour consulter sa fiche, l'historique télémétrique et les fiches associées.",
+              "Choisissez une machine pour consulter sa fiche, l'historique tÃ©lÃ©mÃ©trique et les fiches associÃ©es.",
           onPick: (m) => setState(() => _docSelectedMachine = m),
         );
       }
@@ -736,7 +878,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                           Icon(Icons.mail_outline_rounded, color: _onSurfaceVariant.withOpacity(0.7), size: 14),
                           const SizedBox(width: 6),
                           Text(
-                            _currentClientEmail.isEmpty ? 'Email non renseigné' : _currentClientEmail,
+                            _currentClientEmail.isEmpty ? 'Email non renseignÃ©' : _currentClientEmail,
                             style: GoogleFonts.inter(
                               fontSize: 13,
                               color: _onSurfaceVariant,
@@ -873,7 +1015,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               final machines = snapshot.data ?? const <Map<String, dynamic>>[];
               if (machines.isEmpty) {
                 return Text(
-                  'Aucune machine assignée à ce client.',
+                  'Aucune machine assignÃ©e Ã  ce client.',
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     color: _onSurfaceVariant,
@@ -885,23 +1027,23 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                   final name = _clientMachineName(m);
                   final id = _clientMachineId(m);
                   final status = (m['state'] ?? m['status'] ?? 'Actif').toString();
-                  final brand = (m['brand'] ?? m['marque'] ?? '—').toString();
-                  final model = (m['model'] ?? m['name'] ?? '—').toString();
-                  final type = (m['type'] ?? m['category'] ?? '—').toString();
-                  final location = (m['location'] ?? m['site'] ?? '—').toString();
-                  final serial = (m['serialNumber'] ?? m['serial'] ?? m['sn'] ?? '—')
+                  final brand = (m['brand'] ?? m['marque'] ?? 'â€”').toString();
+                  final model = (m['model'] ?? m['name'] ?? 'â€”').toString();
+                  final type = (m['type'] ?? m['category'] ?? 'â€”').toString();
+                  final location = (m['location'] ?? m['site'] ?? 'â€”').toString();
+                  final serial = (m['serialNumber'] ?? m['serial'] ?? m['sn'] ?? 'â€”')
                       .toString();
                   final maintBy =
-                      (m['maintenanceControlBy'] ?? m['maintainedBy'] ?? '—')
+                      (m['maintenanceControlBy'] ?? m['maintainedBy'] ?? 'â€”')
                           .toString();
                   final maintActive = m['maintenanceControlActive'] == true
                       ? 'Oui'
                       : 'Non';
-                  final temp = (m['temperature'] ?? m['temp'] ?? '—').toString();
+                  final temp = (m['temperature'] ?? m['temp'] ?? 'â€”').toString();
                   final vibration =
-                      (m['vibration'] ?? m['vibrationLevel'] ?? '—').toString();
+                      (m['vibration'] ?? m['vibrationLevel'] ?? 'â€”').toString();
                   final pressure =
-                      (m['pressure'] ?? m['pressureLevel'] ?? '—').toString();
+                      (m['pressure'] ?? m['pressureLevel'] ?? 'â€”').toString();
                   final imageUrl = (m['imageUrl'] ?? m['image'] ?? m['photo'] ?? '')
                       .toString()
                       .trim();
@@ -994,7 +1136,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                                   _miniInfo('Mainteneur', maintBy),
                                   _miniInfo('Temp', temp),
                                   _miniInfo('Vibration', vibration),
-                                  _miniInfo('Pression', pressure),
+                                  _miniInfo('Voltage', pressure != '—' ? '$pressure V' : '—'),
                                 ],
                               ),
                             ],
@@ -1029,7 +1171,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             ),
           ),
           TextSpan(
-            text: value.isEmpty ? '—' : value,
+            text: value.isEmpty ? 'â€”' : value,
             style: GoogleFonts.inter(
               fontSize: 10,
               color: _onSurface,
@@ -1075,7 +1217,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               final techs = snapshot.data ?? const <Map<String, dynamic>>[];
               if (techs.isEmpty) {
                 return Text(
-                  'Aucun technicien assigné à ce client.',
+                  'Aucun technicien assignÃ© Ã  ce client.',
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     color: _onSurfaceVariant,
@@ -1208,7 +1350,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       children: [
         _buildSubpageHeader(
           title: 'Mes Machines',
-          subtitle: '$name · $mid',
+          subtitle: '$name Â· $mid',
           onBack: () => setState(() => _machineSelectedMachine = null),
         ),
         const SizedBox(height: 20),
@@ -1250,7 +1392,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           return _buildNoMachineAssignedCard(
             title: 'Analyse IA indisponible',
             message:
-                "Aucune machine n'est assignée à votre client pour le moment. Contactez l'administrateur pour activer l'analyse IA.",
+                "Aucune machine n'est assignÃ©e Ã  votre client pour le moment. Contactez l'administrateur pour activer l'analyse IA.",
           );
         }
 
@@ -1277,108 +1419,17 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         );
 
         return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildSubpageHeader(
-                title: 'Analyse IA',
-                subtitle: '$mname · $mid',
-                onBack: () {},
-              ),
-              const SizedBox(height: 16),
-              if (isDesktop)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: _surfaceContainerLow.withOpacity(0.45),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white.withOpacity(0.08)),
-                      ),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: machines.map((m) {
-                          final id = _clientMachineId(m);
-                          final name = _clientMachineName(m);
-                          final active = id == mid;
-                          return ChoiceChip(
-                            label: Text(
-                              '$name · $id',
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                color: active ? _secondary : _onSurface,
-                                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                              ),
-                            ),
-                            selected: active,
-                            onSelected: (_) => setState(() => _iaSelectedMachine = m),
-                            selectedColor: _primaryContainer.withOpacity(0.15),
-                            backgroundColor: _surfaceContainerHighest.withOpacity(0.25),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              side: BorderSide(
-                                color: active
-                                    ? _primaryContainer.withOpacity(0.8)
-                                    : Colors.white.withOpacity(0.10),
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    iaPanel,
-                  ],
-                )
-              else ...[
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: _surfaceContainerLow,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: _outlineVariant.withOpacity(0.2)),
-                  ),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: machines.map((m) {
-                      final id = _clientMachineId(m);
-                      final name = _clientMachineName(m);
-                      final active = id == mid;
-                      return ChoiceChip(
-                        label: Text(
-                          '$name · $id',
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            color: active ? _secondary : _onSurface,
-                            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                          ),
-                        ),
-                        selected: active,
-                        onSelected: (_) => setState(() => _iaSelectedMachine = m),
-                        selectedColor: _secondary.withOpacity(0.18),
-                        backgroundColor: _surfaceContainerHighest.withOpacity(0.3),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          side: BorderSide(
-                            color: active
-                                ? _secondary.withOpacity(0.8)
-                                : Colors.white.withOpacity(0.08),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                iaPanel,
-              ],
-            ],
-          );
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSubpageHeader(
+              title: 'Analyse IA',
+              subtitle: '$mname • $mid',
+              onBack: () {},
+            ),
+            const SizedBox(height: 16),
+            iaPanel,
+          ],
+        );
       },
     );
   }
@@ -1582,7 +1633,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     if (catalogFilterValueIsActive(_publicCatalogBrandFilter)) {
       parts.add(_publicCatalogBrandFilter!);
     }
-    return parts.join(' · ');
+    return parts.join(' Â· ');
   }
 
   void _togglePublicCatalogFilterPanel() {
@@ -2209,7 +2260,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       children: [
         _buildSubpageHeader(
           title: title,
-          subtitle: '$name · $mid',
+          subtitle: '$name Â· $mid',
           onBack: onBack,
         ),
         const SizedBox(height: 24),
@@ -2225,7 +2276,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Fiche équipement',
+                'Fiche Ã©quipement',
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 11,
                   fontWeight: FontWeight.w800,
@@ -2236,127 +2287,147 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               const SizedBox(height: 12),
               _docInfoRow('Identifiant', mid),
               _docInfoRow('Nom', name),
-              _docInfoRow('Type moteur', (m['motorType'] ?? '—').toString()),
-              _docInfoRow('Statut', (m['status'] ?? '—').toString()),
-              _docInfoRow('Emplacement', (m['location'] ?? '—').toString()),
-              _docInfoRow('Puissance', (m['power'] ?? '—').toString()),
-              _docInfoRow('Tension', (m['voltage'] ?? '—').toString()),
-              _docInfoRow('Vitesse', (m['speed'] ?? '—').toString()),
-              _docInfoRow('Installation', (m['installDate'] ?? '—').toString()),
+              _docInfoRow('Type moteur', (m['motorType'] ?? 'â€”').toString()),
+              _docInfoRow('Statut', (m['status'] ?? 'â€”').toString()),
+              _docInfoRow('Emplacement', (m['location'] ?? 'â€”').toString()),
+              _docInfoRow('Puissance', (m['power'] ?? 'â€”').toString()),
+              _docInfoRow('Tension', (m['voltage'] ?? 'â€”').toString()),
+              _docInfoRow('Vitesse', (m['speed'] ?? 'â€”').toString()),
+              _docInfoRow('Installation', (m['installDate'] ?? 'â€”').toString()),
             ],
           ),
         ),
         const SizedBox(height: 28),
-        Text(
-          'Historique télémétrie (MongoDB)',
-          style: GoogleFonts.inter(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: _onSurface,
-          ),
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _secondary.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.history_rounded, color: _secondary, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Historique de Telemetrie',
+                  style: GoogleFonts.inter(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: _onSurface,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                Text(
+                  'Derniers releves de capteurs enregistres pour cette machine.',
+                  style: GoogleFonts.inter(fontSize: 13, color: _onSurfaceVariant),
+                ),
+              ],
+            ),
+          ],
         ),
-        const SizedBox(height: 8),
-        Text(
-          'Derniers enregistrements pour cette machine (température, vibrations, etc.).',
-          style: GoogleFonts.inter(fontSize: 12, color: _onSurfaceVariant),
+        const SizedBox(height: 20),
+        TelemetryHistoryWidget(machineId: mid),
+        const SizedBox(height: 28),
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _secondary.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.picture_as_pdf_rounded, color: _secondary, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Rapport Machine',
+                  style: GoogleFonts.inter(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: _onSurface,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                Text(
+                  'Fiche technique PDF avec toutes les informations.',
+                  style: GoogleFonts.inter(fontSize: 13, color: _onSurfaceVariant),
+                ),
+              ],
+            ),
+          ],
         ),
         const SizedBox(height: 16),
-        FutureBuilder<List<Map<String, dynamic>>>(
-          future: ApiService.getTelemetryHistory(mid, limit: 30),
-          builder: (context, snap) {
-            if (snap.connectionState == ConnectionState.waiting) {
-              return const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              );
-            }
-            if (snap.hasError) {
-              return Text(
-                'Historique indisponible : ${snap.error}',
-                style: GoogleFonts.inter(color: _onSurfaceVariant),
-              );
-            }
-            final rows = snap.data ?? [];
-            if (rows.isEmpty) {
-              return Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: _surfaceContainer.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  'Aucune télémétrie enregistrée pour cette machine.',
-                  style: GoogleFonts.inter(color: _onSurfaceVariant),
-                ),
-              );
-            }
-            return Container(
+        Material(
+          color: _surfaceContainerHigh.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => _generateMachinePDF(m, mid, name),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
               decoration: BoxDecoration(
-                color: _surfaceContainer,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white10),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: _outlineVariant.withOpacity(0.15)),
               ),
-              child: ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: rows.length,
-                separatorBuilder: (_, __) =>
-                    const Divider(height: 1, color: Colors.white10),
-                itemBuilder: (context, i) {
-                  final r = rows[i];
-                  final ts = (r['createdAt'] ?? r['updatedAt'] ?? '').toString();
-                  final temp = (r['temperature'] ?? '—').toString();
-                  final vib = (r['vibration'] ?? '—').toString();
-                  final pow = (r['powerConsumption'] ?? '—').toString();
-                  return ListTile(
-                    dense: true,
-                    title: Text(
-                      ts,
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFE55A00), Color(0xFFFF8A3D)],
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.download_rounded, color: Colors.white, size: 22),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Fiche technique - $name',
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                            color: _onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Nom machine, equipe, etat, semaine, temps de travail, client',
+                          style: GoogleFonts.inter(fontSize: 12, color: _onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _secondary.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'PDF',
                       style: GoogleFonts.spaceGrotesk(
-                        fontSize: 11,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
                         color: _secondary,
                       ),
                     ),
-                    subtitle: Text(
-                      'T° $temp  ·  Vib $vib  ·  P $pow',
-                      style: GoogleFonts.inter(fontSize: 12, color: _onSurface),
-                    ),
-                  );
-                },
+                  ),
+                ],
               ),
-            );
-          },
-        ),
-        const SizedBox(height: 28),
-        Text(
-          'Fichiers & rapports (démonstration)',
-          style: GoogleFonts.inter(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: _onSurface,
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Liens fictifs — à remplacer par de vrais PDF lorsque le serveur les exposera.',
-          style: GoogleFonts.inter(fontSize: 12, color: _onSurfaceVariant),
-        ),
-        const SizedBox(height: 12),
-        _docFileRow(
-          'Fiche identité équipement — $name',
-          'PDF · Synthèse technique et repères',
-        ),
-        _docFileRow(
-          "Carnet d'entretien & historique interventions",
-          'PDF · Consignes et jalons de maintenance',
-        ),
-        _docFileRow(
-          'Schéma électrique / borne moteur',
-          'PDF · Repères câblage et capteurs',
-        ),
-        _docFileRow(
-          'Rapport vibratoire — baseline',
-          'PDF · Signature FFT référence',
         ),
         const SizedBox(height: 28),
         Text(
@@ -2386,7 +2457,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             final rows = snap.data ?? const <Map<String, dynamic>>[];
             if (rows.isEmpty) {
               return Text(
-                'Aucune panne terminée archivée pour cette machine.',
+                'Aucune panne terminÃ©e archivÃ©e pour cette machine.',
                 style: GoogleFonts.inter(color: _onSurfaceVariant),
               );
             }
@@ -2494,6 +2565,324 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
+  Widget _buildMiniMetric(String label, String val, IconData icon, Color color) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(height: 4),
+        Text(
+          val,
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: _onSurface,
+          ),
+        ),
+        Text(
+          label,
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 9,
+            color: _onSurfaceVariant,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _generateMachinePDF(Map<String, dynamic> machine, String machineId, String machineName) async {
+    final pdf = pw.Document();
+    final now = DateTime.now();
+    final weekNumber = ((now.difference(DateTime(now.year, 1, 1)).inDays) / 7).ceil();
+    final clientName = widget.clientName ?? widget.clientData?['name'] ?? widget.clientData?['clientName'] ?? 'Client';
+    final status = (machine['status'] ?? 'Inconnu').toString();
+    final motorType = (machine['motorType'] ?? '-').toString();
+    final location = (machine['location'] ?? '-').toString();
+    final power = (machine['power'] ?? '-').toString();
+    final voltage = (machine['voltage'] ?? '-').toString();
+    final speed = (machine['speed'] ?? '-').toString();
+    final installDate = (machine['installDate'] ?? '-').toString();
+
+    // Fetch assigned technicians
+    List<Map<String, dynamic>> techs = [];
+    try {
+      final cid = (widget.clientId ?? widget.clientData?['clientId'] ?? widget.clientData?['_id'] ?? '').toString();
+      if (cid.isNotEmpty) {
+        techs = await ApiService.getTechniciansForClient(cid);
+      }
+    } catch (_) {}
+
+    // Fetch pannes (archives)
+    List<Map<String, dynamic>> pannes = [];
+    try {
+      pannes = await ApiService.getInterventionArchives(machineId: machineId);
+    } catch (_) {}
+
+    // Fetch missions (diagnostic interventions)
+    List<Map<String, dynamic>> missions = [];
+    try {
+      final allMissions = await ApiService.getDiagnosticInterventions();
+      missions = allMissions.where((m) =>
+        (m['machineId'] ?? '').toString() == machineId
+      ).toList();
+    } catch (_) {}
+
+    // Fetch latest telemetry for AI message
+    String aiMessage = 'Aucune prediction IA disponible.';
+    String aiRisk = '-';
+    String aiPanneType = '-';
+    try {
+      final telemetry = await ApiService.getTelemetryHistory(machineId, limit: 1);
+      if (telemetry.isNotEmpty) {
+        final latest = telemetry.first;
+        final risk = (latest['prob_panne'] ?? latest['panne_probability'] ?? latest['scenarioProbPanne'] ?? 0);
+        final riskVal = double.tryParse(risk.toString()) ?? 0;
+        aiRisk = '${riskVal.toStringAsFixed(1)}%';
+        aiPanneType = (latest['panne_type'] ?? latest['scenarioLabel'] ?? '-').toString();
+        final niveau = (latest['niveau'] ?? 'Normal').toString();
+
+        if (riskVal < 20) {
+          aiMessage = 'La machine fonctionne normalement. Risque de panne tres faible ($aiRisk). Aucune intervention necessaire.';
+        } else if (riskVal < 50) {
+          aiMessage = 'Attention : risque modere de panne detecte ($aiRisk). Type potentiel : $aiPanneType. Surveillance recommandee.';
+        } else if (riskVal < 80) {
+          aiMessage = 'ALERTE : risque eleve de panne ($aiRisk). Type : $aiPanneType. Intervention preventive recommandee rapidement.';
+        } else {
+          aiMessage = 'CRITIQUE : risque tres eleve de panne ($aiRisk). Type : $aiPanneType. Arret et intervention immediate recommandes.';
+        }
+      }
+    } catch (_) {}
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(40),
+        header: (context) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('ABBK - Rapport Machine',
+                  style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold)),
+                pw.Text('Semaine $weekNumber - ${now.year}',
+                  style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey700)),
+              ],
+            ),
+            pw.SizedBox(height: 4),
+            pw.Text('Genere le ${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} a ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+              style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
+            pw.SizedBox(height: 8),
+            pw.Divider(thickness: 2, color: PdfColors.orange),
+            pw.SizedBox(height: 16),
+          ],
+        ),
+        build: (context) => [
+          // Client info
+          pw.Container(
+            padding: const pw.EdgeInsets.all(16),
+            decoration: pw.BoxDecoration(
+              color: PdfColors.orange50,
+              borderRadius: pw.BorderRadius.circular(8),
+            ),
+            child: pw.Row(
+              children: [
+                pw.Text('Client : ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14)),
+                pw.Text(clientName, style: const pw.TextStyle(fontSize: 14)),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 20),
+
+          // Machine info table
+          pw.Text('Informations Machine', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 10),
+          pw.Table.fromTextArray(
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 11),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.orange),
+            cellStyle: const pw.TextStyle(fontSize: 10),
+            cellPadding: const pw.EdgeInsets.all(8),
+            headers: ['Propriete', 'Valeur'],
+            data: [
+              ['Nom Machine', machineName],
+              ['Identifiant', machineId],
+              ['Etat', status],
+              ['Type Moteur', motorType],
+              ['Emplacement', location],
+              ['Puissance', power],
+              ['Tension', voltage],
+              ['Vitesse', speed],
+              ['Date Installation', installDate],
+              ['Semaine', 'S$weekNumber - ${now.year}'],
+            ],
+          ),
+          pw.SizedBox(height: 20),
+
+          // Equipe assignee
+          pw.Text('Equipe Assignee', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 10),
+          if (techs.isEmpty)
+            pw.Text('Aucun technicien assigne.', style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey600))
+          else
+            pw.Table.fromTextArray(
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 11),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey800),
+              cellStyle: const pw.TextStyle(fontSize: 10),
+              cellPadding: const pw.EdgeInsets.all(8),
+              headers: ['Nom', 'Specialite', 'Email'],
+              data: techs.map((t) => [
+                (t['name'] ?? t['fullName'] ?? '-').toString(),
+                (t['specialty'] ?? t['specialite'] ?? '-').toString(),
+                (t['email'] ?? '-').toString(),
+              ]).toList(),
+            ),
+          pw.SizedBox(height: 20),
+
+          // Resume semaine
+          pw.Container(
+            padding: const pw.EdgeInsets.all(16),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey400),
+              borderRadius: pw.BorderRadius.circular(8),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text('Resume Semaine $weekNumber', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                pw.SizedBox(height: 8),
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('Etat actuel', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
+                        pw.SizedBox(height: 4),
+                        pw.Text(status, style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+                      ],
+                    ),
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('Temps de travail estime', style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
+                        pw.SizedBox(height: 4),
+                        pw.Text('${weekNumber > 0 ? 40 : 0}h / semaine', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 24),
+
+          // === MESSAGE IA ===
+          pw.Container(
+            padding: const pw.EdgeInsets.all(16),
+            decoration: pw.BoxDecoration(
+              color: PdfColors.blue50,
+              borderRadius: pw.BorderRadius.circular(8),
+              border: pw.Border.all(color: PdfColors.blue200),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text('Message IA - Prediction Maintenance', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                pw.SizedBox(height: 8),
+                pw.Table.fromTextArray(
+                  headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 10),
+                  headerDecoration: const pw.BoxDecoration(color: PdfColors.blue800),
+                  cellStyle: const pw.TextStyle(fontSize: 10),
+                  cellPadding: const pw.EdgeInsets.all(6),
+                  headers: ['Risque de panne', 'Type de panne'],
+                  data: [
+                    [aiRisk, aiPanneType],
+                  ],
+                ),
+                pw.SizedBox(height: 8),
+                pw.Text(aiMessage, style: const pw.TextStyle(fontSize: 11)),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 24),
+
+          // === MISSIONS (Diagnostic Interventions) ===
+          pw.Text('Missions / Interventions Diagnostiques', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 10),
+          if (missions.isEmpty)
+            pw.Text('Aucune mission enregistree pour cette machine.', style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey600))
+          else
+            pw.Table.fromTextArray(
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 10),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.green800),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellPadding: const pw.EdgeInsets.all(6),
+              headers: ['ID', 'Scenario', 'Statut', 'Technicien', 'Date'],
+              data: missions.take(10).map((m) {
+                String dateStr = '-';
+                try {
+                  final d = DateTime.parse((m['createdAt'] ?? m['date'] ?? '').toString()).toLocal();
+                  dateStr = '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+                } catch (_) {}
+                return [
+                  (m['interventionId'] ?? m['_id'] ?? '-').toString().length > 12
+                    ? '${(m['interventionId'] ?? m['_id'] ?? '-').toString().substring(0, 12)}...'
+                    : (m['interventionId'] ?? m['_id'] ?? '-').toString(),
+                  (m['scenarioLabel'] ?? m['scenario'] ?? '-').toString(),
+                  (m['status'] ?? '-').toString(),
+                  (m['technicianName'] ?? '-').toString(),
+                  dateStr,
+                ];
+              }).toList(),
+            ),
+          pw.SizedBox(height: 24),
+
+          // === PANNES (Archives) ===
+          pw.Text('Historique des Pannes', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 10),
+          if (pannes.isEmpty)
+            pw.Text('Aucune panne archivee pour cette machine.', style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey600))
+          else
+            pw.Table.fromTextArray(
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 10),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.red800),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellPadding: const pw.EdgeInsets.all(6),
+              headers: ['ID', 'Type de panne', 'Statut', 'Date'],
+              data: pannes.take(10).map((p) {
+                String dateStr = '-';
+                try {
+                  final d = DateTime.parse((p['resolvedAt'] ?? p['createdAt'] ?? p['date'] ?? '').toString()).toLocal();
+                  dateStr = '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+                } catch (_) {}
+                return [
+                  (p['interventionId'] ?? p['_id'] ?? '-').toString().length > 12
+                    ? '${(p['interventionId'] ?? p['_id'] ?? '-').toString().substring(0, 12)}...'
+                    : (p['interventionId'] ?? p['_id'] ?? '-').toString(),
+                  (p['scenarioLabel'] ?? p['typePanne'] ?? '-').toString(),
+                  (p['status'] ?? 'Archive').toString(),
+                  dateStr,
+                ];
+              }).toList(),
+            ),
+        ],
+        footer: (context) => pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text('ABBK - Maintenance Predictive', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey500)),
+            pw.Text('Page ${context.pageNumber} / ${context.pagesCount}', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey500)),
+          ],
+        ),
+      ),
+    );
+
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdf.save(),
+      name: 'Fiche_$machineName.pdf',
+    );
+  }
+
   Widget _docFileRow(String title, String meta) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -2507,7 +2896,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  'Démo : ajoutez des URLs de fichiers côté API pour activer le téléchargement.',
+                  'DÃ©mo : ajoutez des URLs de fichiers cÃ´tÃ© API pour activer le tÃ©lÃ©chargement.',
                   style: GoogleFonts.inter(),
                 ),
               ),
@@ -2531,7 +2920,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  // ══════════════════════════ SIDEBAR ════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• SIDEBAR â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   Widget _buildSidebar() {
     return Container(
       width: 256,
@@ -2572,6 +2961,46 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           _navItem(Icons.person_outline, 'Profil', 5),
           _navItem(Icons.precision_manufacturing, 'Mes Machines', 1),
           _navItem(Icons.auto_awesome, 'Analyse IA', 2),
+          if (_navIndex == 2)
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: _machinesFuture,
+              builder: (context, snapshot) {
+                if (!snapshot.hasData || snapshot.data!.isEmpty) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(left: 48, top: 4, bottom: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: snapshot.data!.map((m) {
+                      final id = _clientMachineId(m);
+                      final name = _clientMachineName(m);
+                      final isActive = _iaSelectedMachine != null && 
+                                      (_clientMachineId(_iaSelectedMachine!) == id);
+                      return InkWell(
+                        onTap: () {
+                          setState(() {
+                            _iaSelectedMachine = m;
+                          });
+                        },
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                          child: Text(
+                            '$name • $id',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: isActive ? _secondary : _onSurfaceVariant.withOpacity(0.6),
+                              fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                );
+              },
+            ),
           _navItem(Icons.groups, 'Équipe Assignée', 3),
           _navItem(Icons.description, 'Documents Techniques', 4),
           if (MediaQuery.sizeOf(context).width >= 760)
@@ -2716,7 +3145,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  // ══════════════════════════ TOP BAR ════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• TOP BAR â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   Widget _buildTopBar(bool isDesktop) {
     return Container(
       height: 64,
@@ -2742,7 +3171,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 OutlinedButton.icon(
                   onPressed: _logoutClient,
                   icon: const Icon(Icons.logout, size: 16),
-                  label: const Text('Déconnexion'),
+                  label: const Text('DÃ©connexion'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _error,
                     side: BorderSide(color: _error.withOpacity(0.45)),
@@ -2929,7 +3358,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       if (!mounted) return;
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Photo de profil mise à jour.')),
+        const SnackBar(content: Text('Photo de profil mise Ã  jour.')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -3005,7 +3434,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     if (!mounted) return;
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Background profil mis à jour.')),
+      const SnackBar(content: Text('Background profil mis Ã  jour.')),
     );
   }
 
@@ -3111,7 +3540,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             child: OutlinedButton.icon(
               onPressed: _openProfileSettingsDialog,
               icon: const Icon(Icons.settings_outlined, size: 16),
-              label: const Text('Paramètres'),
+              label: const Text('ParamÃ¨tres'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: _onSurfaceVariant,
                 side: BorderSide(color: _outlineVariant.withOpacity(0.45)),
@@ -3147,8 +3576,8 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Déconnexion'),
-        content: const Text('Voulez-vous vraiment vous déconnecter ?'),
+        title: const Text('DÃ©connexion'),
+        content: const Text('Voulez-vous vraiment vous dÃ©connecter ?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -3156,7 +3585,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Se déconnecter'),
+            child: const Text('Se dÃ©connecter'),
           ),
         ],
       ),
@@ -3205,7 +3634,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Paramètres du profil',
+                    'ParamÃ¨tres du profil',
                     style: GoogleFonts.inter(
                       color: _onSurface,
                       fontWeight: FontWeight.w700,
@@ -3349,12 +3778,12 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       if (!mounted) return;
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profil mis à jour.')),
+        const SnackBar(content: Text('Profil mis Ã  jour.')),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Mise à jour impossible: $e')),
+        SnackBar(content: Text('Mise Ã  jour impossible: $e')),
       );
     }
   }
@@ -3367,12 +3796,12 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     final alerts = (widget.clientData?['alerts'] ?? 0).toString();
     final rows = _clientNotifications.isNotEmpty ? _clientNotifications : <Map<String, String>>[
       {
-        'title': 'Santé du site',
-        'body': 'Le site est opérationnel. Alertes actives: $alerts.',
+        'title': 'SantÃ© du site',
+        'body': 'Le site est opÃ©rationnel. Alertes actives: $alerts.',
       },
       {
         'title': 'Machines',
-        'body': 'Ouvrez "Mes Machines" pour voir les dernières mises à jour.',
+        'body': 'Ouvrez "Mes Machines" pour voir les derniÃ¨res mises Ã  jour.',
       },
     ];
 
@@ -3518,7 +3947,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  // ══════════════════════ AI PREDICTIVE HEADER ═══════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• AI PREDICTIVE HEADER â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   Widget _buildAIHeader() {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -3577,7 +4006,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Score de Santé Global (IA)',
+                        'Score de SantÃ© Global (IA)',
                         style: GoogleFonts.inter(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -3585,7 +4014,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                         ),
                       ),
                       Text(
-                        'Basé sur 1.2M de points de données/heure',
+                        'BasÃ© sur 1.2M de points de donnÃ©es/heure',
                         style: GoogleFonts.spaceGrotesk(
                             fontSize: 11, color: _onSurfaceVariant),
                       ),
@@ -3605,7 +4034,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                     ),
                   ),
                   Text(
-                    'OPTIMISÉ',
+                    'OPTIMISÃ‰',
                     style: GoogleFonts.spaceGrotesk(
                         fontSize: 9,
                         color: _onSurfaceVariant,
@@ -3627,7 +4056,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                     children: [
                       TextSpan(
                         text:
-                            'Le site de ${widget.clientData?['location'] ?? 'Tunis'} présente une stabilité supérieure à la moyenne régionale. Risque d\'arrêt critique : ',
+                            'Le site de ${widget.clientData?['location'] ?? 'Tunis'} prÃ©sente une stabilitÃ© supÃ©rieure Ã  la moyenne rÃ©gionale. Risque d\'arrÃªt critique : ',
                       ),
                       TextSpan(
                         text: 'Faible (${widget.clientData?['alerts'] ?? 0} Alertes)',
@@ -3672,7 +4101,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               const Icon(Icons.event_repeat, color: _primaryLight, size: 16),
               const SizedBox(width: 8),
               Text(
-                'MAINTENANCE PRÉDICTIVE',
+                'MAINTENANCE PRÃ‰DICTIVE',
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 9,
                   color: _onSurfaceVariant,
@@ -3702,7 +4131,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Remplacement du roulement (PR-001) suggéré dans 15 jours.',
+                  'Remplacement du roulement (PR-001) suggÃ©rÃ© dans 15 jours.',
                   style: GoogleFonts.inter(fontSize: 13, color: _onSurface),
                 ),
               ],
@@ -3735,7 +4164,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  // ════════════════════════ KPI ROW ═══════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• KPI ROW â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   Widget _buildKPIRow(bool isDesktop) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -3756,11 +4185,11 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                     _primary, const Color(0xFF161626));
               }
             ),
-            _kpiCard(Icons.groups, 'Techniciens Connectés', _isLoadingStats ? '..' : _techCount.toString().padLeft(2, '0'), _secondary,
+            _kpiCard(Icons.groups, 'Techniciens ConnectÃ©s', _isLoadingStats ? '..' : _techCount.toString().padLeft(2, '0'), _secondary,
                 const Color(0xFF161626)),
             _kpiCard(Icons.warning, 'Alertes Actives', '01', _error,
                 const Color(0xFF161626)),
-            _kpiCard(Icons.check_circle, 'Disponibilité Site', '100%', _green,
+            _kpiCard(Icons.check_circle, 'DisponibilitÃ© Site', '100%', _green,
                 const Color(0xFF161626)),
           ],
         );
@@ -3810,11 +4239,131 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  // ═══════════════════════ MACHINE LIST ════════════════════════
+  void _showConnectedCardsDialog() {
+    final now = DateTime.now();
+    final connectedCardIds = _lastTelemetryTime.entries
+        .where((entry) => now.difference(entry.value).inSeconds < 60)
+        .map((entry) => entry.key)
+        .toList();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: _surfaceContainerHigh,
+          title: Row(
+            children: [
+              const Icon(Icons.developer_board_rounded, color: _primary),
+              const SizedBox(width: 10),
+              Text(
+                'Cartes ESP32 ConnectÃ©es',
+                style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 400,
+            height: 330,
+            child: Column(
+              children: [
+                Expanded(
+                  child: connectedCardIds.isEmpty
+                      ? Center(
+                          child: Text(
+                            'Aucune carte ESP32 active dÃ©tectÃ©e rÃ©cemment.\n(En attente de rÃ©ception de messages via le Socket)',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 13),
+                          ),
+                        )
+                      : ListView.separated(
+                          itemCount: connectedCardIds.length,
+                          separatorBuilder: (_, __) => const Divider(),
+                          itemBuilder: (context, index) {
+                            final cardId = connectedCardIds[index];
+                            return ListTile(
+                              leading: const Icon(Icons.wifi_tethering_rounded, color: _green),
+                              title: Text(
+                                cardId,
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontWeight: FontWeight.bold,
+                                  color: _onSurface,
+                                ),
+                              ),
+                              subtitle: Text(
+                                'ActivitÃ© : il y a ${DateTime.now().difference(_lastTelemetryTime[cardId]!).inSeconds}s',
+                                style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 11),
+                              ),
+                              trailing: ElevatedButton.icon(
+                                onPressed: () {
+                                  Navigator.pop(ctx);
+                                  _openWifiConfigDialog(context, cardId, isOnline: true);
+                                },
+                                icon: const Icon(Icons.settings, size: 14),
+                                label: const Text('Config'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _secondary,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+                const Divider(),
+                Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Statut Socket :',
+                        style: GoogleFonts.inter(fontSize: 11, color: _onSurfaceVariant),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _socket.connected ? _green.withOpacity(0.2) : _error.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          _socket.connected ? 'CONNECTÃ‰' : 'DÃ‰CONNECTÃ‰',
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: _socket.connected ? _green : _error,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'URL : ${ApiService.socketBaseUrl}',
+                    style: GoogleFonts.spaceGrotesk(fontSize: 9, color: _onSurfaceVariant.withOpacity(0.7)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Fermer', style: TextStyle(color: _onSurfaceVariant)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• MACHINE LIST â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 
-  // ══════════════════════ MACHINE LIST SECTION ═══════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• MACHINE LIST SECTION â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   Widget _buildMachineListSection(bool isDesktop) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3826,7 +4375,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'ÉTAT DE LA FLOTTE',
+                  'Ã‰TAT DE LA FLOTTE',
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 9,
                     fontWeight: FontWeight.w900,
@@ -3836,7 +4385,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Machines Connectées',
+                  'Machines ConnectÃ©es',
                   style: GoogleFonts.inter(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -3846,7 +4395,24 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 ),
               ],
             ),
-            _actionBtn(Icons.refresh, _onSurfaceVariant, _refreshMachines),
+            Row(
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _showConnectedCardsDialog,
+                  icon: const Icon(Icons.developer_board_rounded, size: 16),
+                  label: const Text('Cartes ConnectÃ©es'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _actionBtn(Icons.refresh, _onSurfaceVariant, _refreshMachines),
+              ],
+            ),
           ],
         ),
         const SizedBox(height: 24),
@@ -3931,7 +4497,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               onPressed: () => _openAddTechnicianRequestDialog(
                 requestType: 'MAINTENANCE_ADD',
                 roleLabel: 'maintenance man',
-                requestedSpecialty: 'Maintenance opérationnelle',
+                requestedSpecialty: 'Maintenance opÃ©rationnelle',
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: _secondary,
@@ -3973,7 +4539,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  'Erreur chargement équipe: ${snapshot.error}',
+                  'Erreur chargement Ã©quipe: ${snapshot.error}',
                   style: const TextStyle(color: _error),
                 ),
               );
@@ -3990,7 +4556,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                   border: Border.all(color: _outlineVariant.withOpacity(0.2)),
                 ),
                 child: Text(
-                  'Aucun technicien assigné à ce client pour le moment.',
+                  'Aucun technicien assignÃ© Ã  ce client pour le moment.',
                   style: GoogleFonts.inter(fontSize: 14, color: _onSurfaceVariant),
                 ),
               );
@@ -4078,7 +4644,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                             ),
                           ),
                           Text(
-                            '$specialization • $status',
+                            '$specialization â€¢ $status',
                             style: GoogleFonts.spaceGrotesk(
                               fontSize: 11,
                               color: _onSurfaceVariant,
@@ -4243,7 +4809,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  'Envoyée au Concepteur pour validation.',
+                                  'EnvoyÃ©e au Concepteur pour validation.',
                                   style: GoogleFonts.spaceGrotesk(
                                     color: _onSurfaceVariant,
                                     fontSize: 11,
@@ -4273,7 +4839,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                           Expanded(
                             child: _buildRequestField(
                               controller: firstNameCtrl,
-                              label: 'Prénom *',
+                              label: 'PrÃ©nom *',
                               hint: 'Ex: Morad',
                             ),
                           ),
@@ -4292,7 +4858,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                           Expanded(
                             child: _buildRequestField(
                               controller: phoneCtrl,
-                              label: 'Téléphone (optionnel)',
+                              label: 'TÃ©lÃ©phone (optionnel)',
                               hint: '+216 ...',
                               keyboardType: TextInputType.phone,
                             ),
@@ -4311,7 +4877,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                       _buildRequestField(
                         controller: descriptionCtrl,
                         label: 'Description technique (optionnel)',
-                        hint: 'Compétences attendues, besoin urgent...',
+                        hint: 'CompÃ©tences attendues, besoin urgent...',
                         minLines: 2,
                         maxLines: 4,
                       ),
@@ -4319,7 +4885,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                       Row(
                         children: [
                           Text(
-                            'Machines concernées',
+                            'Machines concernÃ©es',
                             style: GoogleFonts.inter(
                               color: _onSurface,
                               fontSize: 12,
@@ -4334,7 +4900,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
-                              '${selectedMachineIds.length} sélectionnée(s)',
+                              '${selectedMachineIds.length} sÃ©lectionnÃ©e(s)',
                               style: GoogleFonts.spaceGrotesk(
                                 color: _primary,
                                 fontSize: 10,
@@ -4356,7 +4922,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                             ? Padding(
                                 padding: const EdgeInsets.all(14),
                                 child: Text(
-                                  'Aucune machine n\'est encore associée à votre compte.',
+                                  'Aucune machine n\'est encore associÃ©e Ã  votre compte.',
                                   style: GoogleFonts.inter(
                                     color: _onSurfaceVariant,
                                     fontSize: 12,
@@ -4490,7 +5056,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
 
     if (lastName.isEmpty || firstName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Le nom et le prénom sont obligatoires.')),
+        const SnackBar(content: Text('Le nom et le prÃ©nom sont obligatoires.')),
       );
       return;
     }
@@ -4502,7 +5068,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     }
     if (selectedMachineIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sélectionnez au moins une machine concernée.')),
+        const SnackBar(content: Text('SÃ©lectionnez au moins une machine concernÃ©e.')),
       );
       return;
     }
@@ -4525,7 +5091,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Demande de $roleLabel envoyée au Concepteur.'),
+          content: Text('Demande de $roleLabel envoyÃ©e au Concepteur.'),
           backgroundColor: Colors.green,
         ),
       );
@@ -4533,7 +5099,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Échec de l\'envoi: $e'),
+          content: Text('Ã‰chec de l\'envoi: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -4603,11 +5169,26 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   }
 
   Future<void> _openMessageEquipeDialog(Map<String, dynamic> technician) async {
-    final techId = (technician['technicianId'] ?? technician['_id'] ?? 'tech').toString();
+    final techId = (technician['technicianId'] ?? technician['agentId'] ?? technician['_id'] ?? 'tech').toString();
     final clientKey = (widget.clientId ?? widget.clientData?['clientId'] ?? widget.clientData?['id'] ?? 'client').toString();
     final roomId = 'chat_${clientKey}_$techId';
     final techName = (technician['name'] ?? 'Technicien').toString();
+    final techSpeciality = (technician['specialization'] ?? technician['specialite'] ?? technician['role'] ?? 'Technicien').toString();
+    final techPhotoUrl = (technician['imageUrl'] ?? technician['photoUrl'] ?? '').toString();
     final input = TextEditingController();
+    final scrollController = ScrollController();
+
+    void scrollToBottom() {
+      Future.delayed(const Duration(milliseconds: 80), () {
+        if (scrollController.hasClients) {
+          scrollController.animateTo(
+            scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
 
     _socket.emit('join_chat_room', {'roomId': roomId});
 
@@ -4615,161 +5196,542 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     await showDialog<void>(
       context: context,
       barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.65),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
             final messages = List<Map<String, dynamic>>.from(_chatMessages[roomId] ?? const []);
+
+            void sendMessage() {
+              final text = input.text.trim();
+              if (text.isEmpty) return;
+              final localMessage = <String, dynamic>{
+                'roomId': roomId,
+                'from': 'client',
+                'senderName': widget.clientName ?? 'Client',
+                'text': text,
+                'createdAt': DateTime.now().toIso8601String(),
+              };
+              setState(() {
+                final list = _chatMessages.putIfAbsent(roomId, () => []);
+                list.add(localMessage);
+              });
+              _socket.emit('chat_message', {
+                'roomId': roomId,
+                'from': 'client',
+                'senderName': widget.clientName ?? 'Client',
+                'text': text,
+              });
+              input.clear();
+              setDialogState(() {});
+              scrollToBottom();
+            }
+
+            // Initial scroll
+            if (messages.isNotEmpty) scrollToBottom();
+
             return Dialog(
-              backgroundColor: _surfaceContainerHigh,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              child: SizedBox(
-                width: (MediaQuery.of(ctx).size.width - 32).clamp(300.0, 560.0).toDouble(),
-                height: 520,
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              child: Container(
+                width: (MediaQuery.of(ctx).size.width - 40).clamp(320.0, 600.0).toDouble(),
+                height: (MediaQuery.of(ctx).size.height * 0.80).clamp(480.0, 680.0).toDouble(),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF13132B),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: const Color(0xFF2E2E55), width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _primary.withOpacity(0.15),
+                      blurRadius: 40,
+                      spreadRadius: -4,
+                      offset: const Offset(0, 8),
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.6),
+                      blurRadius: 24,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
                 child: Column(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 14, 8, 10),
+                    // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(18, 16, 12, 16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            const Color(0xFF1C1C3A),
+                            const Color(0xFF1A1A32),
+                          ],
+                        ),
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(24),
+                          topRight: Radius.circular(24),
+                        ),
+                        border: const Border(
+                          bottom: BorderSide(color: Color(0xFF2E2E55), width: 1),
+                        ),
+                      ),
                       child: Row(
                         children: [
-                          CircleAvatar(
-                            radius: 16,
-                            backgroundColor: _surfaceContainerHighest,
-                            child: const Icon(Icons.engineering, size: 16, color: _onSurfaceVariant),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              'Message · $techName',
-                              style: GoogleFonts.inter(
-                                color: _onSurface,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 15,
+                          // Avatar with online dot
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: _primary.withOpacity(0.5), width: 2),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: _primary.withOpacity(0.2),
+                                      blurRadius: 10,
+                                    ),
+                                  ],
+                                ),
+                                child: CircleAvatar(
+                                  radius: 22,
+                                  backgroundColor: const Color(0xFF2A2A4A),
+                                  backgroundImage: techPhotoUrl.isNotEmpty
+                                      ? NetworkImage(techPhotoUrl)
+                                      : null,
+                                  child: techPhotoUrl.isEmpty
+                                      ? Text(
+                                          techName.isNotEmpty ? techName[0].toUpperCase() : 'T',
+                                          style: GoogleFonts.spaceGrotesk(
+                                            color: _primary,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 18,
+                                          ),
+                                        )
+                                      : null,
+                                ),
                               ),
+                              Positioned(
+                                bottom: 1,
+                                right: 1,
+                                child: Container(
+                                  width: 12,
+                                  height: 12,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF4CAF50),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: const Color(0xFF13132B), width: 2),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFF4CAF50).withOpacity(0.5),
+                                        blurRadius: 6,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  techName,
+                                  style: GoogleFonts.spaceGrotesk(
+                                    color: _onSurface,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 15,
+                                    letterSpacing: -0.3,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 6,
+                                      height: 6,
+                                      decoration: const BoxDecoration(
+                                        color: Color(0xFF4CAF50),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Text(
+                                      'En ligne Â· $techSpeciality',
+                                      style: GoogleFonts.inter(
+                                        color: _onSurfaceVariant,
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
-                          IconButton(
-                            onPressed: () => Navigator.of(ctx).pop(),
-                            icon: const Icon(Icons.close_rounded),
-                            tooltip: 'Fermer',
+                          // Close button
+                          Material(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(10),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () => Navigator.of(ctx).pop(),
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF2E2E55),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(
+                                  Icons.close_rounded,
+                                  color: Color(0xFFB0B0D0),
+                                  size: 18,
+                                ),
+                              ),
+                            ),
                           ),
                         ],
                       ),
                     ),
-                    const Divider(height: 1),
+
+                    // â”€â”€ Messages area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                     Expanded(
                       child: messages.isEmpty
                           ? Center(
-                              child: Text(
-                                'Aucun message pour le moment.',
-                                style: GoogleFonts.inter(color: _onSurfaceVariant),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(20),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1C1C3A),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: const Color(0xFF2E2E55)),
+                                    ),
+                                    child: Icon(
+                                      Icons.chat_bubble_outline_rounded,
+                                      color: _onSurfaceVariant.withOpacity(0.5),
+                                      size: 32,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  Text(
+                                    'DÃ©marrez la conversation',
+                                    style: GoogleFonts.spaceGrotesk(
+                                      color: _onSurface.withOpacity(0.7),
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Envoyez un message Ã  $techName',
+                                    style: GoogleFonts.inter(
+                                      color: _onSurfaceVariant,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
                               ),
                             )
                           : ListView.builder(
-                              padding: const EdgeInsets.all(12),
+                              controller: scrollController,
+                              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
                               itemCount: messages.length,
                               itemBuilder: (_, i) {
                                 final msg = messages[i];
                                 final isMine = (msg['from'] ?? '').toString() == 'client';
-                                return Align(
-                                  alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
-                                  child: Container(
-                                    margin: const EdgeInsets.symmetric(vertical: 5),
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                    constraints: const BoxConstraints(maxWidth: 360),
-                                    decoration: BoxDecoration(
-                                      color: isMine ? _primaryContainer.withOpacity(0.22) : _surfaceContainerHighest,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: _outlineVariant.withOpacity(0.25)),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          (msg['text'] ?? '').toString(),
-                                          style: GoogleFonts.inter(color: _onSurface, fontSize: 13),
+                                final text = (msg['text'] ?? '').toString();
+                                final time = _formatChatTime(msg['createdAt']);
+
+                                // Show date separator if needed
+                                final showDate = i == 0;
+
+                                return Column(
+                                  children: [
+                                    if (showDate)
+                                      Padding(
+                                        padding: const EdgeInsets.only(bottom: 16),
+                                        child: Row(
+                                          children: [
+                                            Expanded(child: Container(height: 1, color: const Color(0xFF2E2E55))),
+                                            Padding(
+                                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                                              child: Text(
+                                                'Aujourd\'hui',
+                                                style: GoogleFonts.inter(
+                                                  color: _onSurfaceVariant,
+                                                  fontSize: 10.5,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ),
+                                            Expanded(child: Container(height: 1, color: const Color(0xFF2E2E55))),
+                                          ],
                                         ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          _formatChatTime(msg['createdAt']),
-                                          style: GoogleFonts.inter(
-                                            color: _onSurfaceVariant,
-                                            fontSize: 10,
+                                      ),
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Row(
+                                        mainAxisAlignment: isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
+                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        children: [
+                                          // Other person avatar
+                                          if (!isMine) ...[
+                                            CircleAvatar(
+                                              radius: 14,
+                                              backgroundColor: const Color(0xFF2A2A4A),
+                                              backgroundImage: techPhotoUrl.isNotEmpty
+                                                  ? NetworkImage(techPhotoUrl)
+                                                  : null,
+                                              child: techPhotoUrl.isEmpty
+                                                  ? Text(
+                                                      techName.isNotEmpty ? techName[0].toUpperCase() : 'T',
+                                                      style: GoogleFonts.inter(
+                                                        color: _primary,
+                                                        fontWeight: FontWeight.w700,
+                                                        fontSize: 11,
+                                                      ),
+                                                    )
+                                                  : null,
+                                            ),
+                                            const SizedBox(width: 8),
+                                          ],
+                                          // Message bubble
+                                          Flexible(
+                                            child: Container(
+                                              constraints: BoxConstraints(
+                                                maxWidth: MediaQuery.of(ctx).size.width * 0.55,
+                                              ),
+                                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                              decoration: BoxDecoration(
+                                                gradient: isMine
+                                                    ? LinearGradient(
+                                                        begin: Alignment.topLeft,
+                                                        end: Alignment.bottomRight,
+                                                        colors: [
+                                                          _primary,
+                                                          const Color(0xFFE55A00),
+                                                        ],
+                                                      )
+                                                    : null,
+                                                color: isMine ? null : const Color(0xFF1E1E3F),
+                                                borderRadius: BorderRadius.only(
+                                                  topLeft: const Radius.circular(18),
+                                                  topRight: const Radius.circular(18),
+                                                  bottomLeft: Radius.circular(isMine ? 18 : 4),
+                                                  bottomRight: Radius.circular(isMine ? 4 : 18),
+                                                ),
+                                                border: isMine
+                                                    ? null
+                                                    : Border.all(color: const Color(0xFF2E2E55), width: 1),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: (isMine ? _primary : Colors.black).withOpacity(0.2),
+                                                    blurRadius: 8,
+                                                    offset: const Offset(0, 2),
+                                                  ),
+                                                ],
+                                              ),
+                                              child: Column(
+                                                crossAxisAlignment: isMine
+                                                    ? CrossAxisAlignment.end
+                                                    : CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    text,
+                                                    style: GoogleFonts.inter(
+                                                      color: isMine ? Colors.white : _onSurface,
+                                                      fontSize: 13.5,
+                                                      height: 1.4,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      Text(
+                                                        time,
+                                                        style: GoogleFonts.inter(
+                                                          color: isMine
+                                                              ? Colors.white.withOpacity(0.65)
+                                                              : _onSurfaceVariant,
+                                                          fontSize: 9.5,
+                                                        ),
+                                                      ),
+                                                      if (isMine) ...[
+                                                        const SizedBox(width: 4),
+                                                        Icon(
+                                                          Icons.done_all_rounded,
+                                                          size: 12,
+                                                          color: Colors.white.withOpacity(0.65),
+                                                        ),
+                                                      ],
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ],
+                                          // My avatar
+                                          if (isMine) ...[
+                                            const SizedBox(width: 8),
+                                            CircleAvatar(
+                                              radius: 14,
+                                              backgroundColor: _primaryContainer,
+                                              child: Text(
+                                                (widget.clientName ?? 'C').isNotEmpty
+                                                    ? (widget.clientName ?? 'C')[0].toUpperCase()
+                                                    : 'C',
+                                                style: GoogleFonts.inter(
+                                                  color: _primary,
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
                                     ),
-                                  ),
+                                  ],
                                 );
                               },
                             ),
                     ),
-                    const Divider(height: 1),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+
+                    // â”€â”€ Input area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F0F20),
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(24),
+                          bottomRight: Radius.circular(24),
+                        ),
+                        border: const Border(
+                          top: BorderSide(color: Color(0xFF2E2E55), width: 1),
+                        ),
+                      ),
                       child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          Expanded(
-                            child: TextField(
-                              controller: input,
-                              minLines: 1,
-                              maxLines: 3,
-                              decoration: const InputDecoration(
-                                hintText: 'Ecrire un message...',
-                                border: OutlineInputBorder(),
-                                isDense: true,
+                          // Emoji button
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10, right: 6),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(8),
+                                onTap: () {},
+                                child: Padding(
+                                  padding: const EdgeInsets.all(6),
+                                  child: Icon(
+                                    Icons.emoji_emotions_outlined,
+                                    color: _onSurfaceVariant.withOpacity(0.6),
+                                    size: 22,
+                                  ),
+                                ),
                               ),
-                              onSubmitted: (_) {
-                                final text = input.text.trim();
-                                if (text.isEmpty) return;
-                                final localMessage = <String, dynamic>{
-                                  'roomId': roomId,
-                                  'from': 'client',
-                                  'senderName': widget.clientName ?? 'Client',
-                                  'text': text,
-                                  'createdAt': DateTime.now().toIso8601String(),
-                                };
-                                setState(() {
-                                  final list = _chatMessages.putIfAbsent(roomId, () => []);
-                                  list.add(localMessage);
-                                });
-                                _socket.emit('chat_message', {
-                                  'roomId': roomId,
-                                  'from': 'client',
-                                  'senderName': widget.clientName ?? 'Client',
-                                  'text': text,
-                                });
-                                input.clear();
-                                setDialogState(() {});
-                              },
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              final text = input.text.trim();
-                              if (text.isEmpty) return;
-                              final localMessage = <String, dynamic>{
-                                'roomId': roomId,
-                                'from': 'client',
-                                'senderName': widget.clientName ?? 'Client',
-                                'text': text,
-                                'createdAt': DateTime.now().toIso8601String(),
-                              };
-                              setState(() {
-                                final list = _chatMessages.putIfAbsent(roomId, () => []);
-                                list.add(localMessage);
-                              });
-                              _socket.emit('chat_message', {
-                                'roomId': roomId,
-                                'from': 'client',
-                                'senderName': widget.clientName ?? 'Client',
-                                'text': text,
-                              });
-                              input.clear();
-                              setDialogState(() {});
+                          // Text field
+                          Expanded(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1A1A35),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: const Color(0xFF2E2E55), width: 1),
+                              ),
+                              child: TextField(
+                                controller: input,
+                                minLines: 1,
+                                maxLines: 4,
+                                style: GoogleFonts.inter(
+                                  color: _onSurface,
+                                  fontSize: 13.5,
+                                ),
+                                decoration: InputDecoration(
+                                  hintText: 'Ã‰crire un message...',
+                                  hintStyle: GoogleFonts.inter(
+                                    color: _onSurfaceVariant.withOpacity(0.45),
+                                    fontSize: 13.5,
+                                  ),
+                                  border: InputBorder.none,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 11,
+                                  ),
+                                  suffixIcon: Padding(
+                                    padding: const EdgeInsets.only(right: 8),
+                                    child: Icon(
+                                      Icons.attach_file_rounded,
+                                      color: _onSurfaceVariant.withOpacity(0.4),
+                                      size: 20,
+                                    ),
+                                  ),
+                                ),
+                                onSubmitted: (_) => sendMessage(),
+                                onChanged: (_) => setDialogState(() {}),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          // Send button
+                          ValueListenableBuilder<TextEditingValue>(
+                            valueListenable: input,
+                            builder: (_, val, __) {
+                              final hasText = val.text.trim().isNotEmpty;
+                              return AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                curve: Curves.easeInOut,
+                                width: 46,
+                                height: 46,
+                                decoration: BoxDecoration(
+                                  gradient: hasText
+                                      ? LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [_primary, const Color(0xFFE55A00)],
+                                        )
+                                      : null,
+                                  color: hasText ? null : const Color(0xFF1E1E3F),
+                                  shape: BoxShape.circle,
+                                  boxShadow: hasText
+                                      ? [
+                                          BoxShadow(
+                                            color: _primary.withOpacity(0.4),
+                                            blurRadius: 12,
+                                            spreadRadius: -2,
+                                          ),
+                                        ]
+                                      : null,
+                                ),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  shape: const CircleBorder(),
+                                  child: InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: hasText ? sendMessage : null,
+                                    child: Center(
+                                      child: AnimatedSwitcher(
+                                        duration: const Duration(milliseconds: 200),
+                                        child: Icon(
+                                          Icons.send_rounded,
+                                          key: ValueKey(hasText),
+                                          color: hasText
+                                              ? Colors.white
+                                              : _onSurfaceVariant.withOpacity(0.4),
+                                          size: 20,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
                             },
-                            icon: const Icon(Icons.send_rounded, size: 16),
-                            label: const Text('Envoyer'),
                           ),
                         ],
                       ),
@@ -4783,6 +5745,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       },
     );
     input.dispose();
+    scrollController.dispose();
   }
 
   void _startCall(Map<String, dynamic> technician) {
@@ -4796,7 +5759,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       'callerName': widget.clientName ?? 'Client',
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Demande d\'appel envoyée à ${(technician['name'] ?? 'Technicien')}')),
+      SnackBar(content: Text('Demande d\'appel envoyÃ©e Ã  ${(technician['name'] ?? 'Technicien')}')),
     );
   }
 
@@ -4940,9 +5903,9 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           const SizedBox(height: 24),
           Text('BIENVENUE', style: GoogleFonts.spaceGrotesk(fontSize: 10, fontWeight: FontWeight.bold, color: _secondary, letterSpacing: 2)),
           const SizedBox(height: 8),
-          Text('Aucune machine n\'est encore assignée.', style: GoogleFonts.inter(fontSize: 16, color: _onSurface, fontWeight: FontWeight.w600)),
+          Text('Aucune machine n\'est encore assignÃ©e.', style: GoogleFonts.inter(fontSize: 16, color: _onSurface, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          Text('Le Super Admin doit enregistrer vos équipements pour activer la surveillance.', style: GoogleFonts.inter(fontSize: 13, color: _onSurfaceVariant), textAlign: TextAlign.center),
+          Text('Le Super Admin doit enregistrer vos Ã©quipements pour activer la surveillance.', style: GoogleFonts.inter(fontSize: 13, color: _onSurfaceVariant), textAlign: TextAlign.center),
         ],
       ),
     );
@@ -4956,7 +5919,116 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     final controlStartedAt = DateTime.tryParse((m['maintenanceControlStartedAt'] ?? '').toString());
     final isUnderControl = controlActive && controlStartedAt != null;
     final elapsed = isUnderControl ? DateTime.now().difference(controlStartedAt!) : Duration.zero;
-    return Container(
+
+    void openMachineDetail() {
+      final mid = _clientMachineId(m);
+      final name = _clientMachineName(m);
+      showGeneralDialog(
+        context: context,
+        barrierDismissible: true,
+        barrierLabel: 'Fermer',
+        barrierColor: Colors.black.withOpacity(0.75),
+        transitionDuration: const Duration(milliseconds: 320),
+        transitionBuilder: (ctx, anim, secondAnim, child) {
+          final curve = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+          return SlideTransition(
+            position: Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero).animate(curve),
+            child: FadeTransition(opacity: curve, child: child),
+          );
+        },
+        pageBuilder: (ctx, anim, secondAnim) {
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: isDesktop ? 48 : 12,
+                vertical: isDesktop ? 32 : 16,
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10102B),
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: _secondary.withOpacity(0.25), width: 1.2),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.55), blurRadius: 40, offset: const Offset(0, 12)),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                        decoration: BoxDecoration(
+                          color: _surfaceContainerLow,
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(22),
+                            topRight: Radius.circular(22),
+                          ),
+                          border: Border(bottom: BorderSide(color: _secondary.withOpacity(0.18))),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: (isAlert ? _error : _green).withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(Icons.precision_manufacturing, color: isAlert ? _error : _green, size: 24),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    name,
+                                    style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: _onSurface),
+                                  ),
+                                  Text(
+                                    'ID: $mid',
+                                    style: GoogleFonts.spaceGrotesk(fontSize: 11, color: _secondary, fontWeight: FontWeight.w600),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () => Navigator.of(ctx).pop(),
+                              icon: const Icon(Icons.close_rounded, color: Colors.white54, size: 22),
+                              tooltip: 'Fermer',
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: const BorderRadius.only(
+                            bottomLeft: Radius.circular(22),
+                            bottomRight: Radius.circular(22),
+                          ),
+                          child: MachineDetailAiPage(
+                            machineId: mid,
+                            machineName: name,
+                            clientId: widget.clientId ?? widget.clientData?['clientId'] ?? widget.clientData?['id'],
+                            viewerRole: 'client',
+                            viewerName: (widget.clientName ?? 'Client').toString(),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    }
+
+    return InkWell(
+      onTap: openMachineDetail,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: _surfaceContainerLow,
@@ -5006,7 +6078,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Vib: ${(_realtimeVibrations[machineRealtimeId] ?? 0.0).toStringAsFixed(1)} mm/s  •  Fric: ${(_realtimeFrictions[machineRealtimeId] ?? 0.0).toStringAsFixed(2)}  •  Pres: ${(_realtimePressures[machineRealtimeId] ?? 0.0).toStringAsFixed(1)} bar',
+                      'Vib: ${(_realtimeVibrations[machineRealtimeId] ?? 0.0).toStringAsFixed(1)} mm/s  •  Fric: ${(_realtimeFrictions[machineRealtimeId] ?? 0.0).toStringAsFixed(2)}  •  Volt: ${(_realtimePressures[machineRealtimeId] ?? 0.0).toStringAsFixed(1)} V   •   Risque: ${(_realtimeRisks[machineRealtimeId] ?? 0.0).toStringAsFixed(1)}%',
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 10,
                         color: _secondary.withOpacity(0.9),
@@ -5020,25 +6092,21 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               Builder(
                 builder: (context) {
                   final lastTelTime = _lastTelemetryTime[machineRealtimeId];
-                  final isOnline = lastTelTime != null &&
-                      DateTime.now().difference(lastTelTime).inSeconds < 10;
+                  final hasValues = _realtimeVibrations.containsKey(machineRealtimeId) || _realtimeTemps.containsKey(machineRealtimeId);
+                  final isOnline = hasValues || (lastTelTime != null &&
+                      DateTime.now().difference(lastTelTime).inSeconds < 10);
                   return _actionBtn(
                     Icons.wifi_rounded,
                     isOnline ? _green : _error,
                     () {
-                      _openWifiConfigDialog(context, machineRealtimeId);
+                      _openWifiConfigDialog(context, machineRealtimeId, isOnline: isOnline);
                     },
                     iconColor: isOnline ? _green : _error,
                   );
                 }
               ),
               const SizedBox(width: 12),
-              _actionBtn(Icons.arrow_forward, _secondary, () {
-                setState(() {
-                  _machineSelectedMachine = m;
-                  _navIndex = 1;
-                });
-              }),
+              _actionBtn(Icons.arrow_forward, _secondary, openMachineDetail),
             ],
           ),
           if (isAlert) ...[
@@ -5061,7 +6129,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Maintenance en contrôle${controlBy.isNotEmpty ? ' · $controlBy' : ''}',
+                      'Maintenance en contrÃ´le${controlBy.isNotEmpty ? ' Â· $controlBy' : ''}',
                       style: GoogleFonts.inter(
                         color: _onSurface,
                         fontWeight: FontWeight.w600,
@@ -5070,7 +6138,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                     ),
                   ),
                   Text(
-                    'Temps contrôle: ${_formatElapsed(elapsed)}',
+                    'Temps contrÃ´le: ${_formatElapsed(elapsed)}',
                     style: GoogleFonts.spaceGrotesk(
                       color: _secondary,
                       fontWeight: FontWeight.w700,
@@ -5083,12 +6151,14 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           ],
         ],
       ),
-    );
+    ), // end Container
+    ); // end InkWell
   }
 
-  Future<void> _openWifiConfigDialog(BuildContext context, String machineId) async {
+  Future<void> _openWifiConfigDialog(BuildContext context, String machineId, {required bool isOnline}) async {
     final ssidCtrl = TextEditingController();
     final passCtrl = TextEditingController();
+    final idCtrl = TextEditingController(text: machineId);
 
     final success = await showDialog<bool>(
       context: context,
@@ -5097,10 +6167,10 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           backgroundColor: _surfaceContainerHigh,
           title: Row(
             children: [
-              const Icon(Icons.wifi_lock_rounded, color: _primary),
+              Icon(isOnline ? Icons.wifi_rounded : Icons.wifi_lock_rounded, color: isOnline ? _green : _primary),
               const SizedBox(width: 10),
               Text(
-                'Configuration WiFi ESP32',
+                'Configuration WiFi & ID ESP32',
                 style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.bold),
               ),
             ],
@@ -5109,15 +6179,17 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Connectez d\'abord votre appareil au réseau WiFi "DALI-Config" de l\'ESP32, puis remplissez ce formulaire.',
+                isOnline
+                    ? 'La machine est actuellement connectÃ©e. Vous pouvez mettre Ã  jour son ID et ses paramÃ¨tres WiFi Ã  distance.'
+                    : 'Connectez d\'abord votre appareil au rÃ©seau WiFi "DALI-Config" de l\'ESP32, puis remplissez ce formulaire.',
                 style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 12),
               ),
               const SizedBox(height: 16),
               TextField(
-                controller: TextEditingController(text: machineId),
-                enabled: false,
+                controller: idCtrl,
+                enabled: true,
                 decoration: const InputDecoration(
-                  labelText: 'ID de la Machine',
+                  labelText: 'ID de la Machine *',
                   isDense: true,
                 ),
               ),
@@ -5125,7 +6197,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               TextField(
                 controller: ssidCtrl,
                 decoration: const InputDecoration(
-                  labelText: 'Nom du Réseau WiFi (SSID) *',
+                  labelText: 'Nom du RÃ©seau WiFi (SSID) *',
                   hintText: 'ex: MaBoxInternet',
                   isDense: true,
                 ),
@@ -5159,11 +6231,12 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     if (success == true) {
       final ssid = ssidCtrl.text.trim();
       final pass = passCtrl.text.trim();
+      final newId = idCtrl.text.trim();
 
-      if (ssid.isEmpty || pass.isEmpty) {
+      if (ssid.isEmpty || pass.isEmpty || newId.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Le SSID et le mot de passe sont obligatoires.'),
+            content: Text('L\'ID, le SSID et le mot de passe sont obligatoires.'),
             backgroundColor: _error,
           ),
         );
@@ -5177,12 +6250,12 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       );
 
       try {
-        await ApiService.configureMachineWifi(machineId, ssid, pass);
+        await ApiService.configureMachineWifi(machineId, ssid, pass, newMachineId: newId);
         if (!mounted) return;
         Navigator.pop(context); // Close loading indicator
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Configuration envoyée ! L\'ESP32 va redémarrer.'),
+            content: Text('Configuration envoyÃ©e ! L\'ESP32 va redÃ©marrer avec son nouvel ID.'),
             backgroundColor: _green,
           ),
         );
@@ -5191,7 +6264,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         Navigator.pop(context); // Close loading indicator
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Échec de la configuration : ${e.toString().replaceAll('Exception: ', '')}'),
+            content: Text('Ã‰chec de la configuration : ${e.toString().replaceAll('Exception: ', '')}'),
             backgroundColor: _error,
           ),
         );
@@ -5248,7 +6321,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                           children: [
                             const TextSpan(text: 'Type de Panne : '),
                             TextSpan(
-                              text: 'Surchauffe Moteur Détectée',
+                              text: 'Surchauffe Moteur DÃ©tectÃ©e',
                               style: TextStyle(color: _error),
                             ),
                           ],
@@ -5332,7 +6405,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                                 children: [
                               const TextSpan(text: 'Surchauffe Moteur '),
                               TextSpan(
-                                  text: 'Détectée',
+                                  text: 'DÃ©tectÃ©e',
                                   style: TextStyle(color: _error)),
                             ]))
                       ],
@@ -5375,7 +6448,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  // ════════════════════════ HELPERS ══════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• HELPERS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   Widget _scoreBox(String label, String value, Color color,
       {bool isRisk = false}) {
     return Column(
@@ -5764,9 +6837,9 @@ class _ClientPublicMachineCard extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Simple data class for sensor readings
-// ─────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _SensorData {
   final String label;
   final String value;

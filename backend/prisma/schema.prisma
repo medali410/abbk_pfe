@@ -87,6 +87,7 @@ model Machine {
   price       String   @default("")
   stock       Int      @default(0)
   type        String   @default("")
+  aiType      String   @default("M")
   disponible  Boolean  @default(true)
   status      String   @default("STOPPED")
   companyId   String   @default("")
@@ -104,6 +105,7 @@ model Machine {
   modele3d    Modele3d?
   controles   Controle[]
   maintenanceOrders MaintenanceOrder[]
+  predictions Prediction[]
 }
 
 model Modele3d {
@@ -138,12 +140,15 @@ model Telemetry {
   id        Int      @id @default(autoincrement())
   machineId String
   temp      Float    @default(0.0)
-  pression  Float    @default(0.0)
+  voltage   Float    @default(0.0)
   vibration Float    @default(0.0)
   magnet    Float    @default(0.0)
   presence  Int      @default(0)
   rpm       Int      @default(0)
   torque    Float    @default(0.0)
+  courant   Float    @default(0.0)
+  puissance Float    @default(0.0)
+  infrared  Float    @default(0.0)
   timestamp DateTime @default(now())
 }
 
@@ -271,4 +276,24 @@ model Notification {
   isRead         Boolean   @default(false)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+}
+
+model Prediction {
+  id             Int      @id @default(autoincrement())
+  machineId      String
+  status         String
+  riskPercentage Int
+  typePanne      String   @default("NORMAL")
+  diagnostic     String   @default("")
+  recommandation String   @default("")
+  urgence        String   @default("faible")
+  rulCycles      Float?
+  scenarioScores String   @default("{}")
+  createdAt      DateTime @default(now())
+
+  machine        Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@index([machineId])
+  @@index([status])
+  @@index([createdAt])
 }
