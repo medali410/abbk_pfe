@@ -228,14 +228,17 @@ class _LoginPageState extends State<LoginPage> {
                             letterSpacing: 2.0,
                           ),
                         ),
-                      Wrap(
-                        spacing: 40,
-                        alignment: WrapAlignment.center,
-                        children: [
-                          _buildFooterLink('CONFIDENTIALITÉ'),
-                          _buildFooterLink('CONDITIONS'),
-                          _buildFooterLink('SUPPORT TECHNIQUE'),
-                        ],
+                      Expanded(
+                        child: Wrap(
+                          spacing: 40,
+                          runSpacing: 16,
+                          alignment: WrapAlignment.center,
+                          children: [
+                            _buildFooterLink('CONFIDENTIALITÉ'),
+                            _buildFooterLink('CONDITIONS'),
+                            _buildFooterLink('SUPPORT TECHNIQUE'),
+                          ],
+                        ),
                       )
                     ],
                   ),
@@ -373,6 +376,8 @@ class _LoginPageState extends State<LoginPage> {
       final resolvedEmail = (response['email'] ?? email).toString().trim();
       if (ApiService.shouldOpenMaintenanceDashboard(resolvedEmail)) {
         role = 'maintenance';
+      } else if (ApiService.shouldOpenConcepteurDashboard(resolvedEmail)) {
+        role = 'concepteur';
       }
       final token =
           response['token']?.toString() ??
@@ -673,6 +678,8 @@ class _LoginPageState extends State<LoginPage> {
           (response['email'] ?? account.email ?? '').toString().trim();
       if (ApiService.shouldOpenMaintenanceDashboard(resolvedEmail)) {
         role = 'maintenance';
+      } else if (ApiService.shouldOpenConcepteurDashboard(resolvedEmail)) {
+        role = 'concepteur';
       }
       final token =
           response['token']?.toString() ??
@@ -783,6 +790,8 @@ class _LoginPageState extends State<LoginPage> {
     final oauthEmail = (qp['email'] ?? '').trim();
     if (ApiService.shouldOpenMaintenanceDashboard(oauthEmail)) {
       role = 'maintenance';
+    } else if (ApiService.shouldOpenConcepteurDashboard(oauthEmail)) {
+      role = 'concepteur';
     }
     if (token.isEmpty) return;
     await ApiService.saveAuth(token, role);

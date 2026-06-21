@@ -7,6 +7,7 @@ import 'machine_detail_ai_page.dart';
 import 'machine_detail_page.dart';
 import 'maintenance_ia_status.dart';
 import 'mission_control_page.dart';
+import 'send_mission_page.dart';
 import 'services/api_service.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'dart:async';
@@ -1104,27 +1105,23 @@ class _MachineDetailPanel extends StatelessWidget {
                           onPressed: () {
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(
-                                builder: (_) => MissionControlPage(
-                                  initialArgs: <String, dynamic>{
-                                    'machineId': id,
-                                    'techId': id,
-                                    'name': viewerName.isNotEmpty ? viewerName : 'Agent maintenance',
-                                    'machineName': name,
-                                    'viewerRole': 'maintenance',
-                                  },
+                                builder: (_) => SendMissionPage(
+                                  machineId: id,
+                                  machineName: name,
+                                  agentName: viewerName.isNotEmpty ? viewerName : 'Agent maintenance',
                                 ),
                               ),
                             );
                           },
-                          icon: const Icon(Icons.assignment_turned_in_outlined, size: 18),
-                          label: Text('Mission de contrôle', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13)),
+                          icon: const Icon(Icons.send_rounded, size: 18),
+                          label: Text('Envoyer une mission', style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 13)),
                           style: FilledButton.styleFrom(
-                            backgroundColor: _accent.withValues(alpha: 0.16),
-                            foregroundColor: _accent,
+                            backgroundColor: const Color(0xFFFF6E00).withOpacity(0.16),
+                            foregroundColor: const Color(0xFFFF6E00),
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
-                              side: BorderSide(color: _accent.withValues(alpha: 0.45)),
+                              side: BorderSide(color: const Color(0xFFFF6E00).withOpacity(0.45)),
                             ),
                           ),
                         ),

@@ -248,108 +248,127 @@ class _MachineConsultationPageState extends State<MachineConsultationPage> {
 
   Widget _buildPlanifierTab() {
     final formattedDate = DateFormat('EEEE d MMMM yyyy', 'fr_FR').format(_selectedDate);
-    return Padding(
-      padding: const EdgeInsets.all(24.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-            // Colonne de gauche: Choix Machine + Jeton Draggable
+    
+    final leftColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('1. Sélectionner une machine', style: GoogleFonts.inter(color: Colors.white70, fontSize: 16)),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1D1D38),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              dropdownColor: const Color(0xFF272743),
+              value: _selectedMachineId.isEmpty ? null : _selectedMachineId,
+              items: _machines.map((m) {
+                return DropdownMenuItem<String>(
+                  value: m['id']?.toString() ?? '',
+                  child: Text(m['name'] ?? m['id'], style: const TextStyle(color: Colors.white)),
+                );
+              }).toList(),
+              onChanged: (v) {
+                if (v != null) setState(() => _selectedMachineId = v);
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Text('2. Type de consultation', style: GoogleFonts.inter(color: Colors.white70, fontSize: 16)),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF1D1D38),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: TextField(
+            controller: _typeController,
+            onChanged: (val) => setState(() {}),
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: 'Ex: Maintenance préventive, réparation...',
+              hintStyle: TextStyle(color: Colors.white.withOpacity(0.3)),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            ),
+          ),
+        ),
+        const SizedBox(height: 40),
+        Text('3. Glisser ce jeton vers un créneau horaire', style: GoogleFonts.inter(color: Colors.white70, fontSize: 16)),
+        const SizedBox(height: 20),
+        Center(child: _buildDraggableToken()),
+      ],
+    );
+
+    final rightColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
             Expanded(
-              flex: 1,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('1. Sélectionner une machine', style: GoogleFonts.inter(color: Colors.white70, fontSize: 16)),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1D1D38),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        isExpanded: true,
-                        dropdownColor: const Color(0xFF272743),
-                        value: _selectedMachineId.isEmpty ? null : _selectedMachineId,
-                        items: _machines.map((m) {
-                          return DropdownMenuItem<String>(
-                            value: m['id']?.toString() ?? '',
-                            child: Text(m['name'] ?? m['id'], style: const TextStyle(color: Colors.white)),
-                          );
-                        }).toList(),
-                        onChanged: (v) {
-                          if (v != null) setState(() => _selectedMachineId = v);
-                        },
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Text('2. Type de consultation', style: GoogleFonts.inter(color: Colors.white70, fontSize: 16)),
-                  const SizedBox(height: 12),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1D1D38),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: TextField(
-                      controller: _typeController,
-                      onChanged: (val) => setState(() {}),
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        hintText: 'Ex: Maintenance préventive, réparation...',
-                        hintStyle: TextStyle(color: Colors.white.withOpacity(0.3)),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 40),
-                  Text('3. Glisser ce jeton vers un créneau horaire', style: GoogleFonts.inter(color: Colors.white70, fontSize: 16)),
-                  const SizedBox(height: 20),
-                  Center(child: _buildDraggableToken()),
-                ],
+              child: Text(
+                formattedDate, 
+                style: GoogleFonts.inter(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            const SizedBox(width: 40),
-            // Colonne de droite: Choix du jour et créneaux horaires
-            Expanded(
-              flex: 2,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(formattedDate, style: GoogleFonts.inter(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                      IconButton(
-                        icon: const Icon(Icons.calendar_month, color: Color(0xFFFF6E00)),
-                        onPressed: () async {
-                          final date = await showDatePicker(
-                            context: context,
-                            initialDate: _selectedDate,
-                            firstDate: DateTime.now(),
-                            lastDate: DateTime.now().add(const Duration(days: 365)),
-                          );
-                          if (date != null) {
-                            setState(() => _selectedDate = date);
-                          }
-                        },
-                      )
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  Expanded(
-                    child: ListView(
-                      children: _timeSlots.map((time) => _buildTimeSlot(time)).toList(),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            IconButton(
+              icon: const Icon(Icons.calendar_month, color: Color(0xFFFF6E00)),
+              onPressed: () async {
+                final date = await showDatePicker(
+                  context: context,
+                  initialDate: _selectedDate,
+                  firstDate: DateTime.now(),
+                  lastDate: DateTime.now().add(const Duration(days: 365)),
+                );
+                if (date != null) {
+                  setState(() => _selectedDate = date);
+                }
+              },
+            )
           ],
         ),
-      );
+        const SizedBox(height: 20),
+        Expanded(
+          child: ListView(
+            children: _timeSlots.map((time) => _buildTimeSlot(time)).toList(),
+          ),
+        ),
+      ],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth < 600) {
+            return Column(
+              children: [
+                Expanded(flex: 4, child: SingleChildScrollView(child: leftColumn)),
+                const SizedBox(height: 16),
+                const Divider(color: Colors.white24),
+                const SizedBox(height: 16),
+                Expanded(flex: 6, child: rightColumn),
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 1, child: SingleChildScrollView(child: leftColumn)),
+              const SizedBox(width: 40),
+              Expanded(flex: 2, child: rightColumn),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Widget _buildCalendrierTab() {

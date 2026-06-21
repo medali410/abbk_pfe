@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -12,8 +13,9 @@ import 'control_reports_history_page.dart';
 import 'machine_consultation_page.dart';
 import 'technician_dashboard_page.dart';
 import 'widgets/message_equipe_view.dart';
+import 'maintenance_ai_analysis_content.dart';
 
-enum _TechnicianEmbedPanel { none, calendar, history, dashboard, consultations, missionControl, profile, chat, machines }
+enum _TechnicianEmbedPanel { none, calendar, history, dashboard, consultations, missionControl, profile, chat, machines, analyseIa }
 
 class TechnicianProfilePage extends StatefulWidget {
   const TechnicianProfilePage({super.key});
@@ -75,6 +77,10 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   /// the FutureBuilder from re-triggering on every 1-second setState.
   Future<Map<String, dynamic>>? _machinesMappingFuture;
   String _machinesMappingFutureKey = ''; // invalidated when client / machines change
+
+  /// Cached Future for the Analyse IA panel.
+  Future<({List<String> ids, List<Map<String, dynamic>> machines})>? _analyseIaFuture;
+  String _analyseIaFutureKey = '';
 
   static const _bg = Color(0xFF10102B);
   static const _surfaceContainerLow = Color(0xFF191934);
@@ -284,6 +290,13 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                     letterSpacing: 0.8,
                   ),
                 ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+                icon: const Icon(Icons.close, color: Colors.white70, size: 20),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
               ),
             ],
           ),
@@ -1810,9 +1823,9 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
 
     return Scaffold(
       backgroundColor: _bg,
+      extendBody: true,
       body: Row(
         children: [
-          if (isDesktop) _buildSidebar(name, email, imageUrl, assignedMachineIds, companyIdForMachines),
           Expanded(
             child: Stack(
               children: [
@@ -1888,6 +1901,10 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                           ? ClipRect(
                               child: _buildMachinesMappingDetailsPanel(assignedMachineIds, companyIdForMachines),
                             )
+                          : _embedPanel == _TechnicianEmbedPanel.analyseIa
+                          ? ClipRect(
+                              child: _buildAnalyseIaPanel(assignedMachineIds, companyIdForMachines),
+                            )
                           : Column(
                             children: [
                               _buildTopHeader(args),
@@ -1957,7 +1974,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           ),
         ],
       ),
-      bottomNavigationBar: null,
+      bottomNavigationBar: _buildBottomNavBar(),
     );
   }
 
@@ -2231,144 +2248,82 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     );
   }
 
-  Widget _buildSidebar(
-    String name,
-    String email,
-    String imageUrl,
-    List<String> assignedMachineIds,
-    String companyIdForMachines,
-  ) {
+  Widget _buildBottomNavBar() {
     return Container(
-      width: 256,
-      color: _surfaceContainerLow,
-      child: Column(
-        children: [
-          // Profile section in sidebar
-          Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Row(
-              children: [
-                _buildTechnicianAvatar(
-                  imageUrl: imageUrl,
-                  width: 48,
-                  height: 48,
-                  borderRadius: BorderRadius.circular(100),
-                  iconSize: 24,
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        name,
-                        style: GoogleFonts.spaceGrotesk(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (email.isNotEmpty)
-                        Text(
-                          email,
-                          style: GoogleFonts.spaceGrotesk(
-                            color: _onSurfaceVariant.withOpacity(0.85),
-                            fontSize: 11,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        )
-                      else
-                        Text(
-                          'Technicien',
-                          style: GoogleFonts.spaceGrotesk(
-                            color: _onSurfaceVariant.withOpacity(0.7),
-                            fontSize: 10,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                    ],
-                  ),
-                ),
-              ],
+      margin: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+      decoration: BoxDecoration(
+        color: _surfaceContainerLow.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _onSurfaceVariant.withValues(alpha: 0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+            child: SafeArea(
+              top: false,
+              bottom: true,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildBottomNavItem(Icons.dashboard_outlined, 'Tableau de bord', _TechnicianEmbedPanel.dashboard),
+                  _buildBottomNavItem(Icons.event_outlined, 'Consultations', _TechnicianEmbedPanel.consultations),
+                  _buildBottomNavItem(Icons.rocket_launch_outlined, 'Mission Control', _TechnicianEmbedPanel.missionControl),
+                  _buildBottomNavItem(Icons.forum_outlined, 'Messagerie', _TechnicianEmbedPanel.chat),
+                  _buildBottomNavItem(Icons.precision_manufacturing_outlined, 'Machines', _TechnicianEmbedPanel.machines),
+                  _buildBottomNavItem(Icons.analytics_outlined, 'Analyse IA', _TechnicianEmbedPanel.analyseIa),
+                  _buildBottomNavItem(Icons.person_outline, 'Profil', _TechnicianEmbedPanel.profile),
+                ],
+              ),
             ),
           ),
-          _buildSidebarTile(
-            Icons.dashboard_outlined,
-            'Tableau de bord',
-            isActive: _embedPanel == _TechnicianEmbedPanel.dashboard,
-            onTap: () {
-              setState(() => _embedPanel = _TechnicianEmbedPanel.dashboard);
-            },
-          ),
-          _buildSidebarTile(
-            Icons.event_outlined,
-            'Consultations',
-            isActive: _embedPanel == _TechnicianEmbedPanel.consultations,
-            onTap: () {
-              setState(() => _embedPanel = _TechnicianEmbedPanel.consultations);
-            },
-          ),
-          _buildSidebarTile(
-            Icons.rocket_launch_outlined,
-            'Mission Control',
-            isActive: _embedPanel == _TechnicianEmbedPanel.missionControl,
-            onTap: () {
-              setState(() => _embedPanel = _TechnicianEmbedPanel.missionControl);
-            },
-          ),
-          _buildSidebarTile(
-            Icons.forum_outlined,
-            'Messagerie',
-            isActive: _embedPanel == _TechnicianEmbedPanel.chat,
-            onTap: () {
-              setState(() => _embedPanel = _TechnicianEmbedPanel.chat);
-            },
-          ),
-          _buildSidebarTile(
-            Icons.precision_manufacturing_outlined,
-            'Machines',
-            isActive: _embedPanel == _TechnicianEmbedPanel.machines,
-            onTap: () {
-              setState(() => _embedPanel = _TechnicianEmbedPanel.machines);
-            },
-          ),
-          _buildSidebarTile(
-            Icons.person_outline,
-            'Profil',
-            isActive: _embedPanel == _TechnicianEmbedPanel.profile,
-            onTap: () {
-              if (_embedPanel != _TechnicianEmbedPanel.profile) {
-                setState(() => _embedPanel = _TechnicianEmbedPanel.profile);
-              }
-            },
-          ),
-          const Spacer(),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildSidebarTile(IconData icon, String label, {bool isActive = false, bool isSmall = false, VoidCallback? onTap}) {
-    return Container(
-      margin: const EdgeInsets.only(right: 8),
-      decoration: BoxDecoration(
-        color: isActive ? _surfaceContainerHighest : Colors.transparent,
-        borderRadius: const BorderRadius.only(topRight: Radius.circular(24), bottomRight: Radius.circular(24)),
-      ),
-      child: ListTile(
-        leading: Icon(icon, color: isActive ? Colors.white : _onSurfaceVariant.withOpacity(0.7), size: isSmall ? 18 : 22),
-        title: Text(
-          label,
-          style: GoogleFonts.spaceGrotesk(
-            color: isActive ? Colors.white : _onSurfaceVariant.withOpacity(0.7),
-            fontSize: isSmall ? 12 : 14,
+  Widget _buildBottomNavItem(IconData icon, String label, _TechnicianEmbedPanel panel) {
+    final isActive = _embedPanel == panel;
+    return Expanded(
+      child: InkWell(
+        onTap: () {
+          setState(() => _embedPanel = panel);
+        },
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2.0, vertical: 8.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                color: isActive ? _secondary : _onSurfaceVariant.withValues(alpha: 0.7),
+                size: 24,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: GoogleFonts.spaceGrotesk(
+                  color: isActive ? _secondary : _onSurfaceVariant.withValues(alpha: 0.7),
+                  fontSize: 10,
+                  fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
         ),
-        onTap: onTap ?? () {},
-        dense: isSmall,
       ),
     );
   }
@@ -4686,35 +4641,61 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   }
 
   Widget _buildMobileBottomNav() {
-    return Container(
-      height: 72,
-      decoration: const BoxDecoration(
-        color: _surfaceContainerLow,
-        border: Border(top: BorderSide(color: Colors.white12)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildMobileNavIcon(Icons.analytics_outlined, 'Overview'),
-          _buildMobileNavIcon(Icons.route_outlined, 'Location'),
-          Container(
-            width: 48,
-            height: 48,
-            decoration: const BoxDecoration(color: _primaryContainer, shape: BoxShape.circle),
-            child: const Icon(Icons.person, color: Colors.black87),
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(36),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: Container(
+              height: 74,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(36),
+                border: Border.all(color: Colors.white.withOpacity(0.12)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildMobileNavIcon(Icons.analytics_rounded, 'Overview'),
+                  _buildMobileNavIcon(Icons.route_rounded, 'Location'),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Icon(Icons.person, color: Colors.white, size: 20),
+                      ),
+                      const SizedBox(height: 4),
+                      Text('Profile', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  _buildMobileNavIcon(Icons.precision_manufacturing_rounded, 'Fleet'),
+                  _buildMobileNavIcon(Icons.description_rounded, 'Docs'),
+                ],
+              ),
+            ),
           ),
-          _buildMobileNavIcon(Icons.precision_manufacturing_outlined, 'Fleet'),
-          _buildMobileNavIcon(Icons.description_outlined, 'Docs'),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildMobileNavIcon(IconData icon, String label) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(icon, color: _onSurfaceVariant, size: 20),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          child: Icon(icon, color: _onSurfaceVariant, size: 20),
+        ),
         const SizedBox(height: 4),
         Text(label, style: GoogleFonts.spaceGrotesk(color: _onSurfaceVariant, fontSize: 9)),
       ],
@@ -4737,6 +4718,45 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     final st = (m['status'] ?? '').toString().toUpperCase();
     if (st != 'RUNNING') return null;
     return _parseDebutSessionMarche(m) ?? _sessionDebutByMachineId[machineId];
+  }
+
+  Widget _buildAnalyseIaPanel(List<String> assignedMachineIds, String clientId) {
+    final cacheKey = '$clientId|${assignedMachineIds.join(",")}';
+    if (_analyseIaFuture == null || _analyseIaFutureKey != cacheKey) {
+      _analyseIaFutureKey = cacheKey;
+      _analyseIaFuture = _loadMachinesForProfileSection(assignedMachineIds, clientId, null);
+    }
+    return FutureBuilder<({List<String> ids, List<Map<String, dynamic>> machines})>(
+      future: _analyseIaFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: _secondary));
+        }
+        if (snapshot.hasError || snapshot.data == null) {
+          return Center(
+            child: Text(
+              'Impossible de charger les données IA.',
+              style: TextStyle(color: _onSurfaceVariant),
+            ),
+          );
+        }
+        final machines = snapshot.data!.machines;
+        final data = <String, dynamic>{'machines': machines};
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          child: MaintenanceAiAnalysisContent(
+            data: data,
+            onWorkspaceReload: () {
+              setState(() {
+                _analyseIaFuture = null;
+                _analyseIaFutureKey = '';
+              });
+            },
+            viewerRole: 'technician',
+          ),
+        );
+      },
+    );
   }
 
    Widget _buildMachinesMappingDetailsPanel(List<String> assignedMachineIds, String clientId) {
@@ -4896,13 +4916,15 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                             ),
                                           ),
                                           const SizedBox(height: 4),
-                                          Row(
+                                          Wrap(
+                                            spacing: 12,
+                                            runSpacing: 8,
+                                            crossAxisAlignment: WrapCrossAlignment.center,
                                             children: [
                                               Text(
                                                 'ID: $mId · Statut: $mStatus',
                                                 style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 12),
                                               ),
-                                              const SizedBox(width: 12),
                                               Container(
                                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                                 decoration: BoxDecoration(

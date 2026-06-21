@@ -6,17 +6,27 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:video_player/video_player.dart';
 import 'services/api_service.dart';
+import 'mission_control_page.dart';
+import 'send_mission_page.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 class AiAnalysisView extends StatefulWidget {
   final String machineId;
   final String machineName;
   final String motorType;
+  /// Si true, le bouton MISSION est masqué (vue client uniquement)
+  final bool isClientView;
+  final String viewerRole;
 
   const AiAnalysisView({
     super.key,
     required this.machineId,
     required this.machineName,
     this.motorType = 'EL_M',
+    this.isClientView = false,
+    this.viewerRole = 'maintenance',
   });
 
   @override
@@ -179,7 +189,11 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
   Widget _buildAdvancedHeader() {
     final statusColor = _machineStatusColor;
     final statusText = _machineStatus == 'CRITIQUE' ? 'Mode CRITIQUE' : 'Mode ${_machineStatus}';
-    return Row(
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 16,
+      runSpacing: 12,
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -209,14 +223,13 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
             ],
           ),
         ),
-        const Spacer(),
-        Row(
-          mainAxisSize: MainAxisSize.min,
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 6,
           children: [
             Container(width: 8, height: 8, decoration: const BoxDecoration(color: _green, shape: BoxShape.circle)),
-            const SizedBox(width: 6),
             Text('MQTT Live', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: _green)),
-            const SizedBox(width: 16),
+            const SizedBox(width: 10),
             Text(
               'Risque IA : $_gaugePercent%',
               style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: statusColor),
@@ -230,14 +243,17 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
   Widget _buildSensorsGrid() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final crossAxisCount = constraints.maxWidth > 900 ? 3 : (constraints.maxWidth > 600 ? 2 : 1);
+        // Toujours 2 colonnes sur mobile, 3 sur grand écran
+        final crossAxisCount = constraints.maxWidth > 900 ? 3 : 2;
+        // Ratio plus compact pour afficher 2 cartes côte à côte
+        final aspectRatio = constraints.maxWidth > 900 ? 2.0 : 1.55;
         return GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: crossAxisCount,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-          childAspectRatio: 2.3,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: aspectRatio,
           children: [
             _sensorTile('THERMIQUE', '${_diagTemperature.toStringAsFixed(1)} °C', Icons.thermostat, _diagTemperature > 50 ? _error : (_diagTemperature >= 35 ? _primary : _green)),
             _sensorTile('VOLTAGE', '${_diagVoltage.toStringAsFixed(1)} V', Icons.flash_on, _diagVoltage > 250 ? _error : _green),
@@ -292,53 +308,73 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
   }
 
   Widget _sensorTile(String label, String value, IconData icon, Color statusColor) {
+    final String statusLabel = statusColor == _error
+        ? 'DANGER'
+        : (statusColor == _primary ? 'RISQUE' : 'NORMAL');
     return Container(
       decoration: BoxDecoration(
-        color: _surfaceContainer.withOpacity(0.8),
+        color: _surfaceContainer.withOpacity(0.85),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: statusColor.withOpacity(0.18), width: 1),
       ),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
+          // En-tête : icône + label + badge statut
           Row(
             children: [
-              Icon(icon, size: 16, color: statusColor),
-              const SizedBox(width: 8),
+              Icon(icon, size: 14, color: statusColor),
+              const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   label,
-                  style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onSurfaceVariant, fontWeight: FontWeight.w700, letterSpacing: 1.0),
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 9,
+                    color: _onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: statusColor.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(5),
                 ),
                 child: Text(
-                  statusColor == _error
-                      ? 'DANGER'
-                      : (statusColor == _primary ? 'RISQUE' : 'NORMAL'),
-                  style: GoogleFonts.inter(fontSize: 8, fontWeight: FontWeight.w800, color: statusColor),
+                  statusLabel,
+                  style: GoogleFonts.inter(
+                    fontSize: 7,
+                    fontWeight: FontWeight.w800,
+                    color: statusColor,
+                    letterSpacing: 0.5,
+                  ),
                 ),
               ),
             ],
           ),
-          const Spacer(),
+          const SizedBox(height: 8),
+          // Valeur principale
           Text(
             value,
-            style: GoogleFonts.inter(fontSize: 26, fontWeight: FontWeight.w800, color: statusColor == _error ? _error : _onSurface),
+            style: GoogleFonts.inter(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: statusColor == _error ? _error : _onSurface,
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
+          // Barre de statut colorée
           Container(
             height: 3,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(2),
               gradient: LinearGradient(
-                colors: [statusColor, statusColor.withOpacity(0.1)],
+                colors: [statusColor, statusColor.withOpacity(0.08)],
               ),
             ),
           ),
@@ -963,7 +999,11 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white10),
       ),
-      child: Row(
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 16,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        alignment: WrapAlignment.spaceBetween,
         children: [
           Wrap(
             runSpacing: 10,
@@ -975,19 +1015,60 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
               _chipInfo('ÉTAT', _machineStatus, _machineStatusColor),
             ],
           ),
-          const Spacer(),
-          ElevatedButton.icon(
-            onPressed: () {
-              _showIaDetailsDialog();
-            },
-            icon: const Icon(Icons.auto_awesome, size: 18),
-            label: Text('IA', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 14)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _primary,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.end,
+            children: [
+              // Bouton MISSION : visible uniquement pour les agents de maintenance
+              if (!widget.isClientView && widget.viewerRole == 'maintenance')
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => SendMissionPage(
+                          machineId: widget.machineId,
+                          machineName: widget.machineName,
+                          agentName: 'Agent maintenance',
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.assignment, size: 18),
+                  label: Text('MISSION', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 14)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.deepPurpleAccent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ElevatedButton.icon(
+                onPressed: () {
+                  _showIaDetailsDialog();
+                },
+                icon: const Icon(Icons.auto_awesome, size: 18),
+                label: Text('IA', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 14)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: _downloadPdf,
+                icon: const Icon(Icons.download_rounded, size: 18),
+                label: Text('PDF', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 14)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2E7D32),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1047,6 +1128,150 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
       'recommandation': 'Programmer une maintenance préventive dans les prochains jours.',
     },
   };
+  Future<void> _downloadPdf() async {
+    final pdf = pw.Document();
+    final panneType = (_predictResult?['panne_type'] ?? _predictResult?['type_panne'] ?? 'NORMAL').toString().toUpperCase();
+    final localDiag = _localDiagnostics[panneType] ?? _localDiagnostics['NORMAL']!;
+    final diag = (_predictResult?['diagnostic'] != null && _predictResult!['diagnostic'].toString().isNotEmpty)
+        ? _predictResult!['diagnostic'].toString()
+        : localDiag['message']!;
+    final rec = (_predictResult?['recommandation'] != null && _predictResult!['recommandation'].toString().isNotEmpty)
+        ? _predictResult!['recommandation'].toString()
+        : localDiag['recommandation']!;
+    final risk = _predictResult?['prob_panne'] ?? _predictResult?['risk_percentage'] ?? 0;
+    final rul = (_predictResult?['rul_estime'] ?? _predictResult?['details']?['rul_cycles'])?.toString() ?? 'N/A';
+    final now = DateTime.now();
+    final dateStr = '${now.day.toString().padLeft(2,'0')}/${now.month.toString().padLeft(2,'0')}/${now.year} ${now.hour.toString().padLeft(2,'0')}:${now.minute.toString().padLeft(2,'0')}';
+
+    List<Map<String, dynamic>> missions = [];
+    try {
+      final result = await ApiService.getMissionsByMachineId(widget.machineId);
+      if (result is List) missions = result.cast<Map<String, dynamic>>();
+    } catch (_) {}
+
+    final historyRows = _history5Days.reversed.take(50).map((item) {
+      final dt = _readItemDate(item);
+      final temp = (item['temperature'] as num?)?.toDouble() ?? (item['metrics']?['thermal'] as num?)?.toDouble() ?? 0.0;
+      final vib = (item['vibration'] as num?)?.toDouble() ?? (item['metrics']?['vibration'] as num?)?.toDouble() ?? 0.0;
+      final volt = (item['voltage'] as num?)?.toDouble() ?? 0.0;
+      final state = (item['machineState'] ?? item['status'] ?? item['etat'] ?? 'N/A').toString();
+      final dateLabel = dt != null
+          ? '${dt.day.toString().padLeft(2,'0')}/${dt.month.toString().padLeft(2,'0')} ${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}'
+          : '--';
+      return [dateLabel, '${temp.toStringAsFixed(1)} °C', '${vib.toStringAsFixed(2)} mm/s', '${volt.toStringAsFixed(1)} V', state];
+    }).toList();
+
+    pdf.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(32),
+      header: (ctx) => pw.Container(
+        decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFF1A1A2E)),
+        padding: const pw.EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        child: pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+          pw.Text('ABBK PhysicsWorks', style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFFFF9F64))),
+          pw.Text('Rapport IA — $dateStr', style: pw.TextStyle(fontSize: 9, color: PdfColor.fromInt(0xFF9E9EAE))),
+        ]),
+      ),
+      build: (ctx) => [
+        pw.SizedBox(height: 16),
+        pw.Text('Rapport d\'analyse IA — ${widget.machineName}',
+            style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+        pw.Text('Machine ID : ${widget.machineId}',
+            style: pw.TextStyle(fontSize: 10, color: PdfColor.fromInt(0xFF666666))),
+        pw.SizedBox(height: 20),
+
+        // IA Summary
+        pw.Container(
+          padding: const pw.EdgeInsets.all(14),
+          decoration: pw.BoxDecoration(
+            border: pw.Border.all(color: PdfColor.fromInt(0xFFFF9F64), width: 1.5),
+            borderRadius: pw.BorderRadius.circular(8),
+          ),
+          child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+            pw.Text('ANALYSE IA', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 8),
+            pw.Row(children: [pw.Text('Risque global : ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)), pw.Text('$risk%')]),
+            pw.Row(children: [pw.Text('Type de panne : ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)), pw.Text(panneType)]),
+            pw.Row(children: [pw.Text('RUL : ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)), pw.Text(rul)]),
+            pw.SizedBox(height: 6),
+            pw.Text('Diagnostic :', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            pw.Text(diag),
+            pw.SizedBox(height: 4),
+            pw.Text('Recommandation :', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            pw.Text(rec),
+          ]),
+        ),
+        pw.SizedBox(height: 16),
+
+        // Sensors
+        pw.Text('CAPTEURS EN TEMPS RÉEL', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 6),
+        pw.Table(
+          border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFCCCCCC)),
+          children: [
+            pw.TableRow(
+              decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFF444444)),
+              children: ['Capteur', 'Valeur'].map((h) => pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(h, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 10)))).toList(),
+            ),
+            pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Température')), pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${_diagTemperature.toStringAsFixed(1)} °C'))]),
+            pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Vibration')), pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${_diagVibration.toStringAsFixed(2)} mm/s'))]),
+            pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Voltage')), pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${_diagVoltage.toStringAsFixed(1)} V'))]),
+            pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Magnétique')), pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${_diagMagnetic.toStringAsFixed(2)} mT'))]),
+            pw.TableRow(children: [pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Puissance')), pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${_diagPower.toStringAsFixed(1)} W'))]),
+          ],
+        ),
+        pw.SizedBox(height: 16),
+
+        // History
+        if (historyRows.isNotEmpty) ...[
+          pw.Text('HISTORIQUE TÉLÉMÉTRIE (${historyRows.length} enregistrements)', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 6),
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFCCCCCC)),
+            columnWidths: {0: const pw.FlexColumnWidth(2), 1: const pw.FlexColumnWidth(1.5), 2: const pw.FlexColumnWidth(1.5), 3: const pw.FlexColumnWidth(1.5), 4: const pw.FlexColumnWidth(1.5)},
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFF444444)),
+                children: ['Date', 'Temp.', 'Vibration', 'Voltage', 'État'].map((h) => pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(h, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 8)))).toList(),
+              ),
+              ...historyRows.map((row) => pw.TableRow(children: row.map((cell) => pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(cell, style: const pw.TextStyle(fontSize: 8)))).toList())),
+            ],
+          ),
+          pw.SizedBox(height: 16),
+        ],
+
+        // Missions
+        pw.Text('MISSIONS', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 6),
+        if (missions.isEmpty)
+          pw.Text('Aucune mission trouvée pour cette machine.', style: pw.TextStyle(fontSize: 10, color: PdfColor.fromInt(0xFF888888)))
+        else
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFCCCCCC)),
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFF444444)),
+                children: ['Titre', 'Statut', 'Priorité', 'Date'].map((h) => pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(h, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 9)))).toList(),
+              ),
+              ...missions.map((m) {
+                final mdt = m['createdAt']?.toString() ?? '--';
+                return pw.TableRow(children: [
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text((m['title'] ?? '').toString(), style: const pw.TextStyle(fontSize: 8))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text((m['status'] ?? '').toString(), style: const pw.TextStyle(fontSize: 8))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text((m['priority'] ?? '').toString(), style: const pw.TextStyle(fontSize: 8))),
+                  pw.Padding(padding: const pw.EdgeInsets.all(4), child: pw.Text(mdt.length > 10 ? mdt.substring(0, 10) : mdt, style: const pw.TextStyle(fontSize: 8))),
+                ]);
+              }),
+            ],
+          ),
+      ],
+    ));
+
+    await Printing.layoutPdf(
+      onLayout: (format) async => pdf.save(),
+      name: 'Rapport_IA_${widget.machineName.replaceAll(' ', '_')}.pdf',
+    );
+  }
 
   void _showIaDetailsDialog() {
     if (_predictResult == null) {
@@ -1097,8 +1322,11 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 16,
+                  runSpacing: 8,
                   children: [
                     Text(
                       'DÉTAILS DU MODÈLE IA',
@@ -2641,11 +2869,13 @@ class MaintenanceAiAnalysisMachineScreen extends StatelessWidget {
     required this.machineId,
     required this.machineName,
     this.motorType = 'EL_M',
+    this.viewerRole = 'maintenance',
   });
 
   final String machineId;
   final String machineName;
   final String motorType;
+  final String viewerRole;
 
   static const _bg = Color(0xFF10102B);
   static const _text = Color(0xFFE2DFFF);
@@ -2669,6 +2899,7 @@ class MaintenanceAiAnalysisMachineScreen extends StatelessWidget {
             machineId: machineId,
             machineName: machineName,
             motorType: motorType,
+            viewerRole: viewerRole,
           ),
         ),
       ),

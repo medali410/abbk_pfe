@@ -175,7 +175,7 @@ app.use((req, res) => {
     });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
     console.log('');
     console.log('==================================================');
     console.log('  DALI PFE — API Node.js + SQL (Prisma, MVC)');
@@ -186,4 +186,24 @@ server.listen(PORT, () => {
     console.log(`  Base   : ${process.env.DATABASE_URL.split('@')[1] || '(DATABASE_URL)'}`);
     console.log('==================================================');
     console.log('');
+
+    // Seed admin if not exists
+    const adminEmail = process.env.ADMIN_EMAIL;
+    if (adminEmail) {
+        try {
+            const existing = await prisma.user.findUnique({ where: { email: adminEmail.trim().toLowerCase() } });
+            if (!existing) {
+                const { createUserWithProfile } = require('./lib/auth');
+                await createUserWithProfile('admin', {
+                    email: adminEmail,
+                    nom: process.env.ADMIN_NOM || 'Administrateur DALI',
+                    password: process.env.ADMIN_PASSWORD || 'Admin2026!',
+                    adresse: 'Tunisie'
+                });
+                console.log('✅ Admin user created successfully from .env');
+            }
+        } catch (err) {
+            console.error('❌ Failed to seed admin user on startup:', err.message);
+        }
+    }
 });

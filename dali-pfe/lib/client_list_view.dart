@@ -610,6 +610,21 @@ class _ClientCardState extends State<_ClientCard> {
                       ),
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white54, size: 16),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ClientDetailPage(
+                            clientName: c.name,
+                            rawMap: widget.rawMap,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 ],
               ),
             ],

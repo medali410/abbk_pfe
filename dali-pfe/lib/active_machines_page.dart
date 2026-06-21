@@ -75,7 +75,9 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
   bool _loading = true;
   String? _loadError;
   List<Map<String, dynamic>> _clients = [];
+  List<_MachineListItem> _allItems = [];
   List<_MachineListItem> _items = [];
+  String _searchQuery = '';
   String? _filterClientId;
   String _sortKey = 'health_desc';
 
@@ -378,12 +380,11 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
         }),
       );
 
-      _applySort(enriched);
-
       if (!mounted) return;
       setState(() {
         _clients = clients;
-        _items = enriched;
+        _allItems = enriched;
+        _applyFilters();
         _loading = false;
       });
     } catch (e) {
@@ -446,6 +447,51 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
         ),
       );
     }
+  }
+
+  void _applyFilters() {
+    var filtered = _allItems;
+    if (_searchQuery.trim().isNotEmpty) {
+      final query = _searchQuery.trim().toLowerCase();
+      filtered = filtered.where((m) {
+        final matchName = m.displayName.toLowerCase().contains(query);
+        final matchLocation = m.location.toLowerCase().contains(query);
+        return matchName || matchLocation;
+      }).toList();
+    } else {
+      filtered = List.from(filtered);
+    }
+    _applySort(filtered);
+    _items = filtered;
+  }
+
+  Widget _buildSearchField(bool isDesktop) {
+    return Container(
+      width: isDesktop ? 300 : double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E2243).withOpacity(0.9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1.5),
+      ),
+      child: TextField(
+        style: GoogleFonts.spaceGrotesk(color: _onSurface, fontSize: 14),
+        decoration: InputDecoration(
+          hintText: 'Rechercher (nom, localisation)...',
+          hintStyle: GoogleFonts.spaceGrotesk(color: _onSurfaceVariant.withOpacity(0.5), fontSize: 14),
+          prefixIcon: Icon(Icons.search, color: _onSurfaceVariant.withOpacity(0.8), size: 18),
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+        ),
+        onChanged: (val) {
+          setState(() {
+            _searchQuery = val;
+            _applyFilters();
+          });
+        },
+      ),
+    );
   }
 
   Widget _buildClientFilter(bool isDesktop) {
@@ -516,10 +562,10 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
           ],
           onChanged: (v) {
             if (v == null) return;
-            setState(() => _sortKey = v);
-            final copy = List<_MachineListItem>.from(_items);
-            _applySort(copy);
-            setState(() => _items = copy);
+            setState(() {
+              _sortKey = v;
+              _applyFilters();
+            });
           },
         ),
       ),
@@ -534,6 +580,7 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
         runSpacing: 12,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
+          _buildSearchField(true),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -556,6 +603,8 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _buildSearchField(false),
+        const SizedBox(height: 12),
         Row(
           children: [
             Icon(Icons.filter_list, color: _secondary.withOpacity(0.6), size: 18),

@@ -380,9 +380,67 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
 
     final token = (qp['token'] ?? '').trim();
     if (token.isEmpty) return;
-    final role = (qp['role'] ?? 'client').trim();
+    var role = (qp['role'] ?? 'client').trim().toLowerCase();
+    final oauthEmail = (qp['email'] ?? '').trim();
+    if (ApiService.shouldOpenMaintenanceDashboard(oauthEmail)) {
+      role = 'maintenance';
+    } else if (ApiService.shouldOpenConcepteurDashboard(oauthEmail)) {
+      role = 'concepteur';
+    }
 
     await ApiService.saveAuth(token, role);
+
+    if (role == 'super_admin') role = 'superadmin';
+    if (role == 'company_admin') role = 'admin';
+
+    if (role == 'technician') {
+      final profile = ApiService.technicianProfileFromOAuthParams(qp);
+      await ApiService.clearStoredClientSession();
+      await ApiService.saveTechnicianSession(profile);
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(context, '/technician-profile', arguments: profile);
+      });
+      return;
+    }
+    if (role == 'maintenance') {
+      await ApiService.clearStoredClientSession();
+      await ApiService.clearSavedTechnicianProfile();
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(context, '/maintenance-dashboard');
+      });
+      return;
+    }
+    if (role == 'conception' || role == 'concepteur') {
+      await ApiService.clearStoredClientSession();
+      await ApiService.saveConcepteurSession({
+        'email': oauthEmail,
+        'name': (qp['name'] ?? '').trim(),
+        'nom': (qp['name'] ?? '').trim(),
+        'concepteurId': (qp['concepteurId'] ?? qp['id'] ?? '').toString(),
+        'id': (qp['id'] ?? '').toString(),
+        'adresse': (qp['adresse'] ?? '').trim(),
+        'location': (qp['location'] ?? '').trim(),
+      });
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(context, '/concepteur-dashboard');
+      });
+      return;
+    }
+    if (role == 'superadmin' || role == 'admin') {
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(context, '/dashboard');
+      });
+      return;
+    }
+
     await ApiService.saveClientSession(
       clientId: (qp['clientId'] ?? '').trim(),
       clientName: (qp['name'] ?? 'Client').trim(),
@@ -595,7 +653,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     });
   }
 
-  // â”€â”€ Colour tokens (mirror Tailwind config) â”€â”€
+  // ——— Colour tokens (mirror Tailwind config) ———
   static const _bg = Color(0xFF0F0F1E);
   static const _surfaceContainerLowest = Color(0xFF0B0B1A);
   static const _surfaceContainerLow = Color(0xFF161626);
@@ -619,28 +677,33 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
 
     return Scaffold(
       backgroundColor: _bg,
-      body: Row(
+      body: Stack(
         children: [
-          // â”€â”€ Sidebar â”€â”€
-          if (isDesktop) _buildSidebar(),
-          // â”€â”€ Main area â”€â”€
-          Expanded(
-            child: Column(
-              children: [
-                if (isDesktop) _buildTopBar(isDesktop),
-                if (!isDesktop) _buildMobileQuickActions(),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.all(isDesktop ? 32 : 14),
-                    child: _buildNavMainContent(isDesktop),
+          Column(
+            children: [
+              if (isDesktop) _buildTopBar(isDesktop),
+              if (!isDesktop) _buildMobileQuickActions(),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.only(
+                    left: isDesktop ? 32 : 14,
+                    right: isDesktop ? 32 : 14,
+                    top: isDesktop ? 32 : 14,
+                    bottom: isDesktop ? 120 : 14,
                   ),
+                  child: _buildNavMainContent(isDesktop),
                 ),
-              ],
-            ),
+              ),
+            ],
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _buildSidebar(),
           ),
         ],
       ),
-
     );
   }
 
@@ -700,6 +763,41 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     }
     // Fallback.
     return _buildMachineListSection(isDesktop);
+  }
+
+  /// Bouton action compact (icône + label) pour les cartes technicien
+  Widget _compactActionBtn({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.25)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: color),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildStatCard(String title, String value, IconData icon, Color color) {
@@ -1416,15 +1514,53 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           machineId: mid,
           machineName: mname,
           motorType: motor,
+          isClientView: true, // Cache le bouton MISSION pour les clients
         );
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildSubpageHeader(
-              title: 'Analyse IA',
-              subtitle: '$mname • $mid',
-              onBack: () {},
+            Row(
+              children: [
+                Expanded(
+                  child: _buildSubpageHeader(
+                    title: 'Analyse IA',
+                    subtitle: '$mname • $mid',
+                    onBack: () {},
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: _surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _outlineVariant.withOpacity(0.3)),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: mid,
+                      dropdownColor: _surfaceContainerHigh,
+                      style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.w600),
+                      icon: const Icon(Icons.arrow_drop_down, color: _secondary),
+                      items: machines.map((m) {
+                        final id = _clientMachineId(m);
+                        final name = _clientMachineName(m);
+                        return DropdownMenuItem(
+                          value: id,
+                          child: Text('$name • $id'),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            _iaSelectedMachine = machines.firstWhere((m) => _clientMachineId(m) == val);
+                          });
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             iaPanel,
@@ -1452,27 +1588,6 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         const SizedBox(height: 14),
         _buildClientCatalogToolbar(isDesktop),
         const SizedBox(height: 16),
-        _buildClientCatalogSectionHeader(
-          title: 'CATALOGUE DES SYSTEMES',
-          subtitle: 'Unites de surveillance haute precision',
-          isDesktop: isDesktop,
-          trailing: FutureBuilder<List<Map<String, dynamic>>>(
-            future: _publicCatalogFuture,
-            builder: (context, snapshot) {
-              final total = (snapshot.data ?? const <Map<String, dynamic>>[]).length;
-              return Text(
-                '$total machine(s) affichee(s)',
-                style: GoogleFonts.inter(
-                  color: _onSurfaceVariant.withOpacity(0.9),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 14),
-
         FutureBuilder<List<Map<String, dynamic>>>(
           future: _publicCatalogFuture,
           builder: (context, snapshot) {
@@ -1505,29 +1620,63 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               return _buildCatalogEmptyState();
             }
 
-            return GridView.builder(
-              itemCount: filtered.length,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: crossAxisCount,
-                crossAxisSpacing: 14,
-                mainAxisSpacing: 14,
-                childAspectRatio: crossAxisCount == 1 ? 0.92 : 1.02,
-              ),
-              itemBuilder: (context, i) {
-                final machine = filtered[i];
-                final machineId = (machine['machineId'] ?? machine['_id'] ?? machine['id'] ?? '').toString();
-                return _ClientPublicMachineCard(
-                  machine: machine,
-                  onRequireLogin: _openCatalogClientLogin,
-                  onBuy: () => _buyMachineFromClientHome(
-                    context,
-                    machineId: machineId,
-                    machine: machine,
+            final Map<String, List<Map<String, dynamic>>> grouped = {};
+            for (var m in filtered) {
+              final cName = (m['concepteurName'] ?? 'Inconnu').toString();
+              if (!grouped.containsKey(cName)) grouped[cName] = [];
+              grouped[cName]!.add(m);
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: grouped.entries.map((entry) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 30),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildClientCatalogSectionHeader(
+                        title: 'CATALOGUE DES SYSTEMES',
+                        subtitle: 'Concepteur ${entry.key}',
+                        isDesktop: isDesktop,
+                        trailing: Text(
+                          '${entry.value.length} machine(s) affichee(s)',
+                          style: GoogleFonts.inter(
+                            color: _onSurfaceVariant.withOpacity(0.9),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      GridView.builder(
+                        itemCount: entry.value.length,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          crossAxisSpacing: 14,
+                          mainAxisSpacing: 14,
+                          childAspectRatio: crossAxisCount == 1 ? 0.92 : 1.02,
+                        ),
+                        itemBuilder: (context, i) {
+                          final machine = entry.value[i];
+                          final machineId = (machine['machineId'] ?? machine['_id'] ?? machine['id'] ?? '').toString();
+                          return _ClientPublicMachineCard(
+                            machine: machine,
+                            onRequireLogin: _openCatalogClientLogin,
+                            onBuy: () => _buyMachineFromClientHome(
+                              context,
+                              machineId: machineId,
+                              machine: machine,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 );
-              },
+              }).toList(),
             );
           },
         ),
@@ -2923,99 +3072,50 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• SIDEBAR â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   Widget _buildSidebar() {
     return Container(
-      width: 256,
-      color: _surfaceContainerLowest,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Container(
-                  width: 180,
-                  height: 46,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.06),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Image.asset(
-                    'assets/images/abbk_logo.png',
-                    fit: BoxFit.contain,
-                    filterQuality: FilterQuality.high,
-                  ),
-                ),
-              ],
+      margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      height: 72,
+      decoration: BoxDecoration(
+        color: _bg.withOpacity(0.65),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _navItem(Icons.dashboard, 'Home', 0),
+                  _navItem(Icons.person_outline, 'Profil', 5),
+                  _navItem(Icons.precision_manufacturing, 'Mes Machines', 1),
+                  _navItem(Icons.auto_awesome, 'Analyse IA', 2),
+                  _navItem(Icons.groups, 'Équipe', 3),
+                  _navItem(Icons.description, 'Documents', 4),
+                ],
+              ),
             ),
           ),
-          // Nav items
-          _navItem(Icons.dashboard, 'Home', 0),
-          _navItem(Icons.person_outline, 'Profil', 5),
-          _navItem(Icons.precision_manufacturing, 'Mes Machines', 1),
-          _navItem(Icons.auto_awesome, 'Analyse IA', 2),
-          if (_navIndex == 2)
-            FutureBuilder<List<Map<String, dynamic>>>(
-              future: _machinesFuture,
-              builder: (context, snapshot) {
-                if (!snapshot.hasData || snapshot.data!.isEmpty) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.only(left: 48, top: 4, bottom: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: snapshot.data!.map((m) {
-                      final id = _clientMachineId(m);
-                      final name = _clientMachineName(m);
-                      final isActive = _iaSelectedMachine != null && 
-                                      (_clientMachineId(_iaSelectedMachine!) == id);
-                      return InkWell(
-                        onTap: () {
-                          setState(() {
-                            _iaSelectedMachine = m;
-                          });
-                        },
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                          child: Text(
-                            '$name • $id',
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              color: isActive ? _secondary : _onSurfaceVariant.withOpacity(0.6),
-                              fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                );
-              },
-            ),
-          _navItem(Icons.groups, 'Équipe Assignée', 3),
-          _navItem(Icons.description, 'Documents Techniques', 4),
-          if (MediaQuery.sizeOf(context).width >= 760)
-            const Spacer()
-          else
-            const SizedBox(height: 10),
-        ],
+        ),
       ),
     );
   }
 
   Widget _navItem(IconData icon, String label, int index) {
     final active = _navIndex == index;
-    return Material(
-      color: Colors.transparent,
+    return Tooltip(
+      message: label,
       child: InkWell(
         onTap: () {
           if (index == 1) {
@@ -3033,34 +3133,19 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           });
         },
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-          decoration: active
-              ? BoxDecoration(
-                  color: _surfaceContainerHigh.withOpacity(0.5),
-                  border: const Border(
-                    right: BorderSide(color: _primary, width: 2),
-                  ),
-                )
-              : null,
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                color: active ? _primary : _onSurfaceVariant.withOpacity(0.7),
-                size: 22,
-              ),
-              const SizedBox(width: 16),
-              Text(
-                label,
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 13,
-                  fontWeight:
-                      active ? FontWeight.bold : FontWeight.normal,
-                  color:
-                      active ? _primary : _onSurfaceVariant.withOpacity(0.7),
-                ),
-              ),
-            ],
+          margin: const EdgeInsets.only(right: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: active ? _primary.withOpacity(0.8) : Colors.white.withOpacity(0.1),
+            ),
+            borderRadius: BorderRadius.circular(14),
+            color: active ? _primary.withOpacity(0.1) : Colors.transparent,
+          ),
+          child: Icon(
+            icon,
+            color: active ? _primary : _onSurfaceVariant.withOpacity(0.7),
+            size: 24,
           ),
         ),
       ),
@@ -3162,6 +3247,11 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Row(
               children: [
+                Image.asset(
+                  'assets/images/abbk_logo.png',
+                  height: 36,
+                  filterQuality: FilterQuality.high,
+                ),
                 const Spacer(),
                 // Icons
                 _iconBtn(Icons.notifications_outlined),
@@ -3511,7 +3601,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   Widget _buildMobileQuickActions() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: _bg.withOpacity(0.85),
         border: Border(
@@ -3520,52 +3610,29 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       ),
       child: Row(
         children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: () => _openNotificationsPopover(),
-              icon: const Icon(Icons.notifications_outlined, size: 16),
-              label: const Text('Notifications'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _onSurfaceVariant,
-                side: BorderSide(color: _outlineVariant.withOpacity(0.45)),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
+          Image.asset(
+            'assets/images/abbk_logo.png',
+            height: 32,
+            filterQuality: FilterQuality.high,
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: _openProfileSettingsDialog,
-              icon: const Icon(Icons.settings_outlined, size: 16),
-              label: const Text('ParamÃ¨tres'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _onSurfaceVariant,
-                side: BorderSide(color: _outlineVariant.withOpacity(0.45)),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
+          const Spacer(),
+          IconButton(
+            onPressed: () => _openNotificationsPopover(),
+            icon: const Icon(Icons.notifications_outlined),
+            color: _onSurfaceVariant,
+            tooltip: 'Notifications',
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: _logoutClient,
-              icon: const Icon(Icons.logout, size: 16),
-              label: const Text('Quitter'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _error,
-                side: BorderSide(color: _error.withOpacity(0.45)),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
+          IconButton(
+            onPressed: _openProfileSettingsDialog,
+            icon: const Icon(Icons.settings_outlined),
+            color: _onSurfaceVariant,
+            tooltip: 'Paramètres',
+          ),
+          IconButton(
+            onPressed: _logoutClient,
+            icon: const Icon(Icons.logout),
+            color: _error,
+            tooltip: 'Quitter',
           ),
         ],
       ),
@@ -3990,37 +4057,41 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: _secondary.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: _secondary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.psychology, color: _secondary, size: 26),
                     ),
-                    child: const Icon(Icons.psychology, color: _secondary, size: 26),
-                  ),
-                  const SizedBox(width: 16),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Score de SantÃ© Global (IA)',
-                        style: GoogleFonts.inter(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: _onSurface,
-                        ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Score de SantÃ© Global (IA)',
+                            style: GoogleFonts.inter(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: _onSurface,
+                            ),
+                          ),
+                          Text(
+                            'BasÃ© sur 1.2M de points de donnÃ©es/heure',
+                            style: GoogleFonts.spaceGrotesk(
+                                fontSize: 11, color: _onSurfaceVariant),
+                          ),
+                        ],
                       ),
-                      Text(
-                        'BasÃ© sur 1.2M de points de donnÃ©es/heure',
-                        style: GoogleFonts.spaceGrotesk(
-                            fontSize: 11, color: _onSurfaceVariant),
-                      ),
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -4368,8 +4439,11 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 16,
+          runSpacing: 16,
           children: [
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -4396,6 +4470,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               ],
             ),
             Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 ElevatedButton.icon(
                   onPressed: _showConnectedCardsDialog,
@@ -4457,64 +4532,58 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           ),
         ),
         const SizedBox(height: 6),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
+        // Titre section équipe
+        Text(
+          'Techniciens disponibles pour votre site',
+          style: GoogleFonts.inter(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: _onSurface,
+            letterSpacing: -0.5,
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Boutons en Wrap pour éviter l'overflow sur mobile
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
           children: [
-            Expanded(
-              child: Text(
-                'Techniciens disponibles pour votre site',
-                style: GoogleFonts.inter(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: _onSurface,
-                  letterSpacing: -0.5,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
             ElevatedButton.icon(
               onPressed: _openAddTechnicianRequestDialog,
               style: ElevatedButton.styleFrom(
                 backgroundColor: _primary,
                 foregroundColor: Colors.white,
                 elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+              icon: const Icon(Icons.person_add_alt_1_rounded, size: 16),
               label: Text(
                 'Demander un technicien',
-                style: GoogleFonts.inter(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
+                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700),
               ),
             ),
-            const SizedBox(width: 10),
             ElevatedButton.icon(
               onPressed: () => _openAddTechnicianRequestDialog(
                 requestType: 'MAINTENANCE_ADD',
                 roleLabel: 'maintenance man',
-                requestedSpecialty: 'Maintenance opÃ©rationnelle',
+                requestedSpecialty: 'Maintenance opérationnelle',
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: _secondary,
                 foregroundColor: Colors.black,
                 elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              icon: const Icon(Icons.build_circle_outlined, size: 18),
+              icon: const Icon(Icons.build_circle_outlined, size: 16),
               label: Text(
                 'Demander maintenance man',
-                style: GoogleFonts.inter(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
+                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w700),
               ),
             ),
           ],
@@ -4605,77 +4674,146 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               final specialization =
                   (member['specialization'] ??
                           member['speciality'] ??
-                          (isMaintenance ? 'Maintenance operationnelle' : 'Maintenance terrain'))
+                          (isMaintenance ? 'Maintenance opérationnelle' : 'Maintenance terrain'))
                       .toString();
               final status = (member['status'] ?? 'Disponible').toString();
               final email = (member['email'] ?? '').toString().trim();
 
+              final bool isAvailable = status.toLowerCase().contains('dispo');
+              final Color statusColor = isAvailable ? _green : _primary;
+
               return Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 decoration: BoxDecoration(
                   color: _surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: _outlineVariant.withOpacity(0.2)),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: _outlineVariant.withOpacity(0.18)),
                 ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
+                    // ── Avatar ──────────────────────────
                     CircleAvatar(
-                      radius: 20,
-                      backgroundColor: _surfaceContainerHighest,
+                      radius: 24,
+                      backgroundColor: isMaintenance
+                          ? _primary.withOpacity(0.15)
+                          : _secondary.withOpacity(0.15),
                       backgroundImage: hasAvatar ? NetworkImage(imageUrl) : null,
                       child: hasAvatar
                           ? null
                           : Icon(
-                              isMaintenance ? Icons.build_circle_outlined : Icons.engineering,
-                              color: _onSurfaceVariant,
+                              isMaintenance
+                                  ? Icons.build_circle_outlined
+                                  : Icons.engineering,
+                              size: 22,
+                              color: isMaintenance ? _primary : _secondary,
                             ),
                     ),
                     const SizedBox(width: 12),
+                    // ── Infos ────────────────────────────
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            name,
-                            style: GoogleFonts.inter(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: _onSurface,
-                            ),
+                          // Nom + badge statut
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  name,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: _onSurface,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: statusColor.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      width: 6,
+                                      height: 6,
+                                      decoration: BoxDecoration(
+                                        color: statusColor,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      isAvailable ? 'Dispo' : status,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: statusColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
+                          const SizedBox(height: 2),
+                          // Spécialité
                           Text(
-                            '$specialization â€¢ $status',
-                            style: GoogleFonts.spaceGrotesk(
+                            specialization,
+                            style: GoogleFonts.inter(
                               fontSize: 11,
                               color: _onSurfaceVariant,
+                              fontWeight: FontWeight.w500,
                             ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
                           ),
-                          if (email.isNotEmpty)
+                          if (email.isNotEmpty) ...[
+                            const SizedBox(height: 1),
                             Text(
                               email,
                               style: GoogleFonts.inter(
-                                fontSize: 11,
-                                color: _onSurfaceVariant,
+                                fontSize: 10,
+                                color: _onSurfaceVariant.withOpacity(0.7),
                               ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
                             ),
+                          ],
+                          const SizedBox(height: 8),
+                          // ── Boutons compacts ───────────
+                          Row(
+                            children: [
+                              _compactActionBtn(
+                                icon: Icons.chat_bubble_outline_rounded,
+                                label: 'Message',
+                                color: _primary,
+                                onTap: () => _openMessageEquipeDialog(member),
+                              ),
+                              const SizedBox(width: 8),
+                              _compactActionBtn(
+                                icon: Icons.call_outlined,
+                                label: 'Appel',
+                                color: _green,
+                                onTap: () => _startCall(member),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
-                    ),
-                    TextButton.icon(
-                      onPressed: () => _openMessageEquipeDialog(member),
-                      icon: const Icon(Icons.message_outlined, size: 16),
-                      label: const Text('Message'),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton.icon(
-                      onPressed: () => _startCall(member),
-                      icon: const Icon(Icons.call_outlined, size: 16),
-                      label: const Text('Appel'),
                     ),
                   ],
                 ),
               );
             }
+
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -4732,6 +4870,9 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 '')
             .toString()
             .trim();
+
+    // CACHE MESSENGER BEFORE ANY ASYNC GAP
+    final messenger = ScaffoldMessenger.of(context);
 
     List<Map<String, dynamic>> clientMachines = const [];
     try {
@@ -4997,7 +5138,24 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                           ),
                           const SizedBox(width: 8),
                           ElevatedButton.icon(
-                            onPressed: () => Navigator.of(ctx).pop(true),
+                            onPressed: () {
+                              final ln = lastNameCtrl.text.trim();
+                              final fn = firstNameCtrl.text.trim();
+                              final em = emailCtrl.text.trim();
+                              if (ln.isEmpty || fn.isEmpty) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Le nom et le prénom sont obligatoires.')));
+                                return;
+                              }
+                              if (em.isEmpty) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('L\'email est obligatoire.')));
+                                return;
+                              }
+                              if (selectedMachineIds.isEmpty) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Sélectionnez au moins une machine concernée.')));
+                                return;
+                              }
+                              Navigator.of(ctx).pop(true);
+                            },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: _primary,
                               foregroundColor: Colors.white,
@@ -5054,25 +5212,6 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     locationCtrl.dispose();
     descriptionCtrl.dispose();
 
-    if (lastName.isEmpty || firstName.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Le nom et le prÃ©nom sont obligatoires.')),
-      );
-      return;
-    }
-    if (email.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('L\'email est obligatoire.')),
-      );
-      return;
-    }
-    if (selectedMachineIds.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('SÃ©lectionnez au moins une machine concernÃ©e.')),
-      );
-      return;
-    }
-
     final firstMachineId = selectedMachineIds.first;
 
     try {
@@ -5089,17 +5228,17 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         'requestedMachineIds': selectedMachineIds.toList(),
       });
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
-          content: Text('Demande de $roleLabel envoyÃ©e au Concepteur.'),
+          content: Text('Demande de $roleLabel envoyée au Concepteur.'),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
-          content: Text('Ã‰chec de l\'envoi: $e'),
+          content: Text('Échec de l\'envoi: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -6046,7 +6185,10 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(m['name'] ?? 'Machine', style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.bold, color: _onSurface)),
-                    Row(
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
@@ -6060,12 +6202,10 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                             style: GoogleFonts.spaceGrotesk(fontSize: 10, fontWeight: FontWeight.w600, color: _secondary),
                           ),
                         ),
-                        const SizedBox(width: 6),
                         Text(
                           m['motorType'] ?? m['type'] ?? 'Standard',
                           style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onSurfaceVariant),
                         ),
-                        const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(color: _primary.withOpacity(0.2), borderRadius: BorderRadius.circular(4)),

@@ -148,5 +148,139 @@
     ],
     "coordinationNotes": [],
     "createdAt": "2026-06-16T15:49:35.479Z"
+  },
+  {
+    "id": "1781721683224",
+    "machineId": "MAC-TEST-VERIN",
+    "technicianId": "",
+    "scenarioType": "DEFAULT",
+    "summary": "",
+    "status": "PENDING",
+    "messages": [],
+    "coordinationNotes": [
+      {
+        "id": "1781721683314",
+        "content": "[NORMAL] Mission pour MAC-TEST-VERIN\n\nefhgdkhfsd",
+        "authorName": "Agent maintenance",
+        "isMission": true,
+        "missionStatus": "SENT",
+        "createdAt": "2026-06-17T18:41:23.314Z"
+      }
+    ],
+    "createdAt": "2026-06-17T18:41:23.224Z"
+  },
+  {
+    "id": "1781739664247",
+    "machineId": "MAC-TEST-VERIN",
+    "technicianId": "TEC-1C05C0",
+    "scenarioType": "DEFAULT",
+    "summary": "",
+    "status": "PENDING",
+    "messages": [],
+    "coordinationNotes": [
+      {
+        "id": "1781739664300",
+        "content": "[MISSION → lemjid hassine]\n\nr1",
+        "authorName": "Agent maintenance",
+        "isMission": true,
+        "missionStatus": "SENT",
+        "createdAt": "2026-06-17T23:41:04.300Z"
+      }
+    ],
+    "createdAt": "2026-06-17T23:41:04.247Z"
+  },
+  {
+    "id": "1781739778690",
+    "machineId": "MAC-TEST-VERIN",
+    "technicianId": "TEC-1C05C0",
+    "scenarioType": "DEFAULT",
+    "summary": "",
+    "status": "PENDING",
+    "messages": [],
+    "coordinationNotes": [
+      {
+        "id": "1781739778912",
+        "content": "[MISSION → lemjid hassine]\n\ndali",
+        "authorName": "Agent maintenance",
+        "isMission": true,
+        "missionStatus": "SENT",
+        "createdAt": "2026-06-17T23:42:58.912Z"
+      }
+    ],
+    "createdAt": "2026-06-17T23:42:58.690Z"
+  },
+  {
+    "id": "1781740335606",
+    "machineId": "MAC-TEST-VERIN",
+    "technicianId": "TEC-1C05C0",
+    "scenarioType": "DEFAULT",
+    "summary": "",
+    "status": "PENDING",
+    "messages": [],
+    "coordinationNotes": [
+      {
+        "id": "1781740335727",
+        "content": "[MISSION → lemjid hassine]\n\nwc",
+        "authorName": "Agent maintenance",
+        "isMission": true,
+        "missionStatus": "COMPLETED",
+        "createdAt": "2026-06-17T23:52:15.727Z",
+        "missionConfirmedAt": "2026-06-19T18:12:13.836Z",
+        "missionCompletedAt": "2026-06-19T18:12:15.495Z"
+      },
+      {
+        "id": "1781740789455",
+        "content": "[MISSION → lemjid hassine]\n\njawk bhy",
+        "authorName": "Agent maintenance",
+        "isMission": true,
+        "missionStatus": "COMPLETED",
+        "createdAt": "2026-06-17T23:59:49.455Z",
+        "missionConfirmedAt": "2026-06-18T00:00:19.864Z",
+        "missionCompletedAt": "2026-06-18T00:00:22.304Z"
+      },
+      {
+        "id": "1781740854988",
+        "content": "[MISSION → lemjid hassine]\n\nf1",
+        "authorName": "Agent maintenance",
+        "isMission": true,
+        "missionStatus": "COMPLETED",
+        "createdAt": "2026-06-18T00:00:54.988Z",
+        "missionConfirmedAt": "2026-06-18T00:00:59.217Z",
+        "missionCompletedAt": "2026-06-19T18:13:36.073Z"
+      },
+      {
+        "id": "1781741736463",
+        "content": "[MISSION → lemjid hassine]\n\ntw tw",
+        "authorName": "Agent maintenance",
+        "isMission": true,
+        "missionStatus": "COMPLETED",
+        "createdAt": "2026-06-18T00:15:36.463Z",
+        "missionConfirmedAt": "2026-06-19T00:05:42.454Z",
+        "missionCompletedAt": "2026-06-19T00:05:43.841Z"
+      }
+    ],
+    "createdAt": "2026-06-17T23:52:15.606Z"
+  },
+  {
+    "id": "1782068588984",
+    "machineId": "MAC-54326404",
+    "technicianId": "TEC-638FD8",
+    "scenarioType": "DEFAULT",
+    "summary": "",
+    "status": "PENDING",
+    "messages": [],
+    "coordinationNotes": [
+      {
+        "id": "1782068589030",
+        "content": "[MISSION → lemjid moh]\n\ncontrol capteur",
+        "authorName": "Agent maintenance",
+        "isMission": true,
+        "missionStatus": "COMPLETED",
+        "createdAt": "2026-06-21T19:03:09.030Z",
+        "missionConfirmedAt": "2026-06-21T19:03:52.412Z",
+        "missionCompletedAt": "2026-06-21T19:03:53.758Z"
+      }
+    ],
+    "createdAt": "2026-06-21T19:03:08.984Z"
   }
 ]

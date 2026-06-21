@@ -95,10 +95,68 @@ class _HomePageState extends State<HomePage> {
     }
 
     final token = (qp['token'] ?? '').trim();
-    final role = (qp['role'] ?? 'client').trim();
+    var role = (qp['role'] ?? 'client').trim().toLowerCase();
+    final oauthEmail = (qp['email'] ?? '').trim();
+    if (ApiService.shouldOpenMaintenanceDashboard(oauthEmail)) {
+      role = 'maintenance';
+    } else if (ApiService.shouldOpenConcepteurDashboard(oauthEmail)) {
+      role = 'concepteur';
+    }
     if (token.isEmpty) return;
 
     await ApiService.saveAuth(token, role);
+
+    if (role == 'super_admin') role = 'superadmin';
+    if (role == 'company_admin') role = 'admin';
+
+    if (role == 'technician') {
+      final profile = ApiService.technicianProfileFromOAuthParams(qp);
+      await ApiService.clearStoredClientSession();
+      await ApiService.saveTechnicianSession(profile);
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(context, '/technician-profile', arguments: profile);
+      });
+      return;
+    }
+    if (role == 'maintenance') {
+      await ApiService.clearStoredClientSession();
+      await ApiService.clearSavedTechnicianProfile();
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(context, '/maintenance-dashboard');
+      });
+      return;
+    }
+    if (role == 'conception' || role == 'concepteur') {
+      await ApiService.clearStoredClientSession();
+      await ApiService.saveConcepteurSession({
+        'email': oauthEmail,
+        'name': (qp['name'] ?? '').trim(),
+        'nom': (qp['name'] ?? '').trim(),
+        'concepteurId': (qp['concepteurId'] ?? qp['id'] ?? '').toString(),
+        'id': (qp['id'] ?? '').toString(),
+        'adresse': (qp['adresse'] ?? '').trim(),
+        'location': (qp['location'] ?? '').trim(),
+      });
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(context, '/concepteur-dashboard');
+      });
+      return;
+    }
+    if (role == 'superadmin' || role == 'admin') {
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(context, '/dashboard');
+      });
+      return;
+    }
+
     await ApiService.saveClientSession(
       clientId: (qp['clientId'] ?? '').trim(),
       clientName: (qp['name'] ?? 'Client').trim(),
@@ -244,18 +302,6 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                   ),
                                   const SizedBox(height: 18),
-                                  _buildEntrance(
-                                    delayMs: 105,
-                                    child: KeyedSubtree(
-                                      key: _catalogSectionKey,
-                                      child: _buildSectionHeader(
-                                        title: 'Catalogue des systemes',
-                                        subtitle:
-                                            '${filteredMachines.length} machine(s) affichee(s)',
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 14),
                                   if (snapshot.connectionState ==
                                       ConnectionState.waiting)
                                     _buildEntrance(
@@ -280,12 +326,44 @@ class _HomePageState extends State<HomePage> {
                                       child: _buildEmpty(),
                                     )
                                   else
-                                    _buildEntrance(
-                                      delayMs: 120,
-                                      child: _buildGrid(
-                                        filteredMachines,
-                                        crossAxisCount:
-                                            isDesktop ? 3 : (isTablet ? 2 : 1),
+                                    KeyedSubtree(
+                                      key: _catalogSectionKey,
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        children: (() {
+                                          final Map<String, List<Map<String, dynamic>>> grouped = {};
+                                          for (var m in filteredMachines) {
+                                            final cName = (m['concepteurName'] ?? 'Inconnu').toString();
+                                            if (!grouped.containsKey(cName)) grouped[cName] = [];
+                                            grouped[cName]!.add(m);
+                                          }
+                                          return grouped.entries.map((entry) {
+                                            return Padding(
+                                              padding: const EdgeInsets.only(bottom: 30),
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                                children: [
+                                                  _buildEntrance(
+                                                    delayMs: 105,
+                                                    child: _buildSectionHeader(
+                                                      title: 'Catalogue des systemes',
+                                                      subtitle: '${entry.value.length} machine(s) affichee(s)',
+                                                      largeTitle: 'Concepteur ${entry.key}',
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 14),
+                                                  _buildEntrance(
+                                                    delayMs: 120,
+                                                    child: _buildGrid(
+                                                      entry.value,
+                                                      crossAxisCount: isDesktop ? 3 : (isTablet ? 2 : 1),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          }).toList();
+                                        })(),
                                       ),
                                     ),
                                   const SizedBox(height: 26),
@@ -1025,6 +1103,7 @@ class _HomePageState extends State<HomePage> {
   Widget _buildSectionHeader({
     required String title,
     required String subtitle,
+    String? largeTitle,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1044,7 +1123,7 @@ class _HomePageState extends State<HomePage> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Unites de surveillance haute precision',
+                largeTitle ?? 'Unites de surveillance haute precision',
                 style: GoogleFonts.inter(
                   color: Colors.white,
                   fontSize: constraints.maxWidth < 400 ? 22 : 26,
@@ -1073,14 +1152,14 @@ class _HomePageState extends State<HomePage> {
                     title.toUpperCase(),
                     style: GoogleFonts.inter(
                       color: const Color(0xFFFFB87A),
-                      fontSize: 11,
-                      letterSpacing: 2.2,
+                      fontSize: 12,
+                      letterSpacing: 2.4,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Unites de surveillance haute precision',
+                    largeTitle ?? 'Unites de surveillance haute precision',
                     style: GoogleFonts.inter(
                       color: Colors.white,
                       fontSize: 34,

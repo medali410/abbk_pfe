@@ -95,7 +95,10 @@ class _TechnicianDashboardPageState extends State<TechnicianDashboardPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Missions En Attente', style: GoogleFonts.inter(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              Expanded(
+                child: Text('Missions En Attente', style: GoogleFonts.inter(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(color: _primary.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
@@ -165,7 +168,9 @@ class _TechnicianDashboardPageState extends State<TechnicianDashboardPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Mes Consultations', style: GoogleFonts.inter(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              Expanded(
+                child: Text('Mes Consultations', style: GoogleFonts.inter(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
               IconButton(
                 icon: const Icon(Icons.add_circle, color: _secondary),
                 onPressed: () => Navigator.pushNamed(context, '/machine-consultation'),
@@ -250,13 +255,27 @@ class _TechnicianDashboardPageState extends State<TechnicianDashboardPage> {
               ],
             ),
             const SizedBox(height: 32),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(flex: 2, child: _buildMissionsList()),
-                const SizedBox(width: 20),
-                Expanded(flex: 1, child: _buildConsultationsList()),
-              ],
+            LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth < 600) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildMissionsList(),
+                      const SizedBox(height: 20),
+                      _buildConsultationsList(),
+                    ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 2, child: _buildMissionsList()),
+                    const SizedBox(width: 20),
+                    Expanded(flex: 1, child: _buildConsultationsList()),
+                  ],
+                );
+              },
             ),
           ],
         ),

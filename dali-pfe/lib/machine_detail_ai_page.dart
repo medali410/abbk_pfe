@@ -253,7 +253,7 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
   Future<void> _checkActiveIntervention() async {
     try {
       final interventions = await ApiService.getDiagnosticInterventions();
-      final active = interventions.firstWhere(
+      final active = interventions.lastWhere(
         (i) => i['machineId'] == _machineId && i['status'] != 'CLOSED',
         orElse: () => <String, dynamic>{},
       );
@@ -2005,56 +2005,70 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Icon(
-                Icons.sensors_rounded,
-                size: 18,
-                color: _orange.withOpacity(0.9),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.sensors_rounded,
+                    size: 18,
+                    color: _orange.withOpacity(0.9),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'TÉLÉMÉTRIE LIVE',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: _text,
+                      letterSpacing: 1.4,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
-              Text(
-                'TÉLÉMÉTRIE LIVE',
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: _text,
-                  letterSpacing: 1.4,
-                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: _socketConnected ? Colors.greenAccent : Colors.orangeAccent,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _socketConnected ? 'CONNECTÉ' : 'DÉCONNECTÉ',
+                    style: GoogleFonts.inter(
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      color: _socketConnected ? Colors.greenAccent : Colors.orangeAccent,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: _socketConnected ? Colors.greenAccent : Colors.orangeAccent,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                _socketConnected ? 'CONNECTÉ' : 'DÉCONNECTÉ',
-                style: GoogleFonts.inter(
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                  color: _socketConnected ? Colors.greenAccent : Colors.orangeAccent,
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Spacer(),
-              Icon(
-                Icons.wifi_rounded,
-                size: 11,
-                color: _wifiConnected ? Colors.greenAccent : const Color(0xFFFF5252),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '$_wifiRssi dBm · $_zone',
-                style: GoogleFonts.inter(
-                  fontSize: 9,
-                  color: _wifiConnected ? Colors.greenAccent : const Color(0xFFFF5252),
-                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.wifi_rounded,
+                    size: 11,
+                    color: _wifiConnected ? Colors.greenAccent : const Color(0xFFFF5252),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '$_wifiRssi dBm · $_zone',
+                    style: GoogleFonts.inter(
+                      fontSize: 9,
+                      color: _wifiConnected ? Colors.greenAccent : const Color(0xFFFF5252),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -2258,8 +2272,11 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Text(
                           'DERNIÈRES VALEURS CAPTEURS',

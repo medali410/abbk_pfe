@@ -29,7 +29,7 @@ class _MachineHistoryViewState extends State<MachineHistoryView> {
     _missionsFuture = ApiService.getMaintenanceOrders(machineId: widget.machineId);
     _controlesFuture = widget.machineId != null 
         ? ApiService.getControlesForMachine(widget.machineId!) 
-        : Future.value([]);
+        : ApiService.getControles();
   }
 
   void _reloadHistory() {
@@ -38,7 +38,7 @@ class _MachineHistoryViewState extends State<MachineHistoryView> {
       _missionsFuture = ApiService.getMaintenanceOrders(machineId: widget.machineId);
       _controlesFuture = widget.machineId != null 
           ? ApiService.getControlesForMachine(widget.machineId!) 
-          : Future.value([]);
+          : ApiService.getControles();
     });
   }
 
@@ -329,11 +329,12 @@ class _MachineHistoryViewState extends State<MachineHistoryView> {
   }
 
   Widget _controleCard(Map<String, dynamic> r) {
-    final title = (r['type'] ?? 'Contrôle').toString();
     final tech = (r['technicienNom'] ?? 'Technicien').toString();
     final status = (r['statut'] ?? 'EN_ATTENTE').toString();
     final date = r['jour'] ?? r['createdAt']?.toString().split('T').first ?? '—';
     final notes = (r['compteRendu'] ?? '').toString();
+    final machineName = r['machine']?['name']?.toString() ?? r['machineId']?.toString() ?? 'Machine';
+    final agentName = r['maintenanceAgentNom']?.toString() ?? 'ons hammami';
 
     Color statusColor = Colors.purpleAccent;
     if (status == 'TERMINE') statusColor = Colors.greenAccent;
@@ -362,16 +363,21 @@ class _MachineHistoryViewState extends State<MachineHistoryView> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '$title - $tech',
+                      machineName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: _onSurface, fontSize: 14),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      notes.isNotEmpty ? notes : 'Aucun compte-rendu',
-                      style: GoogleFonts.spaceGrotesk(color: _onVariant, fontSize: 12),
-                      maxLines: 2,
+                      'Agent: $agentName  •  Technicien: $tech',
+                      style: GoogleFonts.spaceGrotesk(color: _onVariant.withOpacity(0.8), fontSize: 11),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      notes.isNotEmpty ? 'Message: $notes' : 'Aucun message de mission',
+                      style: GoogleFonts.spaceGrotesk(color: Colors.white.withOpacity(0.7), fontSize: 12),
+                      maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],

@@ -2,15 +2,55 @@ const MachineModel = require('../models/machineModel');
 const { serializeMachine } = require('../views/machineView');
 const { validateCreateMachine, validateUpdateMachine } = require('../lib/validators');
 
+async function getUserConcepteurId(req) {
+    if (req.auth?.concepteurId) return String(req.auth.concepteurId);
+    if (!req.auth?.userId) return null;
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    const c = await prisma.concepteur.findUnique({ where: { userId: Number(req.auth.userId) } });
+    return c ? String(c.id) : String(req.auth.userId);
+}
+
 async function list(req, res) {
     try {
         const catalog = String(req.query.catalog || '') === '1';
         const includeAll = String(req.query.includeAllMongo || '') === '1';
         const unassigned = String(req.query.unassigned || '') === '1';
         const concepterId = req.query.concepterId || null;
-        const rows = await MachineModel.findMany({ catalog, includeAll, unassigned, concepterId });
+        const maintenanceAgentId = req.query.maintenanceAgentId || null;
+
+        let rows = await MachineModel.findMany({ catalog, includeAll, unassigned, concepterId });
+        
+        if (maintenanceAgentId) {
+            const { prisma } = require('../lib/prisma');
+            const agent = await prisma.maintenanceAgent.findFirst({
+                where: { OR: [ { maintenanceAgentId }, { userId: parseInt(maintenanceAgentId) || 0 } ] }
+            });
+            if (agent) {
+                let mIds = [];
+                try { mIds = JSON.parse(agent.machineIds || '[]'); } catch(e) {}
+                rows = rows.filter(m => mIds.includes(String(m.id)) || mIds.includes(String(m._id)));
+            } else {
+                rows = [];
+            }
+        }
+        
+        const { PrismaClient } = require('@prisma/client');
+        const prisma = new PrismaClient();
+        const concepteurs = await prisma.concepteur.findMany({ include: { user: true } });
+        const concepteurMap = {};
+        concepteurs.forEach(c => {
+            concepteurMap[String(c.id)] = c.user?.nom || 'Inconnu';
+        });
+
+        const serializedRows = rows.map(m => {
+            const sm = serializeMachine(m);
+            sm.concepteurName = concepteurMap[sm.concepteurId] || 'Inconnu';
+            return sm;
+        });
+
         res.set('Cache-Control', 'no-store');
-        return res.json(rows.map(serializeMachine));
+        return res.json(serializedRows);
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
@@ -43,6 +83,15 @@ async function stop(req, res) {
     try {
         const { machineId } = req.params;
         const { reason, stoppedBy } = req.body;
+        const existing = await MachineModel.findById(machineId);
+        if (!existing) return res.status(404).json({ error: 'Machine introuvable' });
+
+        if (req.auth?.role === 'conception' || req.auth?.role === 'concepteur') {
+            const userConcepteurId = await getUserConcepteurId(req);
+            if (existing.concepteurId && String(existing.concepteurId) !== userConcepteurId) {
+                return res.status(403).json({ error: 'Accès en lecture seule. Vous ne pouvez arrêter que vos propres machines.' });
+            }
+        }
 
         console.log(`🛑 ARRÊT D'URGENCE machine ${machineId} par ${stoppedBy || 'inconnu'}. Raison: ${reason || 'non spécifiée'}`);
 
@@ -60,6 +109,16 @@ async function stop(req, res) {
 async function remove(req, res) {
     try {
         const { machineId } = req.params;
+        const row = await MachineModel.findById(machineId);
+        if (!row) return res.status(404).json({ error: 'Machine introuvable' });
+        
+        if (req.auth?.role === 'conception' || req.auth?.role === 'concepteur') {
+            const userConcepteurId = await getUserConcepteurId(req);
+            if (row.concepteurId && String(row.concepteurId) !== userConcepteurId) {
+                return res.status(403).json({ error: 'Accès en lecture seule. Vous ne pouvez supprimer que vos propres machines.' });
+            }
+        }
+
         await MachineModel.remove(machineId);
         return res.json({
             success: true,
@@ -74,6 +133,16 @@ async function remove(req, res) {
 async function update(req, res) {
     try {
         const { machineId } = req.params;
+        const existing = await MachineModel.findById(machineId);
+        if (!existing) return res.status(404).json({ error: 'Machine introuvable' });
+
+        if (req.auth?.role === 'conception' || req.auth?.role === 'concepteur') {
+            const userConcepteurId = await getUserConcepteurId(req);
+            if (existing.concepteurId && String(existing.concepteurId) !== userConcepteurId) {
+                return res.status(403).json({ error: 'Accès en lecture seule. Vous ne pouvez modifier que vos propres machines.' });
+            }
+        }
+
         const updateErrors = validateUpdateMachine(req.body);
         if (updateErrors.length > 0) {
             return res.status(400).json({ error: updateErrors.join(' | '), errors: updateErrors });
@@ -88,6 +157,16 @@ async function update(req, res) {
 async function start(req, res) {
     try {
         const { machineId } = req.params;
+        const existing = await MachineModel.findById(machineId);
+        if (!existing) return res.status(404).json({ error: 'Machine introuvable' });
+
+        if (req.auth?.role === 'conception' || req.auth?.role === 'concepteur') {
+            const userConcepteurId = await getUserConcepteurId(req);
+            if (existing.concepteurId && String(existing.concepteurId) !== userConcepteurId) {
+                return res.status(403).json({ error: 'Accès en lecture seule. Vous ne pouvez démarrer que vos propres machines.' });
+            }
+        }
+
         console.log(`🚀 DÉMARRAGE machine ${machineId}`);
         const row = await MachineModel.updateStatus(machineId, 'RUNNING');
         return res.json({

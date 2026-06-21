@@ -1,9 +1,12 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 
 import 'services/api_service.dart';
 
-enum _ReportStatusFilter { all, valide, anomalie }
+enum _HistoryType { all, missions, consultations }
 
 class ControlReportsHistoryPage extends StatefulWidget {
   const ControlReportsHistoryPage({
@@ -12,39 +15,47 @@ class ControlReportsHistoryPage extends StatefulWidget {
     this.onClose,
   });
 
-  /// Depuis le profil technicien (sans route nommée).
   final Map<String, dynamic>? initialArguments;
-
-  /// Fermer le panneau embarqué (profil + sidebar visibles).
   final VoidCallback? onClose;
 
   @override
   State<ControlReportsHistoryPage> createState() => _ControlReportsHistoryPageState();
 }
 
-class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage> {
-  static const _bg = Color(0xFF10102B);
-  static const _surface = Color(0xFF1D1D38);
-  static const _surfaceHeader = Color(0xFF131422);
-  static const _accent = Color(0xFFFF6E00);
-  static const _muted = Color(0xFFA0A0B0);
-  static const _ok = Color(0xFF43A047);
-  static const _warn2 = Color(0xFFFB8C00);
-  static const _danger = Color(0xFFE53935);
+class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage>
+    with SingleTickerProviderStateMixin {
+  // ── Palette ──────────────────────────────────────────────────────────
+  static const _bg            = Color(0xFF0D0D1E);
+  static const _surface       = Color(0xFF1A1A2E);
+  static const _surfaceHigh   = Color(0xFF232340);
+  static const _accent        = Color(0xFFFF6E00);
+  static const _accentBlue    = Color(0xFF75D1FF);
+  static const _muted         = Color(0xFF8888AA);
+  static const _ok            = Color(0xFF43A047);
+  static const _warn          = Color(0xFFFB8C00);
 
+  // ── State ─────────────────────────────────────────────────────────────
   bool _argsLoaded = false;
-  bool _loading = true;
+  bool _loading    = true;
   String? _error;
 
   String _technicianName = 'TECHNICIEN';
-  String _technicianId = '';
-  /// `all_controls` = tous les contrôles terminés en base · `reports` = avec compte-rendu / notes saisis.
-  String _historyMode = 'all_controls';
-  List<Map<String, dynamic>> _reports = <Map<String, dynamic>>[];
+  // ignore: unused_field
+  String _technicianId   = '';
 
-  String _machineFilter = 'Toutes';
-  _ReportStatusFilter _statusFilter = _ReportStatusFilter.all;
-  DateTime? _selectedWeekStart;
+  List<Map<String, dynamic>> _allItems = [];
+  _HistoryType _typeFilter = _HistoryType.all;
+
+  late final AnimationController _fadeCtrl;
+  late final Animation<double> _fadeAnim;
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────
+  @override
+  void initState() {
+    super.initState();
+    _fadeCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
+    _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
+  }
 
   @override
   void didChangeDependencies() {
@@ -54,416 +65,508 @@ class _ControlReportsHistoryPageState extends State<ControlReportsHistoryPage> {
     final routeArgs = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
     final args = widget.initialArguments ?? routeArgs;
     _technicianName = (args?['technicianName'] ?? 'TECHNICIEN').toString();
-    _technicianId = (args?['technicianId'] ?? '').toString().trim();
-    _historyMode = (args?['historyMode'] ?? 'all_controls').toString().trim();
-    if (_historyMode != 'reports') _historyMode = 'all_controls';
-    _loadReports();
+    _technicianId   = (args?['technicianId']   ?? '').toString().trim();
+    _loadHistory();
   }
 
-  DateTime? _asDate(dynamic value) {
-    if (value is DateTime) return value;
-    if (value is String && value.trim().isNotEmpty) return DateTime.tryParse(value.trim());
+  @override
+  void dispose() {
+    _fadeCtrl.dispose();
+    super.dispose();
+  }
+
+  // ── Data loading ───────────────────────────────────────────────────────
+  DateTime? _parseDate(dynamic v) {
+    if (v is DateTime) return v;
+    if (v is String && v.trim().isNotEmpty) return DateTime.tryParse(v.trim());
     return null;
   }
 
-  DateTime _startOfWeek(DateTime d) {
-    final delta = d.weekday - DateTime.monday;
-    return DateTime(d.year, d.month, d.day).subtract(Duration(days: delta));
-  }
-
-  String _statusLabel(_ReportStatusFilter s) {
-    switch (s) {
-      case _ReportStatusFilter.all:
-        return 'Tous';
-      case _ReportStatusFilter.valide:
-        return 'Valide';
-      case _ReportStatusFilter.anomalie:
-        return 'Anomalie';
-    }
-  }
-
-  String _displayDate(DateTime dt) =>
-      '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
-
-  Future<void> _loadReports() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _loadHistory() async {
+    setState(() { _loading = true; _error = null; });
     try {
-      if (_technicianId.isEmpty) {
-        throw Exception('Technicien non identifié.');
-      }
-      final controls = await ApiService.getControlesForTechnician(_technicianId, days: 180);
-      final reports = controls.where((c) {
-        final isDone = (c['statut'] ?? '').toString().toLowerCase().contains('termin');
-        if (!isDone) return false;
-        if (_historyMode == 'reports') {
-          final hasReport =
-              c['rapportControle'] is Map || (c['notes'] ?? '').toString().trim().isNotEmpty;
-          return hasReport;
-        }
-        return true;
-      }).map((c) => Map<String, dynamic>.from(c)).toList();
+      // Load missions and consultations in parallel
+      final results = await Future.wait([
+        _fetchMissions(),
+        _fetchConsultations(),
+      ]);
 
-      reports.sort((a, b) {
-        final da = _asDate(a['updatedAt'] ?? a['dateControle'] ?? a['createdAt']);
-        final db = _asDate(b['updatedAt'] ?? b['dateControle'] ?? b['createdAt']);
+      final missions      = results[0];
+      final consultations = results[1];
+
+      // Merge into a unified list with a 'kind' tag
+      final all = <Map<String, dynamic>>[
+        ...missions.map((m) => {...m, '_kind': 'mission'}),
+        ...consultations.map((c) => {...c, '_kind': 'consultation'}),
+      ];
+
+      // Sort by date descending (most recent first)
+      all.sort((a, b) {
+        final da = _parseDate(_dateOf(a));
+        final db = _parseDate(_dateOf(b));
         if (da == null && db == null) return 0;
         if (da == null) return 1;
         if (db == null) return -1;
         return db.compareTo(da);
       });
 
-      DateTime? defaultWeek;
-      if (reports.isNotEmpty) {
-        final firstDate = _asDate(reports.first['updatedAt'] ?? reports.first['dateControle'] ?? reports.first['createdAt']);
-        if (firstDate != null) defaultWeek = _startOfWeek(firstDate);
-      }
       if (!mounted) return;
-      setState(() {
-        _reports = reports;
-        _selectedWeekStart = defaultWeek;
-        _loading = false;
-      });
+      setState(() { _allItems = all; _loading = false; });
+      _fadeCtrl.forward(from: 0);
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = e.toString().replaceFirst('Exception: ', '');
-      });
+      setState(() { _loading = false; _error = e.toString().replaceFirst('Exception: ', ''); });
     }
   }
 
-  List<String> _machines() {
-    final names = _reports
-        .map((r) => (r['machineName'] ?? r['machineId'] ?? 'Machine').toString())
-        .where((v) => v.trim().isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
-    return ['Toutes', ...names];
-  }
-
-  bool _hasAnomaly(Map<String, dynamic> report) {
-    final nested = report['rapportControle'];
-    if (nested is Map && nested['hasAnomaly'] == true) return true;
-    final items = (nested is Map) ? nested['items'] : null;
-    if (items is List) {
-      for (final i in items) {
-        if (i is Map) {
-          final decision = (i['decision'] ?? '').toString().toLowerCase();
-          if (decision.contains('changer')) return true;
-        }
-      }
+  Future<List<Map<String, dynamic>>> _fetchMissions() async {
+    try {
+      // Fetch directly from /missions/me — reads the Mission table for the logged-in technician (_technicianId: $_technicianId)
+      return await ApiService.getMyMissions();
+    } catch (_) {
+      return [];
     }
-    final notes = (report['notes'] ?? '').toString().toLowerCase();
-    return notes.contains('à changer') || notes.contains('a changer') || notes.contains('anomal');
   }
 
-  List<Map<String, dynamic>> _filteredReports() {
-    return _reports.where((r) {
-      final machine = (r['machineName'] ?? r['machineId'] ?? 'Machine').toString();
-      if (_machineFilter != 'Toutes' && machine != _machineFilter) return false;
-
-      final hasAnomaly = _hasAnomaly(r);
-      if (_statusFilter == _ReportStatusFilter.valide && hasAnomaly) return false;
-      if (_statusFilter == _ReportStatusFilter.anomalie && !hasAnomaly) return false;
-
-      if (_selectedWeekStart != null) {
-        final date = _asDate(r['updatedAt'] ?? r['dateControle'] ?? r['createdAt']);
-        if (date == null) return false;
-        final start = _startOfWeek(date);
-        if (start != _selectedWeekStart) return false;
-      }
-      return true;
-    }).toList();
-  }
-
-  List<DateTime> _weeks() {
-    final set = <DateTime>{};
-    for (final r in _reports) {
-      final date = _asDate(r['updatedAt'] ?? r['dateControle'] ?? r['createdAt']);
-      if (date != null) set.add(_startOfWeek(date));
+  Future<List<Map<String, dynamic>>> _fetchConsultations() async {
+    try {
+      return await ApiService.getConsultations();
+    } catch (_) {
+      return [];
     }
-    final list = set.toList()..sort((a, b) => b.compareTo(a));
-    return list;
   }
 
+  dynamic _dateOf(Map<String, dynamic> item) {
+    if (item['_kind'] == 'mission') {
+      // Mission table fields: scheduledAt, completedAt, createdAt
+      return item['scheduledAt'] ?? item['completedAt'] ?? item['createdAt'] ?? item['updatedAt'];
+    }
+    return item['scheduledDate'] ?? item['createdAt'] ?? item['updatedAt'];
+  }
+
+  // ── Filter ────────────────────────────────────────────────────────────
+  List<Map<String, dynamic>> get _filtered {
+    if (_typeFilter == _HistoryType.all) return _allItems;
+    final kind = _typeFilter == _HistoryType.missions ? 'mission' : 'consultation';
+    return _allItems.where((i) => i['_kind'] == kind).toList();
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────
+  String _formatDate(dynamic raw) {
+    final dt = _parseDate(raw);
+    if (dt == null) return 'Date inconnue';
+    return DateFormat('dd MMM yyyy à HH:mm', 'fr_FR').format(dt.toLocal());
+  }
+
+  Color _missionStatusColor(String status) {
+    switch (status.toUpperCase()) {
+      case 'COMPLETED': return _ok;
+      case 'CONFIRMED':
+      case 'STARTED':   return _accentBlue;
+      case 'SENT':      return _warn;
+      default:          return _muted;
+    }
+  }
+
+  String _missionStatusLabel(String status) {
+    switch (status.toUpperCase()) {
+      case 'COMPLETED': return 'Terminée';
+      case 'CONFIRMED': return 'Confirmée';
+      case 'STARTED':   return 'En cours';
+      case 'SENT':      return 'En attente';
+      default:          return status;
+    }
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final filtered = _filteredReports();
-    final machines = _machines();
-    final weeks = _weeks();
+    final filtered = _filtered;
+    final missionCount = _allItems.where((i) => i['_kind'] == 'mission').length;
+    final consultCount  = _allItems.where((i) => i['_kind'] == 'consultation').length;
 
     return Scaffold(
       backgroundColor: _bg,
-      appBar: widget.onClose != null ? null : AppBar(
-        backgroundColor: _surfaceHeader,
-        title: Text(
-          _historyMode == 'reports' ? 'Historique des rapports' : 'Historique des contrôles',
-          style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
-        ),
-      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: _accent))
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.error_outline, color: _danger, size: 38),
-                        const SizedBox(height: 10),
-                        Text(_error!, style: GoogleFonts.inter(color: Colors.white), textAlign: TextAlign.center),
-                        const SizedBox(height: 12),
-                        FilledButton(onPressed: _loadReports, child: const Text('Réessayer')),
-                      ],
-                    ),
-                  ),
-                )
+              ? _buildError()
               : RefreshIndicator(
-                  onRefresh: _loadReports,
-                  child: ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: _surfaceHeader,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            const CircleAvatar(
-                              backgroundColor: _accent,
-                              child: Icon(Icons.person, color: Colors.white),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'TECHNICIEN',
-                                    style: GoogleFonts.inter(color: _muted, fontSize: 10, letterSpacing: 1.2),
-                                  ),
-                                  Text(
-                                    _technicianName.toUpperCase(),
-                                    style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: _accent.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: _accent.withOpacity(0.5)),
-                              ),
-                              child: Text(
-                                _historyMode == 'reports'
-                                    ? '${_reports.length} rapports'
-                                    : '${_reports.length} contrôles',
-                                style: GoogleFonts.inter(color: _accent, fontWeight: FontWeight.bold, fontSize: 12),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: _surface,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: _accent.withOpacity(0.3), width: 1.5),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4))],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const Icon(Icons.tune, color: _accent, size: 20),
-                                const SizedBox(width: 8),
-                                Text('Filtres de recherche', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Container(
-                              decoration: BoxDecoration(color: const Color(0xFF272743), borderRadius: BorderRadius.circular(8)),
-                              child: DropdownButtonFormField<String>(
-                                value: machines.contains(_machineFilter) ? _machineFilter : 'Toutes',
-                                dropdownColor: const Color(0xFF272743),
-                                items: machines.map((m) => DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(color: Colors.white)))).toList(),
-                                onChanged: (v) => setState(() => _machineFilter = v ?? 'Toutes'),
-                                decoration: InputDecoration(labelText: 'Machine', labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)), border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Container(
-                                    decoration: BoxDecoration(color: const Color(0xFF272743), borderRadius: BorderRadius.circular(8)),
-                                    child: DropdownButtonFormField<_ReportStatusFilter>(
-                                      value: _statusFilter,
-                                      dropdownColor: const Color(0xFF272743),
-                                      items: _ReportStatusFilter.values
-                                          .map((s) => DropdownMenuItem(value: s, child: Text(_statusLabel(s), style: const TextStyle(color: Colors.white))))
-                                          .toList(),
-                                      onChanged: (v) => setState(() => _statusFilter = v ?? _ReportStatusFilter.all),
-                                      decoration: InputDecoration(labelText: 'Statut', labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)), border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Container(
-                                    decoration: BoxDecoration(color: const Color(0xFF272743), borderRadius: BorderRadius.circular(8)),
-                                    child: DropdownButtonFormField<DateTime?>(
-                                      value: _selectedWeekStart,
-                                      dropdownColor: const Color(0xFF272743),
-                                      items: [
-                                        const DropdownMenuItem<DateTime?>(value: null, child: Text('Toutes semaines', style: TextStyle(color: Colors.white))),
-                                        ...weeks.map(
-                                          (w) => DropdownMenuItem<DateTime?>(
-                                            value: w,
-                                            child: Text('Semaine ${_displayDate(w)}', style: const TextStyle(color: Colors.white)),
-                                          ),
-                                        ),
-                                      ],
-                                      onChanged: (v) => setState(() => _selectedWeekStart = v),
-                                      decoration: InputDecoration(labelText: 'Semaine', labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)), border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
+                  color: _accent,
+                  backgroundColor: _surface,
+                  onRefresh: _loadHistory,
+                  child: CustomScrollView(
+                    slivers: [
+                      SliverToBoxAdapter(child: _buildHeader(missionCount, consultCount)),
+                      SliverToBoxAdapter(child: _buildFilterBar()),
                       if (filtered.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 40),
-                          child: Center(
-                            child: Column(
-                              children: [
-                                Icon(Icons.history_toggle_off, size: 64, color: _muted.withOpacity(0.5)),
-                                const SizedBox(height: 16),
-                                Text('Aucun rapport trouvé', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 8),
-                                Text('Essayez de modifier vos filtres de recherche.', style: GoogleFonts.inter(color: _muted)),
-                              ],
+                        SliverFillRemaining(child: _buildEmpty())
+                      else
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                          sliver: SliverList(
+                            delegate: SliverChildBuilderDelegate(
+                              (ctx, i) => FadeTransition(
+                                opacity: _fadeAnim,
+                                child: filtered[i]['_kind'] == 'mission'
+                                    ? _buildMissionCard(filtered[i])
+                                    : _buildConsultationCard(filtered[i]),
+                              ),
+                              childCount: filtered.length,
                             ),
                           ),
-                        )
-                      else
-                        ...filtered.map(_buildReportCard),
+                        ),
                     ],
                   ),
                 ),
     );
   }
 
-  Widget _buildReportCard(Map<String, dynamic> r) {
-    final machine = (r['machineName'] ?? r['machineId'] ?? 'Machine').toString();
-    final typeMission = (r['typeControle'] ?? '').toString().trim();
-    final techNom = (r['technicienNom'] ?? r['technicianName'] ?? '').toString().trim();
-    final date = _asDate(
-      r['dateRealisation'] ??
-          r['completedAt'] ??
-          r['updatedAt'] ??
-          r['dateControle'] ??
-          r['createdAt'],
-    );
-    final hasAnomaly = _hasAnomaly(r);
-    final statusText = hasAnomaly ? 'ANOMALIE' : 'VALIDE';
-    final color = hasAnomaly ? _warn2 : _ok;
-
-    final nested = r['rapportControle'];
-    final items = (nested is Map && nested['items'] is List) ? (nested['items'] as List) : const [];
-    var note = '';
-    if (nested is Map) {
-      note = (nested['generalNote'] ?? '').toString().trim();
-    }
-    if (note.isEmpty) note = (r['notes'] ?? '').toString().trim();
-
-    return Card(
-      color: _surface,
-      margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: color.withOpacity(0.8), width: 1.2),
+  // ── Sub-widgets ────────────────────────────────────────────────────────
+  Widget _buildHeader(int missionCount, int consultCount) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [_accent.withValues(alpha: 0.15), _accentBlue.withValues(alpha: 0.08)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _accent.withValues(alpha: 0.25)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: _accent.withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.history, color: _accent, size: 26),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text(machine, style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w700)),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: color.withOpacity(0.9)),
+                Text(
+                  'Historique d\'activité',
+                  style: GoogleFonts.spaceGrotesk(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 17,
                   ),
-                  child: Text(statusText, style: GoogleFonts.inter(color: color, fontWeight: FontWeight.w700, fontSize: 11)),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _technicianName.toUpperCase(),
+                  style: GoogleFonts.inter(color: _muted, fontSize: 12, letterSpacing: 1.2),
                 ),
               ],
             ),
-            const SizedBox(height: 5),
-            Text(
-              date != null ? 'Date: ${_displayDate(date)}' : 'Date: non définie',
-              style: GoogleFonts.inter(color: Colors.white70),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _statPill(Icons.rocket_launch_outlined, '$missionCount missions', _accent),
+              const SizedBox(height: 6),
+              _statPill(Icons.event_outlined, '$consultCount consultations', _accentBlue),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statPill(IconData icon, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 12),
+          const SizedBox(width: 5),
+          Text(label, style: GoogleFonts.inter(color: color, fontSize: 11, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+          child: Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: _surfaceHigh.withValues(alpha: 0.9),
+              borderRadius: BorderRadius.circular(14),
             ),
-            if (techNom.isNotEmpty) ...[
-              const SizedBox(height: 4),
+            child: Row(
+              children: [
+                _filterBtn(_HistoryType.all,          Icons.list_alt,             'Tout'),
+                _filterBtn(_HistoryType.missions,     Icons.rocket_launch_outlined, 'Missions'),
+                _filterBtn(_HistoryType.consultations, Icons.event_outlined,       'Consultations'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _filterBtn(_HistoryType type, IconData icon, String label) {
+    final active = _typeFilter == type;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _typeFilter = type),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: active ? _accent : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: active ? Colors.white : _muted, size: 15),
+              const SizedBox(width: 5),
               Text(
-                'Technicien : $techNom',
-                style: GoogleFonts.inter(color: Colors.white70, fontSize: 12),
+                label,
+                style: GoogleFonts.inter(
+                  color: active ? Colors.white : _muted,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.normal,
+                  fontSize: 12,
+                ),
               ),
             ],
-            if (typeMission.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Mission : $typeMission',
-                style: GoogleFonts.inter(color: _muted, fontSize: 12),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMissionCard(Map<String, dynamic> m) {
+    final rawStatus  = (m['missionStatus'] ?? m['status'] ?? 'SENT').toString().toUpperCase();
+    final statusColor = _missionStatusColor(rawStatus);
+    final machineName = (m['machineName'] ?? m['machineId'] ?? 'Machine inconnue').toString();
+    final agentName   = (m['senderName'] ?? m['agentName'] ?? m['maintenanceAgentName'] ?? '').toString().trim();
+    final description = (m['description'] ?? m['title'] ?? '').toString().trim();
+    final date        = _dateOf(m);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: statusColor.withValues(alpha: 0.4), width: 1.2),
+        boxShadow: [BoxShadow(color: statusColor.withValues(alpha: 0.06), blurRadius: 10)],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Row(
+          children: [
+            // Left color bar
+            Container(
+              width: 4,
+              height: double.infinity,
+              color: statusColor,
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: _accent.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.rocket_launch_outlined, color: _accent, size: 16),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            machineName,
+                            style: GoogleFonts.spaceGrotesk(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                        _statusBadge(_missionStatusLabel(rawStatus), statusColor),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    if (agentName.isNotEmpty) _infoRow(Icons.engineering, 'Agent : $agentName', _accent),
+                    if (description.isNotEmpty) _infoRow(Icons.notes, description, _muted),
+                    const SizedBox(height: 4),
+                    _infoRow(Icons.access_time, _formatDate(date), _muted),
+                  ],
+                ),
               ),
-            ],
-            if (items.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text('Checklist:', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 4),
-              ...items.take(4).map((i) {
-                if (i is! Map) return const SizedBox.shrink();
-                final element = (i['element'] ?? '-').toString();
-                final decision = (i['decision'] ?? '-').toString();
-                final anomaly = (i['anomalie'] ?? '').toString();
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 2),
-                  child: Text(
-                    '- $element: $decision${anomaly.isNotEmpty ? ' ($anomaly)' : ''}',
-                    style: GoogleFonts.inter(color: Colors.white70, fontSize: 12),
-                  ),
-                );
-              }),
-              if (items.length > 4)
-                Text('... ${items.length - 4} élément(s) supplémentaire(s)', style: GoogleFonts.inter(color: _muted, fontSize: 11)),
-            ],
-            if (note.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text('Notes: $note', style: GoogleFonts.inter(color: Colors.white70)),
-            ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConsultationCard(Map<String, dynamic> c) {
+    final machineName = (c['machineName'] ?? c['machineId'] ?? 'Machine inconnue').toString();
+    final date        = c['scheduledDate'] ?? c['createdAt'];
+    final type        = (c['consultationType'] ?? c['type'] ?? '').toString().trim();
+    final note        = (c['note'] ?? c['description'] ?? '').toString().trim();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _accentBlue.withValues(alpha: 0.35), width: 1.2),
+        boxShadow: [BoxShadow(color: _accentBlue.withValues(alpha: 0.05), blurRadius: 10)],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Row(
+          children: [
+            Container(width: 4, height: double.infinity, color: _accentBlue),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: _accentBlue.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.event_outlined, color: _accentBlue, size: 16),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            machineName,
+                            style: GoogleFonts.spaceGrotesk(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                        _statusBadge('Consultation', _accentBlue),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    if (type.isNotEmpty) _infoRow(Icons.category_outlined, type, _accentBlue),
+                    if (note.isNotEmpty) _infoRow(Icons.notes, note, _muted),
+                    const SizedBox(height: 4),
+                    _infoRow(Icons.calendar_today_outlined, _formatDate(date), _muted),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _statusBadge(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.6)),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.inter(color: color, fontWeight: FontWeight.w700, fontSize: 10),
+      ),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String text, Color color) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 13),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
+              style: GoogleFonts.inter(color: color, fontSize: 12),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmpty() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.history_toggle_off, size: 72, color: _muted.withValues(alpha: 0.4)),
+          const SizedBox(height: 16),
+          Text(
+            'Aucune activité trouvée',
+            style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Les missions et consultations apparaîtront ici.',
+            style: GoogleFonts.inter(color: _muted, fontSize: 13),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildError() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+            const SizedBox(height: 12),
+            Text(_error!, style: GoogleFonts.inter(color: Colors.white), textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _loadHistory,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Réessayer'),
+              style: FilledButton.styleFrom(backgroundColor: _accent),
+            ),
           ],
         ),
       ),

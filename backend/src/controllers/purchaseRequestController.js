@@ -49,26 +49,9 @@ async function create(req, res) {
     });
 
     // Auto-assign the machine if linkedClientId is present (Client direct purchase)
-    if (linkedClientId) {
-      const machine = await prisma.machine.findUnique({ where: { id: machineId } });
-      if (machine) {
-        const dataToUpdate = { companyId: linkedClientId };
-        if (machine.stock > 0) {
-          dataToUpdate.stock = machine.stock - 1;
-        }
-        await prisma.machine.update({
-          where: { id: machineId },
-          data: dataToUpdate
-        });
-        
-        // Also auto-approve the PR
-        await prisma.purchaseRequest.update({
-          where: { id: pr.id },
-          data: { status: 'APPROVED' }
-        });
-        pr.status = 'APPROVED';
-      }
-    }
+    // REMOVED: Now we want the concepteur to validate the purchase request manually
+    // even if it comes from an existing client.
+
 
     let parsedMeta = {};
     try {

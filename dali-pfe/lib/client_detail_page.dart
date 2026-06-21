@@ -1028,24 +1028,28 @@ class _BottomNavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          color: active ? const Color(0xFFFF6E00) : const Color(0xFFE2BFB0).withOpacity(0.6),
-          size: active ? 28 : 24,
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: GoogleFonts.spaceGrotesk(
-            fontSize: 10,
+    return Expanded(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
             color: active ? const Color(0xFFFF6E00) : const Color(0xFFE2BFB0).withOpacity(0.6),
-            fontWeight: active ? FontWeight.bold : FontWeight.normal,
+            size: active ? 28 : 24,
           ),
-        ),
-      ],
+          const SizedBox(height: 4),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 10,
+              color: active ? const Color(0xFFFF6E00) : const Color(0xFFE2BFB0).withOpacity(0.6),
+              fontWeight: active ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

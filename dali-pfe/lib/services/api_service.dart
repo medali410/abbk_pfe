@@ -68,6 +68,17 @@ class ApiService {
     return e.isNotEmpty && _maintenanceDashboardEmails.contains(e);
   }
 
+  /// E-mails pour lesquels on force le tableau de bord « concepteur ».
+  static const Set<String> _concepteurDashboardEmails = {
+    'lemjidmolka9@gmail.com',
+  };
+
+  /// Indique si la navigation doit aller vers le tableau de bord concepteur.
+  static bool shouldOpenConcepteurDashboard(String? email) {
+    final e = (email ?? '').trim().toLowerCase();
+    return e.isNotEmpty && _concepteurDashboardEmails.contains(e);
+  }
+
   static Future<void> clearSavedTechnicianProfile() async {
     _savedTechnicianProfile = null;
     final p = await SharedPreferences.getInstance();
@@ -391,9 +402,13 @@ class ApiService {
 
   // --- Technicians ---
   
-  static Future<List<Map<String, dynamic>>> getTechnicians() async {
+  static Future<List<Map<String, dynamic>>> getTechnicians({String? machineId}) async {
+    String url = '$baseUrl/technicians';
+    if (machineId != null && machineId.isNotEmpty) {
+      url += '?machineId=${Uri.encodeComponent(machineId)}';
+    }
     final response = await http.get(
-      Uri.parse('$baseUrl/technicians'),
+      Uri.parse(url),
       headers: await jsonHeadersAuthorized(),
     );
     if (response.statusCode == 200) {
@@ -495,10 +510,17 @@ class ApiService {
   }
 
   /// Machines assignées (companyId renseigné) — base Atlas via API.
-  static Future<List<Map<String, dynamic>>> getMachines({String? concepterId}) async {
-    var url = '$baseUrl/machines';
+  static Future<List<Map<String, dynamic>>> getMachines({String? concepterId, String? maintenanceAgentId}) async {
+    String url = '$baseUrl/machines';
+    final queryParams = <String>[];
     if (concepterId != null && concepterId.isNotEmpty) {
-      url += '?concepterId=${Uri.encodeComponent(concepterId)}';
+      queryParams.add('concepterId=${Uri.encodeComponent(concepterId)}');
+    }
+    if (maintenanceAgentId != null && maintenanceAgentId.isNotEmpty) {
+      queryParams.add('maintenanceAgentId=${Uri.encodeComponent(maintenanceAgentId)}');
+    }
+    if (queryParams.isNotEmpty) {
+      url += '?${queryParams.join('&')}';
     }
     final response = await http.get(
       Uri.parse(url),
@@ -1155,7 +1177,11 @@ class ApiService {
             machines = await getMachines();
           }
         } else {
-          machines = await getMachines();
+          // Filtrer les machines assignées à cet agent de maintenance via le backend
+          final agent = data['agent'] ?? data['user'] ?? {};
+          final agentId = (agent['maintenanceAgentId'] ?? agent['id'] ?? '').toString();
+          
+          machines = await getMachines(maintenanceAgentId: agentId.isNotEmpty ? agentId : null);
         }
         
         // Simuler quelques alertes pour la demonstration si aucune n'existe
@@ -1521,6 +1547,54 @@ class ApiService {
     }
     _throwApiError(response, 'Erreur de chargement des missions du technicien');
   }
+
+  /// Récupère toutes les missions du technicien connecté depuis la table Mission.
+  static Future<List<Map<String, dynamic>>> getMyMissions({String? status}) async {
+    String url = '$baseUrl/missions/me';
+    if (status != null && status.isNotEmpty) {
+      url += '?status=${Uri.encodeComponent(status)}';
+    }
+    final response = await http.get(
+      Uri.parse(url),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      if (data is List) return data.cast<Map<String, dynamic>>();
+      return [];
+    }
+    _throwApiError(response, 'Erreur de chargement des missions');
+  }
+
+  /// Récupère les missions d'une machine spécifique par son ID.
+  static Future<List<Map<String, dynamic>>> getMissionsByMachineId(String machineId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/missions?machineId=$machineId'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      if (data is List) return data.cast<Map<String, dynamic>>();
+      if (data is Map && data['missions'] is List) return (data['missions'] as List).cast<Map<String, dynamic>>();
+      return [];
+    }
+    return [];
+  }
+
+  /// Récupère toutes les missions (admin/fleet manager).
+  /// [status] optionnel : 'PENDING' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED'
+  static Future<List<Map<String, dynamic>>> getAllMissions({String? status}) async {
+    final uri = Uri.parse('$baseUrl/missions').replace(
+      queryParameters: status != null ? {'status': status} : null,
+    );
+    final response = await http.get(uri, headers: await jsonHeadersAuthorized());
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    _throwApiError(response, 'Erreur de chargement des missions');
+  }
+
 
   static Future<List<Map<String, dynamic>>> getConsultations() async {
     final response = await http.get(

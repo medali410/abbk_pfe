@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image/image.dart' as img;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'dart:ui';
 import 'services/api_service.dart';
 import 'utils/app_layout.dart';
 import 'machine_detail_ai_page.dart';
@@ -15,6 +16,8 @@ import 'add_technician_page.dart';
 import 'add_maintenance_agent_page.dart';
 import 'utils/form_validators.dart';
 import 'widgets/message_equipe_view.dart';
+import 'maintenance_ia_status.dart';
+import 'ai_analysis_page.dart';
 
 
 class ConcepteurDashboardPage extends StatefulWidget {
@@ -42,6 +45,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   static const int _maxImageDimension = 900;
 
   String selectedMenu = 'DASHBOARD';
+  Map<String, dynamic>? _iaSelectedMachine;
 
   // State variables
   List<Map<String, dynamic>> _allMachines = [];
@@ -1135,14 +1139,20 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                 ],
               ),
             ),
+            TextButton(
+              onPressed: () {
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                _openDetails(machineId);
+              },
+              child: const Text('AFFICHER', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, color: Colors.white70, size: 20),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+            ),
           ],
-        ),
-        action: SnackBarAction(
-          label: 'AFFICHER',
-          textColor: Colors.white,
-          onPressed: () {
-            _openDetails(machineId);
-          },
         ),
       ),
     );
@@ -1837,7 +1847,24 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     setState(() => _loadingRequests = true);
     try {
       final rows = await ApiService.getPurchaseRequests();
-      final sortedRows = List<Map<String, dynamic>>.from(rows)..sort((a, b) {
+      
+      // Ne garder que les demandes (techniciens et achats) qui concernent les machines de ce concepteur
+      final myMachineIds = _allMachines.map((m) => _machineIdOf(m).trim()).where((id) => id.isNotEmpty).toSet();
+      
+      final filteredRows = rows.where((r) {
+        final rMachineId = (r['machineId'] ?? r['requestedMachineId'] ?? '').toString().trim();
+        if (rMachineId.isNotEmpty && myMachineIds.contains(rMachineId)) return true;
+        
+        final list = r['requestedMachineIds'];
+        if (list is List) {
+          for (final id in list) {
+            if (myMachineIds.contains(id.toString().trim())) return true;
+          }
+        }
+        return false;
+      }).toList();
+
+      final sortedRows = List<Map<String, dynamic>>.from(filteredRows)..sort((a, b) {
         final aRaw = (a['createdAt'] ?? a['purchaseAt'] ?? '').toString();
         final bRaw = (b['createdAt'] ?? b['purchaseAt'] ?? '').toString();
         final aDate = DateTime.tryParse(aRaw);
@@ -2923,10 +2950,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       backgroundColor: bgColor,
       body: Column(
         children: [
-          _buildTopNavigation(),
           Expanded(
             child: Column(
               children: [
+                _buildAppHeader(),
                 _buildTopBar(),
                 Expanded(
                   child:
@@ -2943,6 +2970,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               ],
             ),
           ),
+          _buildTopNavigation(),
         ],
       ),
     );
@@ -3069,6 +3097,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               _buildTechniciansPanel()
             else if (selectedMenu == 'MAINTENANCE')
               _buildMaintenanceAgentsPanel()
+            else if (selectedMenu == 'ANALYSE IA')
+              _buildAnalyseIAPanel()
             else if (selectedMenu == 'PROFILE')
               _buildProfilePanel()
             else ...[
@@ -3927,6 +3957,13 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                         },
                                       ),
                                     ],
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: alertColor),
+                                  onPressed: () => _confirmDelete(
+                                    (m['id'] ?? m['_id'] ?? '').toString(),
+                                    (m['name'] ?? m['reference'] ?? 'Machine').toString()
                                   ),
                                 ),
                               ],
@@ -5295,6 +5332,13 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                       ],
                                     ),
                                   ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: alertColor),
+                                    onPressed: () => _confirmDelete(
+                                      (m['id'] ?? m['_id'] ?? '').toString(),
+                                      (m['name'] ?? m['reference'] ?? 'Machine').toString()
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -5881,6 +5925,13 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                             ),
                                           ),
                                       ],
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: alertColor),
+                                    onPressed: () => _confirmDelete(
+                                      (m['id'] ?? m['_id'] ?? '').toString(),
+                                      (m['name'] ?? m['reference'] ?? 'Machine').toString()
                                     ),
                                   ),
                                 ],
@@ -6537,53 +6588,52 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   Widget _buildTopNavigation() {
     final isCompact = MediaQuery.of(context).size.width < 980;
     return Container(
-      height: isCompact ? 84 : 92,
-      color: sidebarColor,
-      padding: EdgeInsets.symmetric(horizontal: isCompact ? 12 : 24),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: () => Navigator.pushReplacementNamed(context, '/'),
-            child: Container(
-              height: 44,
-              constraints: const BoxConstraints(maxWidth: 160),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
-                    blurRadius: 10,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Image.asset(
-                'assets/images/abbk_logo.png',
-                fit: BoxFit.contain,
-                filterQuality: FilterQuality.high,
-              ),
-            ),
+      margin: EdgeInsets.symmetric(horizontal: isCompact ? 12 : 24, vertical: 12),
+      height: isCompact ? 72 : 80,
+      decoration: BoxDecoration(
+        color: sidebarColor.withOpacity(0.65),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
           ),
-          SizedBox(width: isCompact ? 10 : 24),
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _topNavItem(Icons.grid_view_rounded, 'DASHBOARD'),
-                  _topNavItem(Icons.person_outline_rounded, 'PROFILE'),
-                  _topNavItem(Icons.account_tree_outlined, 'CLIENT CATALOG'),
-                  _topNavItem(Icons.menu_book_rounded, 'PROJET'),
-                  _topNavItem(Icons.chat_bubble_outline_rounded, 'MESSAGERIE'),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          _buildActionIcons(),
         ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: isCompact ? 16 : 24),
+            child: Row(
+              children: [
+                GestureDetector(
+                  onTap: () => Navigator.pushReplacementNamed(context, '/'),
+                  child: _profileAvatar(22),
+                ),
+                SizedBox(width: isCompact ? 10 : 24),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _topNavItem(Icons.grid_view_rounded, 'DASHBOARD'),
+                        _topNavItem(Icons.person_outline_rounded, 'PROFILE'),
+                        _topNavItem(Icons.account_tree_outlined, 'CLIENT CATALOG'),
+                        _topNavItem(Icons.menu_book_rounded, 'PROJET'),
+                        _topNavItem(Icons.chat_bubble_outline_rounded, 'MESSAGERIE'),
+                        _topNavItem(Icons.psychology_outlined, 'ANALYSE IA'),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -6653,44 +6703,35 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       displayTitle = 'CATALOGUE CLIENTS';
     } else if (title == 'PROJET') {
       displayTitle = 'PROJET';
+    } else if (title == 'ANALYSE IA') {
+      displayTitle = 'ANALYSE IA';
     } else if (title == 'MESSAGERIE' || title == 'SETTINGS') {
       displayTitle = 'MESSAGERIE';
     }
 
-    return InkWell(
-      onTap: () => _onSidebarSelect(title),
-      child: Container(
-        margin: const EdgeInsets.only(right: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          border: Border.all(
+    return Tooltip(
+      message: displayTitle,
+      child: InkWell(
+        onTap: () => _onSidebarSelect(title),
+        child: Container(
+          margin: const EdgeInsets.only(right: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color:
+                  isSelected
+                      ? primaryColor.withOpacity(0.8)
+                      : Colors.white.withOpacity(0.1),
+            ),
+            borderRadius: BorderRadius.circular(14),
             color:
-                isSelected
-                    ? primaryColor.withOpacity(0.6)
-                    : Colors.white.withOpacity(0.08),
+                isSelected ? primaryColor.withOpacity(0.1) : Colors.transparent,
           ),
-          borderRadius: BorderRadius.circular(10),
-          color:
-              isSelected ? primaryColor.withOpacity(0.05) : Colors.transparent,
-        ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? primaryColor : mutedTextColor,
-              size: 20,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              displayTitle,
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: isSelected ? primaryColor : mutedTextColor,
-                letterSpacing: 0.3,
-              ),
-            ),
-          ],
+          child: Icon(
+            icon,
+            color: isSelected ? primaryColor : mutedTextColor,
+            size: 24,
+          ),
         ),
       ),
     );
@@ -6739,6 +6780,80 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAnalyseIAPanel() {
+    final machines = _allMachines;
+    if (machines.isEmpty) {
+      return Center(
+        child: Text(
+          "Aucune machine trouvée pour l'analyse IA.",
+          style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 18),
+        ),
+      );
+    }
+
+    Map<String, dynamic> selected = _iaSelectedMachine ?? machines.first;
+    if (_iaSelectedMachine == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _iaSelectedMachine = machines.first);
+      });
+    } else {
+      final sid = (_iaSelectedMachine!['id'] ?? _iaSelectedMachine!['_id'] ?? '').toString();
+      final match = machines.where((m) => (m['id'] ?? m['_id'] ?? '').toString() == sid).toList();
+      if (match.isNotEmpty) selected = match.first;
+    }
+
+    final mid = (selected['id'] ?? selected['_id'] ?? '').toString();
+    final mname = (selected['name'] ?? selected['machineName'] ?? 'Machine').toString();
+    final motor = (selected['motorType'] ?? 'EL_M').toString();
+
+    final iaPanel = AiAnalysisView(
+      machineId: mid,
+      machineName: mname,
+      motorType: motor,
+      viewerRole: 'concepteur', // Affiche le bouton MISSION pour le concepteur
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: DropdownButtonFormField<String>(
+            value: mid.isNotEmpty ? mid : null,
+            decoration: InputDecoration(
+              labelText: 'Sélectionner une machine',
+              labelStyle: const TextStyle(color: Colors.white70),
+              filled: true,
+              fillColor: cardColor,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            dropdownColor: sidebarColor,
+            items: machines.map((m) {
+              final id = (m['id'] ?? m['_id'] ?? '').toString();
+              final name = (m['name'] ?? m['machineName'] ?? 'Machine').toString();
+              return DropdownMenuItem<String>(
+                value: id.isNotEmpty ? id : null,
+                child: Text('$name • $id', style: const TextStyle(color: Colors.white)),
+              );
+            }).toList(),
+            onChanged: (val) {
+              if (val != null) {
+                setState(() {
+                  _iaSelectedMachine = machines.firstWhere(
+                    (m) => (m['id'] ?? m['_id'] ?? '').toString() == val,
+                    orElse: () => machines.first,
+                  );
+                });
+              }
+            },
+          ),
+        ),
+        iaPanel,
+      ],
     );
   }
 
@@ -7848,6 +7963,34 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     );
   }
 
+  Widget _buildAppHeader() {
+    final isCompact = MediaQuery.of(context).size.width < 980;
+    return Container(
+      height: 60,
+      color: sidebarColor,
+      padding: EdgeInsets.symmetric(horizontal: isCompact ? 12 : 24),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Container(
+            height: 44,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Image.asset(
+              'assets/images/abbk_logo.png',
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+            ),
+          ),
+          _buildActionIcons(),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTopBar() {
     final width = MediaQuery.of(context).size.width;
     final isCompact = width < 980;
@@ -7902,6 +8045,18 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                   ),
                                 ),
                               ),
+                              if (_searchController.text.isNotEmpty)
+                                IconButton(
+                                  icon: const Icon(Icons.clear, color: mutedTextColor, size: 18),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  splashRadius: 18,
+                                  onPressed: () {
+                                    setState(() {
+                                      _searchController.clear();
+                                    });
+                                  },
+                                ),
                             ],
                           ),
                         ),
@@ -8658,6 +8813,18 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                           () => _toggleMachineStatus(m),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _cardButton(
+                          Icons.delete_outline,
+                          'EFFACER',
+                          const Color(0xFF4A1A1A),
+                          () => _confirmDelete(
+                            (m['id'] ?? m['_id'] ?? '').toString(),
+                            (m['name'] ?? m['reference'] ?? 'Machine').toString()
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -8984,6 +9151,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   }
 
   Widget _buildMachineActions(Map<String, dynamic> m) {
+    final bool isOwner = (m['concepteurId'] ?? '').toString() == _concepteurProfileId;
+    if (!isOwner && _concepteurProfileId.isNotEmpty) {
+      return const SizedBox.shrink();
+    }
     return PopupMenuButton<String>(
       icon: const Icon(Icons.more_vert, color: mutedTextColor, size: 18),
       color: sidebarColor,
@@ -9294,6 +9465,15 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   }
 
   Future<void> _toggleMachineStatus(Map<String, dynamic> m) async {
+    final bool isOwner = (m['concepteurId'] ?? '').toString() == _concepteurProfileId;
+    if (!isOwner && _concepteurProfileId.isNotEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Accès en lecture seule. Vous ne pouvez modifier que les machines que vous avez ajoutées.")),
+        );
+      }
+      return;
+    }
     final id = (m['id'] ?? m['_id'] ?? '').toString();
     final currentStatus = (m['status'] ?? 'STOPPED').toString().toUpperCase();
     final isStopped = currentStatus == 'STOPPED';

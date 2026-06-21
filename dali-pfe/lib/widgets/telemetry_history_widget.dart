@@ -23,12 +23,12 @@ class _TelemetryHistoryWidgetState extends State<TelemetryHistoryWidget> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 14, color: color),
-        const SizedBox(height: 4),
+        Icon(icon, size: 12, color: color),
+        const SizedBox(height: 2),
         Text(
           val,
           style: GoogleFonts.inter(
-            fontSize: 12,
+            fontSize: 10,
             fontWeight: FontWeight.w600,
             color: const Color(0xFFE2E2E9),
           ),
@@ -36,7 +36,7 @@ class _TelemetryHistoryWidgetState extends State<TelemetryHistoryWidget> {
         Text(
           label,
           style: GoogleFonts.spaceGrotesk(
-            fontSize: 9,
+            fontSize: 8,
             color: const Color(0xFFC4C4D4),
             fontWeight: FontWeight.bold,
           ),
@@ -161,18 +161,18 @@ class _TelemetryHistoryWidgetState extends State<TelemetryHistoryWidget> {
                   onTap: () {},
                   hoverColor: Colors.white.withOpacity(0.05),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
                     child: Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(10),
+                          padding: const EdgeInsets.all(8),
                           decoration: const BoxDecoration(
                             color: Color(0xFF1C1C3A),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.sensors_rounded, color: Color(0xFFE55A00), size: 16),
+                          child: const Icon(Icons.sensors_rounded, color: Color(0xFFE55A00), size: 14),
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 8),
                         Expanded(
                           flex: 2,
                           child: Column(
@@ -181,15 +181,15 @@ class _TelemetryHistoryWidgetState extends State<TelemetryHistoryWidget> {
                               Text(
                                 formattedTime,
                                 style: GoogleFonts.spaceGrotesk(
-                                  fontSize: 13,
+                                  fontSize: 11,
                                   fontWeight: FontWeight.w700,
                                   color: Colors.white,
                                 ),
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 2),
                               Text(
                                 'Relevé de capteurs',
-                                style: GoogleFonts.inter(fontSize: 11, color: Colors.white70),
+                                style: GoogleFonts.inter(fontSize: 10, color: Colors.white70),
                               ),
                             ],
                           ),

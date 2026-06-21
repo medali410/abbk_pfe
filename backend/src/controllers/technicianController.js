@@ -42,8 +42,17 @@ async function loadMachineData(profile) {
 /** GET /api/technicians */
 async function listTechnicians(req, res) {
     try {
-        const { status, companyId, specialization } = req.query;
-        const rows = await TechnicianModel.listTechnicians({ status, companyId, specialization });
+        const { status, companyId, specialization, machineId } = req.query;
+        let rows = await TechnicianModel.listTechnicians({ status, companyId, specialization });
+        
+        if (machineId) {
+            rows = rows.filter(p => {
+                let mIds = [];
+                try { mIds = JSON.parse(p.machineIds || '[]'); } catch(e) {}
+                return mIds.includes(String(machineId));
+            });
+        }
+        
         res.set('Cache-Control', 'no-store');
         return res.json(rows.map(p => serializeTechnician(p.user, p)));
     } catch (err) {

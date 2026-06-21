@@ -12,6 +12,7 @@ import 'add_maintenance_agent_page.dart';
 import 'maintenance_module_page.dart';
 import 'add_machine_page.dart';
 import 'widgets/message_equipe_view.dart';
+import 'all_missions_history_page.dart';
 import 'services/api_service.dart';
 import 'mvc/controllers/dashboard_controller.dart';
 
@@ -183,9 +184,11 @@ class _DashboardPageState extends State<DashboardPage> {
                                                         )
                                                       : _currentPage == 12
                                                           ? const MaintenanceModulePage()
-                                                          : _currentPage == 7
-                                                              ? const MessageEquipeView(embedded: true)
-                                                              : RefreshIndicator(
+                                                          : _currentPage == 14
+                                                              ? const AllMissionsHistoryPage()
+                                                              : _currentPage == 7
+                                                                  ? const MessageEquipeView(embedded: true)
+                                                                  : RefreshIndicator(
                                                           color: const Color(0xFFFF8F3F),
                                                           onRefresh: _mvc.loadGlobalStats,
                                                           child: SingleChildScrollView(
@@ -520,7 +523,7 @@ class _DashboardPageState extends State<DashboardPage> {
       crossAxisCount: isDesktop ? 4 : 2,
       mainAxisSpacing: 16,
       crossAxisSpacing: 16,
-      childAspectRatio: isDesktop ? 1.55 : 1.12,
+      childAspectRatio: isDesktop ? 1.55 : 1.0,
       children: [
         GestureDetector(
           onTap: () => _goTo(2),
@@ -829,46 +832,58 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _buildMobileBottomNav() {
-    return Container(
-      height: 72,
-      decoration: BoxDecoration(
-        color: const Color(0xFF10102B).withOpacity(0.95),
-        border: const Border(top: BorderSide(color: Color(0xFF32324e), width: 1)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _BottomNavItem(
-            icon: Icons.dashboard_outlined,
-            label: 'Accueil',
-            active: _currentPage == 0,
-            onTap: () => _goTo(0),
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(36),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: Container(
+              height: 74,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(36),
+                border: Border.all(color: Colors.white.withOpacity(0.12)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _BottomNavItem(
+                    icon: Icons.dashboard_rounded,
+                    label: 'Accueil',
+                    active: _currentPage == 0,
+                    onTap: () => _goTo(0),
+                  ),
+                  _BottomNavItem(
+                    icon: Icons.precision_manufacturing_rounded,
+                    label: 'Machines',
+                    active: _currentPage == 3,
+                    onTap: () => _goTo(3),
+                  ),
+                  _BottomNavItem(
+                    icon: Icons.groups_rounded,
+                    label: 'Clients',
+                    active: _currentPage == 1 || _currentPage == 2,
+                    onTap: () => _goTo(2),
+                  ),
+                  _BottomNavItem(
+                    icon: Icons.engineering_outlined,
+                    label: 'Concepteurs',
+                    active: _currentPage == 6 || _currentPage == 10 || _currentPage == 5,
+                    onTap: () => _goTo(6),
+                  ),
+                  _BottomNavItem(
+                    icon: Icons.chat_bubble_rounded,
+                    label: 'Messagerie',
+                    active: _currentPage == 7,
+                    onTap: () => _goTo(7),
+                  ),
+                ],
+              ),
+            ),
           ),
-          _BottomNavItem(
-            icon: Icons.precision_manufacturing_outlined,
-            label: 'Machines',
-            active: _currentPage == 3,
-            onTap: () => _goTo(3),
-          ),
-          _BottomNavItem(
-            icon: Icons.groups_outlined,
-            label: 'Clients',
-            active: _currentPage == 1 || _currentPage == 2,
-            onTap: () => _goTo(2),
-          ),
-          _BottomNavItem(
-            icon: Icons.engineering_outlined,
-            label: 'Concepteurs',
-            active: _currentPage == 6 || _currentPage == 10 || _currentPage == 5,
-            onTap: () => _goTo(6),
-          ),
-          _BottomNavItem(
-            icon: Icons.chat_bubble_outline,
-            label: 'Messagerie',
-            active: _currentPage == 7,
-            onTap: () => _goTo(7),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -942,6 +957,14 @@ class _DashboardTopNavMenu extends StatelessWidget {
               onTap: () => onNavigate(13),
             ),
           ],
+          _navDivider(),
+          _SidebarMenuTile(
+            icon: Icons.history_rounded,
+            activeIcon: Icons.history_rounded,
+            label: 'Missions',
+            active: currentPage == 14,
+            onTap: () => onNavigate(14),
+          ),
           _navDivider(),
           _SidebarMenuTile(
             icon: Icons.chat_bubble_outline,
@@ -1725,7 +1748,7 @@ class _KPICardState extends State<_KPICard> {
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeOutCubic,
         transform: _isHovered ? (Matrix4.identity()..translate(0, -6, 0)) : Matrix4.identity(),
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
@@ -1756,17 +1779,17 @@ class _KPICardState extends State<_KPICard> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
                     color: widget.color.withOpacity(0.12),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(widget.icon, color: widget.color, size: 22),
+                  child: Icon(widget.icon, color: widget.color, size: 20),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Flexible(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
                       color: widget.color.withOpacity(0.08),
                       borderRadius: BorderRadius.circular(12),
@@ -1788,14 +1811,14 @@ class _KPICardState extends State<_KPICard> {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
               child: Text(
                 widget.value,
                 style: GoogleFonts.inter(
-                  fontSize: 34,
+                  fontSize: 32,
                   fontWeight: FontWeight.w900,
                   color: Colors.white,
                   letterSpacing: -1,
@@ -1808,7 +1831,7 @@ class _KPICardState extends State<_KPICard> {
                 ),
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               widget.title.toUpperCase(),
               maxLines: 1,
@@ -1948,25 +1971,43 @@ class _BottomNavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: active ? const Color(0xFFFF6E00) : const Color(0xFFE2BFB0).withOpacity(0.6), size: 24),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 10,
-                fontWeight: active ? FontWeight.bold : FontWeight.normal,
-                color: active ? const Color(0xFFFF6E00) : const Color(0xFFE2BFB0).withOpacity(0.6),
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          color: Colors.transparent,
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                decoration: active
+                    ? BoxDecoration(
+                        color: Colors.white.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(20),
+                      )
+                    : null,
+                child: Icon(
+                  icon,
+                  color: active ? const Color(0xFFFF6E00) : const Color(0xFFE2BFB0).withOpacity(0.6),
+                  size: 24,
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 4),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 10,
+                  fontWeight: active ? FontWeight.bold : FontWeight.normal,
+                  color: active ? const Color(0xFFFF6E00) : const Color(0xFFE2BFB0).withOpacity(0.6),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -7,24 +7,40 @@ import 'maintenance_ia_status.dart';
 import 'maintenance_telemetry_mini_charts.dart';
 
 /// Onglet « Analyse IA » : vue dédiée au risque et aux scénarios par machine.
-class MaintenanceAiAnalysisContent extends StatelessWidget {
+class MaintenanceAiAnalysisContent extends StatefulWidget {
   const MaintenanceAiAnalysisContent({
     super.key,
     required this.data,
     required this.onWorkspaceReload,
+    this.viewerRole = 'maintenance',
   });
 
   final Map<String, dynamic> data;
   final VoidCallback onWorkspaceReload;
+  final String viewerRole;
 
+  @override
+  State<MaintenanceAiAnalysisContent> createState() => _MaintenanceAiAnalysisContentState();
+}
+
+class _MaintenanceAiAnalysisContentState extends State<MaintenanceAiAnalysisContent> {
   static const _text = Color(0xFFE2DFFF);
   static const _muted = Color(0xFFE2BFB0);
   static const _accent = Color(0xFFFF6E00);
+  
+  final PageController _pageController = PageController(viewportFraction: 0.92);
+  int _currentPage = 0;
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final rows =
-        (data['machines'] as List? ?? const [])
+        (widget.data['machines'] as List? ?? const [])
             .map((e) => (e as Map).cast<String, dynamic>())
             .toList();
 
@@ -75,7 +91,7 @@ class MaintenanceAiAnalysisContent extends StatelessWidget {
                           ),
                           iconTheme: const IconThemeData(color: Color(0xFFE2DFFF)),
                         ),
-                        body: MaintenanceAiChatPage(data: data),
+                        body: MaintenanceAiChatPage(data: widget.data),
                       ),
                     ),
                   );
@@ -92,7 +108,7 @@ class MaintenanceAiAnalysisContent extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               TextButton.icon(
-                onPressed: onWorkspaceReload,
+                onPressed: widget.onWorkspaceReload,
                 icon: const Icon(Icons.refresh_rounded, size: 18, color: _accent),
                 label: Text(
                   'Actualiser',
@@ -107,10 +123,10 @@ class MaintenanceAiAnalysisContent extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          child: PageView.builder(
+            controller: _pageController,
+            onPageChanged: (idx) => setState(() => _currentPage = idx),
             itemCount: rows.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 14),
             itemBuilder: (context, i) {
               final m = rows[i];
               final id = (m['machineId'] ?? '').toString();
@@ -119,81 +135,93 @@ class MaintenanceAiAnalysisContent extends StatelessWidget {
                   (m['motorType'] ?? m['type_moteur'] ?? 'EL_M').toString();
               final insight = iaInsightMessage(m);
 
-              return Material(
-                color: const Color(0xFF1D1D38),
-                borderRadius: BorderRadius.circular(14),
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (_) => MaintenanceAiAnalysisMachineScreen(
-                          machineId: id,
-                          machineName: name,
-                          motorType: motorType.isNotEmpty ? motorType : 'EL_M',
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 8.0),
+                child: Material(
+                  color: const Color(0xFF1D1D38),
+                  borderRadius: BorderRadius.circular(16),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => MaintenanceAiAnalysisMachineScreen(
+                            machineId: id,
+                            machineName: name,
+                            motorType: motorType.isNotEmpty ? motorType : 'EL_M',
+                            viewerRole: widget.viewerRole,
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              Icons.precision_manufacturing_outlined,
-                              color: _accent.withValues(alpha: 0.9),
-                              size: 22,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                name,
-                                style: GoogleFonts.spaceGrotesk(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: _text,
+                      );
+                    },
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                Icons.precision_manufacturing_outlined,
+                                color: _accent.withValues(alpha: 0.9),
+                                size: 24,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  name,
+                                  style: GoogleFonts.spaceGrotesk(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    color: _text,
+                                  ),
                                 ),
                               ),
-                            ),
-                            Text(
-                              '${iaProbPanne(m).toStringAsFixed(0)} %',
-                              style: GoogleFonts.spaceGrotesk(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w800,
-                                color: iaLevelAccent(m),
+                              Text(
+                                '${iaProbPanne(m).toStringAsFixed(0)} %',
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: iaLevelAccent(m),
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        MaintenanceMachineIaStrip(
-                          machine: m,
-                          compact: false,
-                        ),
-                        const SizedBox(height: 12),
-                        // Les LineChart capturent les taps ; on les ignore pour que le InkWell ouvre la page.
-                        IgnorePointer(
-                          child: MaintenanceTelemetryMiniCharts(
-                            key: ValueKey('telemetry-$id'),
-                            machineId: id,
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          MaintenanceMachineIaStrip(
+                            machine: m,
                             compact: false,
                           ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          insight,
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            color: _text.withValues(alpha: 0.88),
-                            height: 1.35,
+                          const SizedBox(height: 16),
+                          // Les LineChart capturent les taps ; on les ignore pour que le InkWell ouvre la page.
+                          IgnorePointer(
+                            child: MaintenanceTelemetryMiniCharts(
+                              key: ValueKey('telemetry-$id'),
+                              machineId: id,
+                              compact: false,
+                            ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 14),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              insight,
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                color: _text.withValues(alpha: 0.88),
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -201,6 +229,27 @@ class MaintenanceAiAnalysisContent extends StatelessWidget {
             },
           ),
         ),
+        // Indicateur de page
+        if (rows.length > 1)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 24.0, top: 12.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(rows.length, (index) {
+                final isSelected = _currentPage == index;
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  margin: const EdgeInsets.symmetric(horizontal: 4.0),
+                  height: 6,
+                  width: isSelected ? 20 : 6,
+                  decoration: BoxDecoration(
+                    color: isSelected ? _accent : _muted.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                );
+              }),
+            ),
+          ),
       ],
     );
   }

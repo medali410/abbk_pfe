@@ -10,11 +10,12 @@ async function findMany({ catalog = false, includeAll = false, unassigned = fals
     if (unassigned) {
         where = { companyId: '' };
     }
-    // Only filter by concepteurId when NOT doing a full catalog fetch.
-    // When includeAll=true the designer wants to see every machine in the system.
-    if (concepterId && !includeAll) {
+    
+    // Always filter by concepteurId if provided, so that Concepteurs only see their own machines
+    if (concepterId) {
         where.concepteurId = String(concepterId);
     }
+    
     // If it's a catalog view, only show public machines by default
     if (catalog && !includeAll) {
         where.isPublic = { not: false };

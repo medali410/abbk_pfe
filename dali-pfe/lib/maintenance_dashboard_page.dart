@@ -1,4 +1,6 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'maintenance_ai_analysis_content.dart';
@@ -395,7 +397,7 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
     try {
       final interventions = await ApiService.getDiagnosticInterventions();
       final mId = (machine['machineId'] ?? '').toString();
-      final active = interventions.firstWhere(
+      final active = interventions.lastWhere(
         (i) =>
             i['machineId'] == mId &&
             i['status'] != 'DONE' &&
@@ -511,6 +513,8 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
     }
   }
 
+  bool _isBottomNavVisible = true;
+
   @override
   Widget build(BuildContext context) {
     const bg = Color(0xFF10102B);
@@ -551,215 +555,173 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
           ),
         ],
       ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _MaintenanceTopNav(
-            mutedColor: muted,
-            accentColor: accent,
-            selectedShellId: _shellNav,
-            onShellSelect: (id) => setState(() => _shellNav = id),
-          ),
-          Expanded(
-            child: FutureBuilder<Map<String, dynamic>>(
-              future: _future,
-              builder: (context, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: accent),
-                  );
-                }
-                if (snap.hasError) {
-                  final err = '${snap.error}';
-                  final looksLikeAuth =
-                      err.toLowerCase().contains('session') ||
-                      err.toLowerCase().contains('reconnectez') ||
-                      err.toLowerCase().contains('authentification');
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            err,
-                            style: GoogleFonts.inter(color: muted),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 14),
-                          if (looksLikeAuth)
-                            TextButton(
-                              onPressed: () {
-                                Navigator.of(context).pushReplacementNamed(
-                                  '/maintenance-login',
-                                );
-                              },
-                              child: Text(
-                                'Connexion maintenance',
-                                style: GoogleFonts.inter(
-                                  color: accent,
-                                  fontWeight: FontWeight.w700,
+      extendBody: true, // Pour que le body passe sous la bottom nav transparente
+      body: NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          if (notification.metrics.axis != Axis.vertical) return false;
+          
+          if (notification is UserScrollNotification) {
+            if (notification.direction == ScrollDirection.reverse) {
+              if (_isBottomNavVisible) setState(() => _isBottomNavVisible = false);
+            } else if (notification.direction == ScrollDirection.forward || notification.direction == ScrollDirection.idle) {
+              if (!_isBottomNavVisible) setState(() => _isBottomNavVisible = true);
+            }
+          }
+          return false;
+        },
+        child: FutureBuilder<Map<String, dynamic>>(
+                future: _future,
+                builder: (context, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return const Center(
+                      child: CircularProgressIndicator(color: accent),
+                    );
+                  }
+                  if (snap.hasError) {
+                    final err = '${snap.error}';
+                    final looksLikeAuth =
+                        err.toLowerCase().contains('session') ||
+                        err.toLowerCase().contains('reconnectez') ||
+                        err.toLowerCase().contains('authentification');
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              err,
+                              style: GoogleFonts.inter(color: muted),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 14),
+                            if (looksLikeAuth)
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.of(context).pushReplacementNamed(
+                                    '/maintenance-login',
+                                  );
+                                },
+                                child: Text(
+                                  'Connexion maintenance',
+                                  style: GoogleFonts.inter(
+                                    color: accent,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
+                            TextButton(
+                              onPressed: _reload,
+                              child: const Text('Réessayer'),
                             ),
-                          TextButton(
-                            onPressed: _reload,
-                            child: const Text('Réessayer'),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                }
-                final data = snap.data ?? const <String, dynamic>{};
-                if (_shellNav == 'dashboard') {
-                  return MaintenanceHomeDashboardContent(
-                    data: data,
-                    liveStates: _machineLiveStates,
-                    onTabSelect: (id) => setState(() => _shellNav = id),
-                    onWorkspaceReload: _reload,
-                  );
-                }
-                if (_shellNav == 'profile') {
-                  return MaintenanceProfileContent(
-                    data: data,
-                    onWorkspaceReload: _reload,
-                  );
-                }
-                if (_shellNav == 'missionHistory') {
-                  return MaintenanceMissionHistoryContent(
-                    key: ValueKey(_workspaceReloadNonce),
-                    data: data,
-                    onWorkspaceReload: _reload,
-                  );
-                }
-                if (_shellNav == 'aiAnalysis') {
-                  return MaintenanceAiAnalysisContent(
-                    data: data,
-                    onWorkspaceReload: _reload,
-                  );
-                }
-                return MaintenanceMachineHubContent(data: data);
-              },
+                    );
+                  }
+                  final data = snap.data ?? const <String, dynamic>{};
+                  if (_shellNav == 'dashboard') {
+                    return MaintenanceHomeDashboardContent(
+                      data: data,
+                      liveStates: _machineLiveStates,
+                      onTabSelect: (id) => setState(() => _shellNav = id),
+                      onWorkspaceReload: _reload,
+                    );
+                  }
+                  if (_shellNav == 'profile') {
+                    return MaintenanceProfileContent(
+                      data: data,
+                      onWorkspaceReload: _reload,
+                    );
+                  }
+                  if (_shellNav == 'missionHistory') {
+                    return MaintenanceMissionHistoryContent(
+                      key: ValueKey(_workspaceReloadNonce),
+                      data: data,
+                      onWorkspaceReload: _reload,
+                    );
+                  }
+                  if (_shellNav == 'aiAnalysis') {
+                    return MaintenanceAiAnalysisContent(
+                      data: data,
+                      onWorkspaceReload: _reload,
+                    );
+                  }
+                  return MaintenanceMachineHubContent(data: data);
+                },
+              ),
+      ),
+      bottomNavigationBar: AnimatedSlide(
+        duration: const Duration(milliseconds: 300),
+        offset: _isBottomNavVisible ? Offset.zero : const Offset(0, 1),
+        child: ClipRRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              decoration: BoxDecoration(
+                color: bg.withOpacity(0.6),
+                border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
+              ),
+              child: BottomNavigationBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                type: BottomNavigationBarType.fixed,
+                selectedItemColor: accent,
+                unselectedItemColor: muted.withOpacity(0.6),
+                selectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 12),
+                unselectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w500, fontSize: 11),
+                currentIndex: _getTabIndex(_shellNav),
+                onTap: (index) => setState(() => _shellNav = _getTabId(index)),
+                items: const [
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.dashboard_outlined),
+                    activeIcon: Icon(Icons.dashboard_rounded),
+                    label: 'Tableau de bord',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.person_outline_rounded),
+                    activeIcon: Icon(Icons.person_rounded),
+                    label: 'Profil',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.analytics_outlined),
+                    activeIcon: Icon(Icons.analytics_rounded),
+                    label: 'Analyse IA',
+                  ),
+                ],
+              ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Barre de navigation horizontale sous l’AppBar (remplace l’ancienne sidebar gauche).
-class _MaintenanceTopNav extends StatelessWidget {
-  const _MaintenanceTopNav({
-    required this.mutedColor,
-    required this.accentColor,
-    required this.selectedShellId,
-    required this.onShellSelect,
-  });
-
-  final Color mutedColor;
-  final Color accentColor;
-  /// `dashboard` · `profile` · `machineDetail` · `missionHistory` · `aiAnalysis`
-  final String selectedShellId;
-  final ValueChanged<String> onShellSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0xFF131429),
-      child: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(color: Colors.white.withOpacity(0.08)),
-          ),
-        ),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              _MaintenanceTopNavItem(
-                icon: Icons.dashboard_outlined,
-                label: 'TABLEAU DE BORD',
-                selected: selectedShellId == 'dashboard',
-                accentColor: accentColor,
-                mutedColor: mutedColor,
-                onTap: () => onShellSelect('dashboard'),
-              ),
-              _MaintenanceTopNavItem(
-                icon: Icons.person_outline_rounded,
-                label: 'PROFIL',
-                selected: selectedShellId == 'profile',
-                accentColor: accentColor,
-                mutedColor: mutedColor,
-                onTap: () => onShellSelect('profile'),
-              ),
-
-
-              _MaintenanceTopNavItem(
-                icon: Icons.analytics_outlined,
-                label: 'ANALYSE IA',
-                selected: selectedShellId == 'aiAnalysis',
-                accentColor: accentColor,
-                mutedColor: mutedColor,
-                onTap: () => onShellSelect('aiAnalysis'),
-              ),
-            ],
-          ),
         ),
       ),
     );
   }
-}
 
-class _MaintenanceTopNavItem extends StatelessWidget {
-  const _MaintenanceTopNavItem({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.accentColor,
-    required this.mutedColor,
-    required this.onTap,
-  });
+  int _getTabIndex(String shellId) {
+    switch (shellId) {
+      case 'dashboard':
+        return 0;
+      case 'profile':
+        return 1;
+      case 'aiAnalysis':
+        return 2;
+      default:
+        return 0;
+    }
+  }
 
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final Color accentColor;
-  final Color mutedColor;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final fg = selected ? accentColor : mutedColor.withOpacity(0.65);
-    return Padding(
-      padding: const EdgeInsets.only(right: 4),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 17, color: fg),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 10,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  color: fg,
-                  letterSpacing: 0.8,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  String _getTabId(int index) {
+    switch (index) {
+      case 0:
+        return 'dashboard';
+      case 1:
+        return 'profile';
+      case 2:
+        return 'aiAnalysis';
+      default:
+        return 'dashboard';
+    }
   }
 }
+
+

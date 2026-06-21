@@ -5,6 +5,7 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'services/api_service.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'widgets/machine_control_calendar_panel.dart';
+import 'machine_detail_ai_page.dart';
 
 /// Unifie les synonymes de fin de mission pour l’UI (libellés API ou locales).
 String _normalizeMissionStatusString(Object? raw) {
@@ -212,7 +213,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
         final techIdNav = _technicianNavId.toUpperCase().trim();
         final techName = _techId.toUpperCase().trim();
 
-        active = list.firstWhere(
+        active = list.lastWhere(
           (i) {
             final isOpen = i['status'] != 'DONE' && i['status'] != 'CANCELLED';
             if (!isOpen) return false;
@@ -341,7 +342,9 @@ class _MissionControlPageState extends State<MissionControlPage> {
               _latestNoteId = nId;
               _latestCoordNote = (note['content'] ?? '').toString().toUpperCase();
 
-              final mNamePrefix = (active['machineName'] ?? _machineDisplayName).toString();
+              final mIdStr = (active['machineId'] ?? '').toString();
+              final rawMName = (active['machineName'] ?? '').toString();
+              final mNamePrefix = (rawMName.isNotEmpty ? rawMName : (mIdStr.isNotEmpty ? mIdStr : _machineDisplayName)).toString();
               final prefix = mNamePrefix.isNotEmpty ? '[$mNamePrefix] ' : '[$_resolvedMachineId] ';
 
               _logs.add({
@@ -356,6 +359,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
                     : '--:--',
                 "isMission": isM,
                 "noteId": nId,
+                "machineId": mIdStr,
                 "missionStatus": note['missionStatus'] ?? (skipAck ? null : 'SENT'),
                 if (skipAck || displayMissionAsYou) "skipAck": true,
               });
@@ -778,6 +782,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
         'timestamp': ts,
         'isMission': isM,
         'noteId': parsedId,
+        'machineId': _resolvedMachineId,
         'missionStatus': note['missionStatus'] ?? (hubSkip ? null : 'SENT'),
         if (hubSkip || displayMissionAsYou) 'skipAck': true,
       });
@@ -962,12 +967,12 @@ class _MissionControlPageState extends State<MissionControlPage> {
         children: [
           _buildTopNav(),
           Expanded(
-            child: missionFocus
+            child: (missionFocus || !_isMaintenanceViewer)
                 ? _buildTerminalArea()
                 : Row(
                     children: [
                       Expanded(flex: 3, child: _buildTerminalArea()),
-                      Expanded(flex: 1, child: _isMaintenanceViewer ? _buildTechnicianSidebar() : _buildMetricsPanel()),
+                      Expanded(flex: 1, child: _buildTechnicianSidebar()),
                     ],
                   ),
           ),
@@ -984,100 +989,104 @@ class _MissionControlPageState extends State<MissionControlPage> {
         : (_resolvedMachineId.isNotEmpty ? _resolvedMachineId : '—');
 
     return Container(
-      constraints: BoxConstraints(minHeight: isMaint ? 72 : 60),
-      padding: EdgeInsets.symmetric(horizontal: 16, vertical: isMaint ? 8 : 12),
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: isMaint ? 8 : 6),
       decoration: BoxDecoration(
         color: const Color(0xFF0B0E14),
         border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white70),
-            tooltip: 'Retour',
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-          const SizedBox(width: 8),
-          Tooltip(
-            message: 'Vider le fil d’affichage (historique local uniquement).',
-            child: IconButton(
-              icon: const Icon(Icons.layers_clear_rounded, color: Colors.blueGrey),
-              onPressed: () {
-                setState(() {
-                  _logs.clear();
-                });
-                _scrollToBottom();
-              },
-            ),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  isMaint
-                      ? 'MISSION_CONTROL · $machineLabel'
-                      : 'TECH_OS // MISSION_CONTROL // $_agentName',
-                  style: GoogleFonts.orbitron(
-                    color: isMaint ? const Color(0xFFFF6E00) : Colors.cyanAccent,
-                    fontSize: isMaint ? 14 : 16,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: isMaint ? 1.2 : 2,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (isMaint) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Technicien terrain ↔ Maintenance · communication mission',
-                    style: GoogleFonts.spaceGrotesk(
-                      color: Colors.blueGrey,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          if (isMaint) ...[
-            Tooltip(
-              message:
-                  'Affiche uniquement le fil mission et les messages partagés avec le technicien (sans tableau latéral).',
-              child: FilterChip(
-                label: Text(
-                  'Mode mission',
-                  style: GoogleFonts.spaceGrotesk(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 11,
-                    color: _maintenanceMissionMode ? Colors.black87 : Colors.white,
-                  ),
-                ),
-                selected: _maintenanceMissionMode,
-                onSelected: (v) => setState(() => _maintenanceMissionMode = v),
-                selectedColor: const Color(0xFFFF6E00),
-                checkmarkColor: Colors.black87,
-                avatar: Icon(
-                  Icons.center_focus_strong_outlined,
-                  size: 18,
-                  color: _maintenanceMissionMode ? Colors.black87 : const Color(0xFFFF6E00),
+          // ── Ligne 1 : Retour + Titre + Chip maintenance ──
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white70),
+                tooltip: 'Retour',
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+              Tooltip(
+                message: 'Vider le fil (historique local uniquement).',
+                child: IconButton(
+                  icon: const Icon(Icons.layers_clear_rounded, color: Colors.blueGrey),
+                  onPressed: () {
+                    setState(() => _logs.clear());
+                    _scrollToBottom();
+                  },
                 ),
               ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      isMaint
+                          ? 'MISSION_CONTROL · $machineLabel'
+                          : 'TECH_OS // MISSION_CONTROL // $_agentName',
+                      style: GoogleFonts.orbitron(
+                        color: isMaint ? const Color(0xFFFF6E00) : Colors.cyanAccent,
+                        fontSize: isMaint ? 13 : 15,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: isMaint ? 1.2 : 1.8,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (isMaint) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Technicien terrain ↔ Maintenance',
+                        style: GoogleFonts.spaceGrotesk(
+                          color: Colors.blueGrey,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (isMaint)
+                FilterChip(
+                  label: Text(
+                    'Mode mission',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11,
+                      color: _maintenanceMissionMode ? Colors.black87 : Colors.white,
+                    ),
+                  ),
+                  selected: _maintenanceMissionMode,
+                  onSelected: (v) => setState(() => _maintenanceMissionMode = v),
+                  selectedColor: const Color(0xFFFF6E00),
+                  checkmarkColor: Colors.black87,
+                  avatar: Icon(
+                    Icons.center_focus_strong_outlined,
+                    size: 18,
+                    color: _maintenanceMissionMode ? Colors.black87 : const Color(0xFFFF6E00),
+                  ),
+                ),
+            ],
+          ),
+          // ── Ligne 2 (technicien uniquement) : Onglets de navigation ──
+          if (!isMaint)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildNavTab('SYSTEM_HUB', false),
+                  _buildNavTab('FLEET_SYNC', true),
+                  _buildNavTab('NETWORK_LOGS', false),
+                  const SizedBox(width: 12),
+                  const Icon(Icons.notifications_none, color: Colors.cyanAccent, size: 20),
+                  const SizedBox(width: 12),
+                  const Icon(Icons.dashboard_customize_outlined, color: Colors.cyanAccent, size: 20),
+                ],
+              ),
             ),
-            const SizedBox(width: 8),
-          ] else ...[
-            _buildNavTab('SYSTEM_HUB', false),
-            _buildNavTab('FLEET_SYNC', true),
-            _buildNavTab('NETWORK_LOGS', false),
-            const SizedBox(width: 12),
-            const Icon(Icons.notifications_none, color: Colors.cyanAccent, size: 20),
-            const SizedBox(width: 12),
-            const Icon(Icons.dashboard_customize_outlined, color: Colors.cyanAccent, size: 20),
-          ],
         ],
       ),
     );
@@ -1455,7 +1464,9 @@ class _MissionControlPageState extends State<MissionControlPage> {
                     _MaintenanceMissionStatusChip(status: _ackStatus(log)),
                   ] else if (_technicianNeedsAckRow(log)) ...[
                     const SizedBox(height: 15),
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
                         if (_ackStatus(log) != 'COMPLETED') ...[
                           ElevatedButton.icon(
@@ -1487,7 +1498,6 @@ class _MissionControlPageState extends State<MissionControlPage> {
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             ),
                           ),
-                          const SizedBox(width: 8),
                           ElevatedButton.icon(
                             onPressed: (_ackStatus(log) == 'CONFIRMED' || _ackStatus(log) == 'STARTED')
                                 ? () => _applyTechnicianAck(log, 'COMPLETED')
@@ -1535,6 +1545,25 @@ class _MissionControlPageState extends State<MissionControlPage> {
                                   ),
                                 ),
                               ],
+                            ),
+                          ),
+                        ],
+                        if (log['machineId'] != null && log['machineId'].toString().isNotEmpty) ...[
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => MachineDetailAiPage(machineId: log['machineId'].toString()),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.remove_red_eye_outlined, size: 12, color: Colors.black),
+                            label: Text('AFFICHER', style: GoogleFonts.orbitron(fontSize: 9, fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             ),
                           ),
                         ],
@@ -1767,6 +1796,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Override box removed as requested
           _buildSectionHeader('MACHINES ASSIGNÉES'),
           const SizedBox(height: 20),
           if (_isLoadingMachines)
@@ -1819,8 +1849,6 @@ class _MissionControlPageState extends State<MissionControlPage> {
                 },
               ),
             ),
-          const SizedBox(height: 25),
-          _buildOverrideBox(),
         ],
       ),
     );
@@ -1829,11 +1857,15 @@ class _MissionControlPageState extends State<MissionControlPage> {
   Widget _buildSectionHeader(String title) {
     return Row(
       children: [
-        Text(
-          title,
-          style: GoogleFonts.orbitron(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+        Flexible(
+          child: Text(
+            title,
+            style: GoogleFonts.orbitron(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+          ),
         ),
-        const Spacer(),
+        const SizedBox(width: 8),
         Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.greenAccent, shape: BoxShape.circle)),
       ],
     );
@@ -1953,126 +1985,149 @@ class _MissionControlPageState extends State<MissionControlPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(hasMission ? Icons.assignment_late : Icons.security, color: hasMission ? Colors.orangeAccent : Colors.cyanAccent, size: 18),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      hasMission ? 'ACTIVE MISSION PROTOCOL' : 'SYSTEM OVERRIDE PROTOCOL',
-                      style: GoogleFonts.orbitron(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Icon(hasMission ? Icons.assignment_late : Icons.security, color: hasMission ? Colors.orangeAccent : Colors.cyanAccent, size: 18),
+                  if (hasMission)
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: status == 'COMPLETED' ? Colors.greenAccent.withOpacity(0.1) : Colors.orangeAccent.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            status == 'COMPLETED' ? 'TERMINÉ' : status,
+                            style: GoogleFonts.spaceGrotesk(
+                              color: status == 'COMPLETED' ? Colors.greenAccent : Colors.orangeAccent,
+                              fontSize: 8,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _latestCoordNote,
-                      style: GoogleFonts.spaceGrotesk(color: hasMission ? Colors.orangeAccent : Colors.cyanAccent, fontSize: 8, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
+                ],
               ),
-              if (hasMission)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: status == 'COMPLETED' ? Colors.greenAccent.withOpacity(0.1) : Colors.orangeAccent.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                  child: Text(
-                    status == 'COMPLETED' ? 'TERMINÉ' : status,
-                    style: GoogleFonts.spaceGrotesk(
-                      color: status == 'COMPLETED' ? Colors.greenAccent : Colors.orangeAccent,
-                      fontSize: 8,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
+              const SizedBox(height: 8),
+              Text(
+                hasMission ? 'ACTIVE MISSION PROTOCOL' : 'SYSTEM OVERRIDE PROTOCOL',
+                style: GoogleFonts.orbitron(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                _latestCoordNote,
+                style: GoogleFonts.spaceGrotesk(color: hasMission ? Colors.orangeAccent : Colors.cyanAccent, fontSize: 8, fontWeight: FontWeight.bold),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
             ],
           ),
           const SizedBox(height: 15),
           if (hasMission && !_isMaintenanceViewer) ...[
-            Row(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: (status == 'SENT' && !_isSendingMission)
-                        ? () async {
-                            if (_interventionId != null && missionId != null) {
-                              setState(() => _isSendingMission = true);
-                              setState(() {
-                                _latestMission?['missionStatus'] = 'CONFIRMED';
-                                for (var log in _logs) {
-                                  if (log['isMission'] == true && log['noteId'] == missionId.toString()) {
-                                    log['missionStatus'] = 'CONFIRMED';
-                                  }
+                ElevatedButton(
+                  onPressed: (status == 'SENT' && !_isSendingMission)
+                      ? () async {
+                          if (_interventionId != null && missionId != null) {
+                            setState(() => _isSendingMission = true);
+                            setState(() {
+                              _latestMission?['missionStatus'] = 'CONFIRMED';
+                              for (var log in _logs) {
+                                if (log['isMission'] == true && log['noteId'] == missionId.toString()) {
+                                  log['missionStatus'] = 'CONFIRMED';
                                 }
-                              });
-                              try {
-                                await ApiService.updateMissionStatus(_interventionId!, missionId.toString(), 'CONFIRMED');
-                              } catch (e) {
-                                setState(() { _latestMission?['missionStatus'] = 'SENT'; });
-                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.redAccent));
-                              } finally {
-                                if (mounted) setState(() => _isSendingMission = false);
                               }
+                            });
+                            try {
+                              await ApiService.updateMissionStatus(_interventionId!, missionId.toString(), 'CONFIRMED');
+                            } catch (e) {
+                              setState(() { _latestMission?['missionStatus'] = 'SENT'; });
+                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.redAccent));
+                            } finally {
+                              if (mounted) setState(() => _isSendingMission = false);
                             }
                           }
-                        : null,
-                    icon: _isSendingMission && status == 'SENT'
-                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                        : Icon(status == 'SENT' ? Icons.circle_outlined : Icons.check_circle, size: 14, color: status == 'SENT' ? Colors.black : Colors.greenAccent),
-                    label: Text(
-                      _isSendingMission && status == 'SENT' ? '...' : (status == 'SENT' ? 'CONFIRMER' : 'CONFIRMÉ'),
-                      style: GoogleFonts.orbitron(fontSize: 9, fontWeight: FontWeight.bold),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: status == 'SENT' ? Colors.cyanAccent.withOpacity(0.8) : Colors.white.withOpacity(0.05),
-                      disabledBackgroundColor: Colors.white.withOpacity(0.05),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
+                        }
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: status == 'SENT' ? Colors.cyanAccent.withOpacity(0.8) : Colors.white.withOpacity(0.05),
+                    disabledBackgroundColor: Colors.white.withOpacity(0.05),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _isSendingMission && status == 'SENT'
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                          : Icon(status == 'SENT' ? Icons.circle_outlined : Icons.check_circle, size: 14, color: status == 'SENT' ? Colors.black : Colors.greenAccent),
+                      const SizedBox(height: 4),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          _isSendingMission && status == 'SENT' ? '...' : (status == 'SENT' ? 'CONFIRMER' : 'CONFIRMÉ'),
+                          style: GoogleFonts.orbitron(fontSize: 9, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: ((status == 'CONFIRMED' || status == 'STARTED') && !_isSendingMission)
-                        ? () async {
-                            if (_interventionId != null && missionId != null) {
-                              setState(() => _isSendingMission = true);
-                              setState(() {
-                                _latestMission?['missionStatus'] = 'COMPLETED';
-                                for (var log in _logs) {
-                                  if (log['isMission'] == true && log['noteId'] == missionId.toString()) {
-                                    log['missionStatus'] = 'COMPLETED';
-                                  }
+                const SizedBox(height: 10),
+                ElevatedButton(
+                  onPressed: ((status == 'CONFIRMED' || status == 'STARTED') && !_isSendingMission)
+                      ? () async {
+                          if (_interventionId != null && missionId != null) {
+                            setState(() => _isSendingMission = true);
+                            setState(() {
+                              _latestMission?['missionStatus'] = 'COMPLETED';
+                              for (var log in _logs) {
+                                if (log['isMission'] == true && log['noteId'] == missionId.toString()) {
+                                  log['missionStatus'] = 'COMPLETED';
                                 }
-                              });
-                              try {
-                                await ApiService.updateMissionStatus(_interventionId!, missionId.toString(), 'COMPLETED');
-                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ MISSION TERMINÉE'), backgroundColor: Colors.green));
-                              } catch (e) {
-                                setState(() { _latestMission?['missionStatus'] = 'CONFIRMED'; });
-                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.redAccent));
-                              } finally {
-                                if (mounted) setState(() => _isSendingMission = false);
                               }
+                            });
+                            try {
+                              await ApiService.updateMissionStatus(_interventionId!, missionId.toString(), 'COMPLETED');
+                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ MISSION TERMINÉE'), backgroundColor: Colors.green));
+                            } catch (e) {
+                              setState(() { _latestMission?['missionStatus'] = 'CONFIRMED'; });
+                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.redAccent));
+                            } finally {
+                              if (mounted) setState(() => _isSendingMission = false);
                             }
                           }
-                        : null,
-                    icon: _isSendingMission && (status == 'CONFIRMED' || status == 'STARTED')
-                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                        : Icon(Icons.stop_circle_outlined, size: 14, color: (status == 'CONFIRMED' || status == 'STARTED') ? Colors.black : Colors.white.withOpacity(0.2)),
-                    label: Text(
-                      _isSendingMission && (status == 'CONFIRMED' || status == 'STARTED') ? '...' : 'TERMINER',
-                      style: GoogleFonts.orbitron(fontSize: 9, fontWeight: FontWeight.bold),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: (status == 'CONFIRMED' || status == 'STARTED') ? Colors.greenAccent.withOpacity(0.8) : Colors.white.withOpacity(0.05),
-                      disabledBackgroundColor: Colors.white.withOpacity(0.05),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
+                        }
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: (status == 'CONFIRMED' || status == 'STARTED') ? Colors.greenAccent.withOpacity(0.8) : Colors.white.withOpacity(0.05),
+                    disabledBackgroundColor: Colors.white.withOpacity(0.05),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _isSendingMission && (status == 'CONFIRMED' || status == 'STARTED')
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                          : Icon(Icons.stop_circle_outlined, size: 14, color: (status == 'CONFIRMED' || status == 'STARTED') ? Colors.black : Colors.white.withOpacity(0.2)),
+                      const SizedBox(height: 4),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          _isSendingMission && (status == 'CONFIRMED' || status == 'STARTED') ? '...' : 'TERMINER',
+                          style: GoogleFonts.orbitron(fontSize: 9, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -2083,32 +2138,29 @@ class _MissionControlPageState extends State<MissionControlPage> {
               child: _MaintenanceMissionStatusChip(status: status.toString()),
             ),
           ] else if (!_isMaintenanceViewer)
-            Row(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () {},
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Colors.blueGrey),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    child: Text('DISMISS', style: GoogleFonts.orbitron(color: Colors.blueGrey, fontSize: 10)),
+                OutlinedButton(
+                  onPressed: () {},
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.blueGrey),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
+                  child: Text('DISMISS', style: GoogleFonts.orbitron(color: Colors.blueGrey, fontSize: 10)),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      if (_interventionId != null && _latestNoteId != null) {
-                        await ApiService.updateMissionStatus(_interventionId!, _latestNoteId!, 'CONFIRMED');
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFF09E8C).withOpacity(0.8),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    child: Text('CONFIRMER', style: GoogleFonts.orbitron(color: Colors.black, fontSize: 10, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (_interventionId != null && _latestNoteId != null) {
+                      await ApiService.updateMissionStatus(_interventionId!, _latestNoteId!, 'CONFIRMED');
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF09E8C).withOpacity(0.8),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
+                  child: Text('CONFIRMER', style: GoogleFonts.orbitron(color: Colors.black, fontSize: 10, fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
@@ -2166,24 +2218,28 @@ class _MissionControlPageState extends State<MissionControlPage> {
 
   Widget _buildBottomStatusBar() {
     return Container(
-      height: 30,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      height: 34,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: const Color(0xFF05080E),
         border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
       ),
-      child: Row(
-        children: [
-          _buildStatusInfo('SERVER_STATUS: OPERATIONAL'),
-          const SizedBox(width: 20),
-          _buildStatusInfo('UPTIME: 1,442 HOURS'),
-          const Spacer(),
-          Container(width: 6, height: 6, decoration: const BoxDecoration(color: Colors.cyanAccent, shape: BoxShape.circle)),
-          const SizedBox(width: 8),
-          _buildStatusInfo('SYNC_ACTIVE'),
-          const SizedBox(width: 20),
-          _buildStatusInfo('OS_VERSION: 4.2.0_STABLE'),
-        ],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildStatusInfo('SERVER_STATUS: OPERATIONAL'),
+            const SizedBox(width: 16),
+            _buildStatusInfo('UPTIME: 1,442 HOURS'),
+            const SizedBox(width: 24),
+            Container(width: 6, height: 6, decoration: const BoxDecoration(color: Colors.cyanAccent, shape: BoxShape.circle)),
+            const SizedBox(width: 8),
+            _buildStatusInfo('SYNC_ACTIVE'),
+            const SizedBox(width: 16),
+            _buildStatusInfo('OS_VERSION: 4.2.0_STABLE'),
+          ],
+        ),
       ),
     );
   }

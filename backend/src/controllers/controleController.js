@@ -17,7 +17,26 @@ async function getControles(req, res) {
             include: { machine: { select: { id: true, name: true, type: true } } },
         });
 
-        return res.json(controles);
+        const agents = await prisma.maintenanceAgent.findMany({
+            include: { user: { select: { nom: true } } }
+        });
+
+        const results = controles.map(c => {
+            const agent = agents.find(a => {
+                try {
+                    const ids = JSON.parse(a.machineIds || '[]');
+                    return ids.includes(c.machineId);
+                } catch (_) {
+                    return false;
+                }
+            });
+            return {
+                ...c,
+                maintenanceAgentNom: agent ? (agent.user?.nom || `${agent.firstName} ${agent.lastName}`) : 'ons hammami'
+            };
+        });
+
+        return res.json(results);
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
@@ -31,7 +50,27 @@ async function getControlesForMachine(req, res) {
             orderBy: { createdAt: 'desc' },
             include: { machine: { select: { id: true, name: true } } },
         });
-        return res.json(controles);
+
+        const agents = await prisma.maintenanceAgent.findMany({
+            include: { user: { select: { nom: true } } }
+        });
+
+        const results = controles.map(c => {
+            const agent = agents.find(a => {
+                try {
+                    const ids = JSON.parse(a.machineIds || '[]');
+                    return ids.includes(c.machineId);
+                } catch (_) {
+                    return false;
+                }
+            });
+            return {
+                ...c,
+                maintenanceAgentNom: agent ? (agent.user?.nom || `${agent.firstName} ${agent.lastName}`) : 'ons hammami'
+            };
+        });
+
+        return res.json(results);
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }

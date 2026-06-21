@@ -65,6 +65,13 @@ async function createUserWithProfile(role, userFields, profileData = {}) {
                 role,
                 password: hashedPassword,
             },
+        }).catch(err => {
+            if (err.code === 'P2002') {
+                const e = new Error('Cet email est déjà utilisé (ou vous avez cliqué deux fois rapidement).');
+                e.status = 409;
+                throw e;
+            }
+            throw err;
         });
 
         let profile;

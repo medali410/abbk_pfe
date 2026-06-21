@@ -103,7 +103,7 @@ class _MachineDetailPageState extends State<MachineDetailPage> with TickerProvid
   Future<void> _checkActiveIntervention() async {
     try {
       final interventions = await ApiService.getDiagnosticInterventions();
-      final active = interventions.firstWhere(
+      final active = interventions.lastWhere(
         (i) => (i['machineId'] ?? '').toString() == _machineId && i['status'] != 'DONE',
         orElse: () => {},
       );

@@ -45,13 +45,57 @@ async function notifyTechnician(mission, type = 'MISSION_ASSIGNED') {
  * GET /api/missions
  * Liste toutes les missions (admin/concepteur) ou filtrées.
  * Query : status, technicianId, machineId
+ * Inclut le nom du technicien et l'agent de maintenance associé à la machine.
  */
 async function listAll(req, res) {
     try {
         const { status, technicianId, machineId } = req.query;
         const rows = await MissionModel.listAll({ status, technicianId, machineId });
+
+        // Enrichir avec les infos technicien et agent de maintenance
+        const enriched = await Promise.all(rows.map(async (mission) => {
+            const base = serializeMission(mission);
+
+            // Nom du technicien
+            let technicianFullName = '';
+            try {
+                const tech = await prisma.technician.findFirst({
+                    where: { technicianId: mission.technicianId },
+                });
+                if (tech) {
+                    technicianFullName = `${tech.firstName} ${tech.lastName}`.trim();
+                }
+            } catch (_) {}
+
+            // Agent de maintenance lié à la machine
+            let maintenanceAgentName = '';
+            let maintenanceAgentId = '';
+            try {
+                const machine = await prisma.machine.findUnique({
+                    where: { id: mission.machineId },
+                });
+                if (machine && machine.companyId) {
+                    // Chercher l'agent de maintenance du même clientId/companyId
+                    const agent = await prisma.maintenanceAgent.findFirst({
+                        where: { clientId: machine.companyId },
+                    });
+                    if (agent) {
+                        maintenanceAgentName = `${agent.firstName} ${agent.lastName}`.trim();
+                        maintenanceAgentId = agent.maintenanceAgentId;
+                    }
+                }
+            } catch (_) {}
+
+            return {
+                ...base,
+                technicianFullName,
+                maintenanceAgentName,
+                maintenanceAgentId,
+            };
+        }));
+
         res.set('Cache-Control', 'no-store');
-        return res.json(rows.map(serializeMission));
+        return res.json(enriched);
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
@@ -186,8 +230,38 @@ async function listMine(req, res) {
         const { status, priority } = req.query;
         const rows = await MissionModel.listByTechnician(profile.technicianId, { status, priority });
 
+        // Enrichir chaque mission avec le nom de l'agent expéditeur et le nom de la machine
+        const enriched = await Promise.all(rows.map(async (m) => {
+            const base = serializeMission(m);
+
+            // Nom de la machine
+            let machineName = m.machineName || '';
+            if (!machineName && m.machineId) {
+                try {
+                    const machine = await prisma.machine.findUnique({ where: { id: m.machineId } });
+                    if (machine) machineName = machine.name || m.machineId;
+                } catch (_) {}
+            }
+
+            // Nom de l'agent de maintenance expéditeur (via createdById)
+            let senderName = '';
+            if (m.createdById) {
+                try {
+                    const creator = await prisma.user.findUnique({ where: { id: m.createdById } });
+                    if (creator) {
+                        const agentProfile = await prisma.maintenanceAgent.findFirst({ where: { userId: creator.id } });
+                        senderName = agentProfile
+                            ? `${agentProfile.firstName} ${agentProfile.lastName}`.trim() || creator.nom
+                            : creator.nom || '';
+                    }
+                } catch (_) {}
+            }
+
+            return { ...base, machineName, senderName };
+        }));
+
         res.set('Cache-Control', 'no-store');
-        return res.json(rows.map(serializeMission));
+        return res.json(enriched);
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }

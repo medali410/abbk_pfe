@@ -119,6 +119,8 @@ class _SessionEntryState extends State<SessionEntry> {
     final oauthEmail = (qp['email'] ?? '').trim();
     if (ApiService.shouldOpenMaintenanceDashboard(oauthEmail)) {
       role = 'maintenance';
+    } else if (ApiService.shouldOpenConcepteurDashboard(oauthEmail)) {
+      role = 'concepteur';
     }
     if (token.isEmpty) return;
 

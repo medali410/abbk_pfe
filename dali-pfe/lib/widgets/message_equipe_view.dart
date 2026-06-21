@@ -355,7 +355,108 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
           _conversations = await ApiService.getClientConversations(_clientId);
         }
       } else if (_senderRole == 'conception') {
-        _conversations = await ApiService.getConceptionConversations();
+        // ── Admin : charger techniciens, agents de maintenance et clients ──
+        final list = <Map<String, dynamic>>[];
+
+        // ── SECTION : Techniciens ──
+        list.add({
+          'roomId': '__section_tech__',
+          'isSectionHeader': true,
+          'sectionLabel': 'TECHNICIENS',
+          'sectionIcon': 'engineering',
+          'sectionColor': 'purple',
+        });
+        try {
+          final techs = await ApiService.getTechnicians();
+          for (final t in techs) {
+            final techId = (t['technicianId'] ?? t['id'] ?? '').toString();
+            final firstName = (t['firstName'] ?? '').toString();
+            final lastName  = (t['lastName']  ?? '').toString();
+            final fullName  = '$firstName $lastName'.trim();
+            if (techId.isEmpty) continue;
+            list.add({
+              'roomId': 'chat_admin_tech_$techId',
+              'name': fullName.isNotEmpty ? fullName : 'Technicien',
+              'subId': techId,
+              'roleLabel': 'Technicien',
+              'lastText': 'Ouvrir la discussion',
+              'lastAt': DateTime.now().toIso8601String(),
+              'senderName': '',
+            });
+          }
+        } catch (_) {}
+
+        // ── SECTION : Agents de Maintenance ──
+        list.add({
+          'roomId': '__section_maint__',
+          'isSectionHeader': true,
+          'sectionLabel': 'AGENTS DE MAINTENANCE',
+          'sectionIcon': 'support_agent',
+          'sectionColor': 'blue',
+        });
+        try {
+          final agents = await ApiService.getMaintenanceAgents();
+          for (final a in agents) {
+            final agentId   = (a['maintenanceAgentId'] ?? a['id'] ?? '').toString();
+            final firstName = (a['firstName'] ?? a['nom'] ?? '').toString();
+            final lastName  = (a['lastName']  ?? '').toString();
+            final fullName  = '$firstName $lastName'.trim();
+            if (agentId.isEmpty) continue;
+            list.add({
+              'roomId': 'chat_admin_maint_$agentId',
+              'name': fullName.isNotEmpty ? fullName : 'Agent Maintenance',
+              'subId': agentId,
+              'roleLabel': 'Maintenance',
+              'lastText': 'Ouvrir la discussion',
+              'lastAt': DateTime.now().toIso8601String(),
+              'senderName': '',
+            });
+          }
+        } catch (_) {}
+
+        // ── SECTION : Clients ──
+        list.add({
+          'roomId': '__section_clients__',
+          'isSectionHeader': true,
+          'sectionLabel': 'CLIENTS',
+          'sectionIcon': 'groups',
+          'sectionColor': 'green',
+        });
+        try {
+          final clients = await ApiService.getClients();
+          for (final c in clients) {
+            final clientId   = (c['clientId'] ?? c['id'] ?? '').toString();
+            final clientName = (c['nom'] ?? c['name'] ?? c['companyName'] ?? '').toString();
+            if (clientId.isEmpty) continue;
+            list.add({
+              'roomId': 'chat_admin_client_$clientId',
+              'name': clientName.isNotEmpty ? clientName : 'Client',
+              'subId': clientId,
+              'roleLabel': 'Client',
+              'lastText': 'Ouvrir la discussion',
+              'lastAt': DateTime.now().toIso8601String(),
+              'senderName': '',
+            });
+          }
+        } catch (_) {}
+
+        _conversations = list;
+        if (mounted) setState(() {});
+
+        // Charger le dernier message pour chaque conversation (non-header)
+        for (final conv in _conversations) {
+          if (conv['isSectionHeader'] == true) continue;
+          try {
+            final msgs = await ApiService.getChatMessages(conv['roomId'], limit: 1);
+            if (msgs.isNotEmpty) {
+              conv['lastText']   = msgs.first['text'] ?? '';
+              conv['lastAt']     = msgs.first['createdAt'] ?? '';
+              conv['senderName'] = msgs.first['senderName'] ?? '';
+            }
+          } catch (_) {}
+        }
+        if (mounted) setState(() {});
+        return; // évite le bloc générique ci-dessous
       } else {
         if (_technicianId.isNotEmpty) {
           final allConvs = await ApiService.getTechnicianConversations(_technicianId);

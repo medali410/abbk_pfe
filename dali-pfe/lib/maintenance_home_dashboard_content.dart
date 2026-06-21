@@ -150,10 +150,10 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
                   GridView.count(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 4,
+                    crossAxisCount: constraints.maxWidth > 800 ? 4 : 2,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
-                    childAspectRatio: 1.3,
+                    childAspectRatio: constraints.maxWidth > 800 ? 1.3 : 1.5,
                     children: [
                       _KpiCard(
                         title: 'Machines',

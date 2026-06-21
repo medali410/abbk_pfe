@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:ui';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -712,18 +713,30 @@ class _ClientPositionPageState extends State<ClientPositionPage> {
 
   // ─── Mobile Bottom Nav ──────────────────────────────────────
   Widget _buildMobileBottomNav() {
-    return Container(
-      height: 64,
-      decoration: BoxDecoration(
-        color: _surfaceContainerLow,
-        border: Border(top: BorderSide(color: _outlineVariant.withOpacity(0.1))),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _BottomNavItem(icon: Icons.dashboard, label: 'FLEET', active: _currentNav == 0, onTap: () => setState(() => _currentNav = 0)),
-          _BottomNavItem(icon: Icons.map, label: 'MAP', active: _currentNav == 1, onTap: () => setState(() => _currentNav = 1)),
-        ],
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(36),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: Container(
+              height: 74,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(36),
+                border: Border.all(color: Colors.white.withOpacity(0.12)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _BottomNavItem(icon: Icons.dashboard_rounded, label: 'FLEET', active: _currentNav == 0, onTap: () => setState(() => _currentNav = 0)),
+                  _BottomNavItem(icon: Icons.map_rounded, label: 'MAP', active: _currentNav == 1, onTap: () => setState(() => _currentNav = 1)),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -785,22 +798,36 @@ class _BottomNavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = active ? const Color(0xFFFF6E00) : const Color(0xFFE2BFB0).withOpacity(0.6);
-    return InkWell(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 24),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: GoogleFonts.spaceGrotesk(
-              fontSize: 10,
-              color: color,
-              fontWeight: active ? FontWeight.bold : FontWeight.normal,
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              decoration: active
+                  ? BoxDecoration(
+                      color: Colors.white.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    )
+                  : null,
+              child: Icon(icon, color: color, size: 24),
             ),
-          ),
-        ],
+            const SizedBox(height: 4),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 10,
+                color: color,
+                fontWeight: active ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
