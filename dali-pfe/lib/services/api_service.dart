@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'global_notification_service.dart';
 
 class ApiService {
   static const _kToken = 'api_auth_token';
@@ -153,6 +154,7 @@ class ApiService {
 
 
   static Future<void> clearAuth() async {
+    GlobalNotificationService().logout();
     _authToken = null;
     _userRole = null;
     _savedClientId = null;
@@ -1312,6 +1314,17 @@ class ApiService {
 
   static Future<Map<String, dynamic>> startMachineMarche(String machineId) => startMachine(machineId);
 
+  static Future<Map<String, dynamic>> resetMachineDanger(String machineId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/machines/$machineId/reset_danger'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body) as Map<String, dynamic>;
+    }
+    _throwApiError(response, 'Réinitialisation sécurité impossible');
+  }
+
   static Future<void> deleteMachine(String machineId) async {
     final response = await http.delete(
       Uri.parse('$baseUrl/machines/$machineId'),
@@ -1954,6 +1967,42 @@ class ApiService {
   static Future<List<Map<String, dynamic>>> getConceptionConversations() async {
     final response = await http.get(
       Uri.parse('$baseUrl/chat/conversations/conception'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    return <Map<String, dynamic>>[];
+  }
+
+  static Future<List<Map<String, dynamic>>> getConcepteurContacts() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/chat/contacts/concepteur'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    return <Map<String, dynamic>>[];
+  }
+
+  static Future<List<Map<String, dynamic>>> getTechnicianContacts() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/chat/contacts/technician'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    return <Map<String, dynamic>>[];
+  }
+
+  static Future<List<Map<String, dynamic>>> getClientContacts() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/chat/contacts/client'),
       headers: await jsonHeadersAuthorized(),
     );
     if (response.statusCode == 200) {

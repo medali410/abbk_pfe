@@ -23,6 +23,13 @@ function initMqtt(io) {
                 console.log('📡 Abonné au topic : machines/+/telemetry');
             }
         });
+        client.subscribe('machines/+/status', (err) => {
+            if (err) {
+                console.error('❌ Erreur abonnement MQTT status:', err);
+            } else {
+                console.log('📡 Abonné au topic : machines/+/status');
+            }
+        });
     });
 
     client.on('message', async (topic, message) => {
@@ -37,8 +44,22 @@ function initMqtt(io) {
                 data.machineId = topicParts[1];
             }
 
+            if (topic.endsWith('/status')) {
+                if (io) {
+                    // Si le payload est { status: "ON" } ou { command: "ON" } ou juste "ON"
+                    let statusStr = 'UNKNOWN';
+                    if (data.status) statusStr = data.status;
+                    else if (data.command) statusStr = data.command;
+                    else statusStr = payloadStr.replace(/["'{}]/g, '').trim(); // Fallback brut
+                    
+                    io.emit('machine_status_update', { machineId: data.machineId, status: statusStr });
+                    console.log(`🔌 Statut machine ${data.machineId} mis à jour : ${statusStr}`);
+                }
+                return;
+            }
+
             // 1. Sauvegarder télémétrie
-            await telemetryController.saveTelemetry(data);
+            await telemetryController.saveTelemetry(data, io);
 
             // 2. Calcul puissance si absent
             if (data.power === undefined && data.torque !== undefined && data.rpm !== undefined) {

@@ -195,52 +195,15 @@ async function provisionTeam(req, res) {
       });
     }
 
-    // 3. Create Technician
-    const userTech = await prisma.user.create({
-      data: {
-        email: `tech.${tid}@example.com`,
-        password: hash(technicianPassword),
-        nom: technicianName || 'Technicien',
-        role: 'technician',
-        technician: {
-          create: {
-            technicianId: tid,
-            companyId: cid,
-            firstName: technicianName || 'Technicien',
-            machineIds: JSON.stringify([pr.machineId]),
-          }
-        }
-      },
-      include: { technician: true }
-    });
-
-    // 4. Create Maintenance
-    const userMaint = await prisma.user.create({
-      data: {
-        email: `maint.${mid}@example.com`,
-        password: hash(maintenancePassword),
-        nom: `${maintenanceFirstName} ${maintenanceLastName}`,
-        role: 'maintenance',
-        maintenanceAgent: {
-          create: {
-            maintenanceAgentId: mid,
-            clientId: cid,
-            firstName: maintenanceFirstName || 'Maintenance',
-            lastName: maintenanceLastName || '',
-            machineIds: JSON.stringify([pr.machineId]),
-          }
-        }
-      },
-      include: { maintenanceAgent: true }
-    });
-
-    // 5. Update Machine (Assign to client)
+    // 3. Obtenir le Concepteur et Assignation Machine au Client
+    const concepteur = await prisma.concepteur.findUnique({ where: { userId: getAuthUserId(req.auth) } });
+    
     const machine = await prisma.machine.findUnique({
       where: { id: pr.machineId }
     });
+    
     let updatedMachine = null;
     if (machine) {
-      const concepteur = await prisma.concepteur.findUnique({ where: { userId: getAuthUserId(req.auth) } });
       const dataToUpdate = { companyId: cid };
       if (concepteur) {
         dataToUpdate.concepteurId = String(concepteur.id);
@@ -255,7 +218,41 @@ async function provisionTeam(req, res) {
       });
     }
 
-    // 6. Update PR status
+    // 4. Mettre à jour les Techniciens et Agents du Concepteur
+    // On ajoute la machine à leurs droits
+    if (concepteur && concepteur.companyId) {
+      const cId = concepteur.companyId;
+
+      // Techniciens
+      const techs = await prisma.technician.findMany({ where: { companyId: cId } });
+      for (const t of techs) {
+        let mIds = [];
+        try { mIds = JSON.parse(t.machineIds || '[]'); } catch(e) {}
+        if (!mIds.includes(pr.machineId)) {
+          mIds.push(pr.machineId);
+          await prisma.technician.update({
+            where: { id: t.id },
+            data: { machineIds: JSON.stringify(mIds) }
+          });
+        }
+      }
+
+      // Agents de maintenance
+      const agents = await prisma.maintenanceAgent.findMany({ where: { clientId: cId } });
+      for (const a of agents) {
+        let mIds = [];
+        try { mIds = JSON.parse(a.machineIds || '[]'); } catch(e) {}
+        if (!mIds.includes(pr.machineId)) {
+          mIds.push(pr.machineId);
+          await prisma.maintenanceAgent.update({
+            where: { id: a.id },
+            data: { machineIds: JSON.stringify(mIds) }
+          });
+        }
+      }
+    }
+
+    // 5. Update PR status
     await prisma.purchaseRequest.update({
       where: { id: parseInt(id, 10) },
       data: {
@@ -267,8 +264,6 @@ async function provisionTeam(req, res) {
     res.status(200).json({
       success: true,
       client: userClient.client,
-      technician: userTech.technician,
-      maintenanceAgent: userMaint.maintenanceAgent,
       machine: updatedMachine,
     });
   } catch (error) {

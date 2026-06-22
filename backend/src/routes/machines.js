@@ -11,6 +11,7 @@ router.put('/:machineId', requireAuth, requireFleetManager, machineController.up
 router.post('/:machineId/stop', requireAuth, machineController.stop);
 router.post('/:machineId/start', requireAuth, machineController.start);
 router.post('/:machineId/config', requireAuth, machineController.saveConfigAndPublish);
+router.post('/:machineId/reset_danger', requireAuth, machineController.resetDanger);
 router.delete('/:machineId', requireAuth, requireFleetManager, machineController.remove);
 
 module.exports = router;

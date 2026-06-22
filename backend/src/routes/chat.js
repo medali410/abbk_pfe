@@ -12,8 +12,13 @@ router.get('/conversations/conception', chatController.getConceptionConversation
 router.get('/conversations/user/:userId', chatController.getConversationsByUser);
 router.get('/conversations/role/:role', chatController.getConversationsByRole);
 
+const { requireAuth } = require('../lib/auth');
+
 // Designer search
 router.get('/concepteurs/search', chatController.searchConcepteurs);
+router.get('/contacts/concepteur', requireAuth, chatController.getConcepteurContacts);
+router.get('/contacts/technician', requireAuth, chatController.getTechnicianContacts);
+router.get('/contacts/client', requireAuth, chatController.getClientContacts);
 
 // Room participants
 router.get('/room/:roomId/participants', chatController.getRoomParticipants);

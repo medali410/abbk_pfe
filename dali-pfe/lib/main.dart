@@ -5,6 +5,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'login_page.dart';
 import 'home_page.dart';
 import 'services/api_service.dart';
+import 'services/global_notification_service.dart';
 import 'dashboard_page.dart';
 import 'client_dashboard_page.dart';
 import 'add_client_page.dart';
@@ -28,6 +29,7 @@ import 'concepteur_dashboard_page.dart';
 import 'technician_dashboard_page.dart';
 import 'machine_consultation_page.dart';
 
+final GlobalKey<NavigatorState> globalNavigatorKey = _rootNavigatorKey;
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
 
 const Set<String> _appRouteNames = {
@@ -276,6 +278,7 @@ Future<void> main() async {
   }
   try {
     await ApiService.loadSavedAuth();
+    GlobalNotificationService().init();
   } catch (e, st) {
     debugPrint('ApiService.loadSavedAuth: $e\n$st');
   }

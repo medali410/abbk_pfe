@@ -6,6 +6,7 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
 
 const authRoutes             = require('./routes/auth');
 const clientsRoutes          = require('./routes/clients');
@@ -96,11 +97,28 @@ const chatController = require('./controllers/chatController');
 io.on('connection', (socket) => {
     console.log('🔌 Client connecté via Socket.io:', socket.id);
 
+    socket.on('join_global_notifications', (data) => {
+        if (data && data.token) {
+            try {
+                const decoded = jwt.verify(data.token, process.env.JWT_SECRET || 'abbk_secret_key_2024');
+                const globalRoom = `global_user_${decoded.id}`;
+                socket.join(globalRoom);
+                console.log(`🔔 Socket ${socket.id} (User ${decoded.id}) a rejoint la salle globale : ${globalRoom}`);
+            } catch (err) {
+                console.error(`❌ Token JWT invalide pour join_global_notifications:`, err.message);
+            }
+        }
+    });
+
     socket.on('join_chat_room', (data) => {
         if (data.roomId) {
             socket.join(data.roomId);
             console.log(`💬 Socket ${socket.id} a rejoint la salle : ${data.roomId}`);
         }
+    });
+
+    socket.on('disconnect', () => {
+        console.log(`🔴 Socket déconnecté: ${socket.id}`);
     });
 
     socket.on('chat_message', async (data) => {
@@ -137,6 +155,29 @@ io.on('connection', (socket) => {
             }
 
             io.to(roomId).emit('chat_message', msg);
+
+            // --- Notifications Globales ---
+            try {
+                const participations = await prisma.chatRoomParticipant.findMany({
+                    where: { roomId }
+                });
+                
+                for (const p of participations) {
+                    if (p.userId !== userId) {
+                        io.to(`global_user_${p.userId}`).emit('new_chat_notification', {
+                            roomId,
+                            from: from || 'unknown',
+                            senderName: senderName || 'Inconnu',
+                            text: text || '',
+                            attachmentType,
+                            timestamp: msg.createdAt
+                        });
+                    }
+                }
+            } catch (notifErr) {
+                console.error('❌ Erreur lors de l\'envoi de la notification globale:', notifErr.message);
+            }
+
         } catch (err) {
             console.error('❌ Erreur Socket Chat:', err);
         }

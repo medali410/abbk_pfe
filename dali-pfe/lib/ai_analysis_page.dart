@@ -6,6 +6,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:video_player/video_player.dart';
 import 'services/api_service.dart';
+import 'services/global_notification_service.dart';
 import 'mission_control_page.dart';
 import 'send_mission_page.dart';
 import 'package:pdf/pdf.dart';
@@ -54,6 +55,12 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
   double _diagVibration = 0;
   double _diagMagnetic = 0;
   double _diagInfrared = 0;
+  
+  bool _isLoadingState = false;
+  String _actualMachineStatus = 'UNKNOWN';
+  StreamSubscription? _machineStatusSub;
+  StreamSubscription? _dangerAlertSub;
+  Map<String, dynamic>? _lastDangerInfo;
 
   // ── Colors from Tailwind config ──
   static const _bg = Color(0xFF10102B);
@@ -82,6 +89,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
     _initTemperatureVideo();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.machineId.isNotEmpty) {
+        _fetchMachineStatus();
         _runLivePrediction();
         _loadTelemetryHistory();
       }
@@ -90,6 +98,116 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
       if (!mounted || widget.machineId.isEmpty || _predictLoading) return;
       _runLivePrediction();
     });
+
+    _machineStatusSub = GlobalNotificationService().machineStatusStream.listen((data) {
+      if (data['machineId'] == widget.machineId) {
+        if (mounted) {
+          setState(() {
+            final st = data['status']?.toString().toUpperCase();
+            if (st == 'ON' || st == 'RUNNING') _actualMachineStatus = 'RUNNING';
+            else if (st == 'OFF' || st == 'STOPPED') _actualMachineStatus = 'STOPPED';
+            else _actualMachineStatus = st ?? 'UNKNOWN';
+          });
+        }
+      }
+    });
+
+    _dangerAlertSub = GlobalNotificationService().dangerAlertStream.listen((data) {
+      if (data['machineId'] == widget.machineId) {
+        if (mounted) {
+          setState(() {
+            _actualMachineStatus = 'STOPPED_DANGER';
+            _lastDangerInfo = data;
+          });
+        }
+      }
+    });
+  }
+
+  Future<void> _fetchMachineStatus() async {
+    if (!mounted) return;
+    try {
+      final info = await ApiService.getMachineInfo(widget.machineId);
+      if (mounted) {
+        setState(() {
+          _actualMachineStatus = info['status'] ?? 'UNKNOWN';
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _resetDanger() async {
+    if (!mounted || _isLoadingState) return;
+    setState(() => _isLoadingState = true);
+    try {
+      await ApiService.resetMachineDanger(widget.machineId);
+      if (mounted) {
+        setState(() {
+          _actualMachineStatus = 'STOPPED';
+          _lastDangerInfo = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sécurité réinitialisée', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e', style: const TextStyle(color: Colors.white)), backgroundColor: Colors.red));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingState = false);
+    }
+  }
+
+  Future<void> _stopMachine() async {
+    if (!mounted || _isLoadingState) return;
+    
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surfaceContainerHigh,
+        title: Text("Confirmer l'arrêt", style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Text("Êtes-vous sûr de vouloir arrêter physiquement cette machine ?", style: GoogleFonts.inter(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Annuler", style: TextStyle(color: Colors.white54))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text("Oui, Arrêter", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    setState(() => _isLoadingState = true);
+    try {
+      await ApiService.stopMachine(widget.machineId, reason: "Arrêt manuel depuis Analyse IA");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Commande d\'arrêt envoyée', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e', style: const TextStyle(color: Colors.white)), backgroundColor: Colors.red));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingState = false);
+    }
+  }
+
+  Future<void> _startMachine() async {
+    if (!mounted || _isLoadingState) return;
+    setState(() => _isLoadingState = true);
+    try {
+      await ApiService.startMachine(widget.machineId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Commande de démarrage envoyée', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e', style: const TextStyle(color: Colors.white)), backgroundColor: Colors.red));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingState = false);
+    }
   }
 
   @override
@@ -115,9 +233,11 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
 
   @override
   void dispose() {
-    _liveRefreshTimer?.cancel();
-    _temperatureVideoController?.dispose();
     _pulseCtrl.dispose();
+    _temperatureVideoController?.dispose();
+    _liveRefreshTimer?.cancel();
+    _machineStatusSub?.cancel();
+    _dangerAlertSub?.cancel();
     super.dispose();
   }
 
@@ -255,11 +375,36 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
           mainAxisSpacing: 10,
           childAspectRatio: aspectRatio,
           children: [
-            _sensorTile('THERMIQUE', '${_diagTemperature.toStringAsFixed(1)} °C', Icons.thermostat, _diagTemperature > 50 ? _error : (_diagTemperature >= 35 ? _primary : _green)),
-            _sensorTile('VOLTAGE', '${_diagVoltage.toStringAsFixed(1)} V', Icons.flash_on, _diagVoltage > 250 ? _error : _green),
-            _sensorTile('VIBRATION', '${_diagVibration.toStringAsFixed(2)} mm/s', Icons.vibration, _diagVibration > 20 ? _error : (_diagVibration >= 14 ? _primary : _green)),
-            _sensorTile('MAGNÉTIQUE', '${_diagMagnetic.toStringAsFixed(2)} mT', Icons.explore, _green),
-            _sensorTile('INFRA-ROUGE', _diagInfrared <= 0 ? 'N/A' : 'ACTIF', Icons.wb_sunny, _green),
+            _sensorTile(
+              'THERMIQUE', 
+              _actualMachineStatus == 'STOPPED' ? '0.0 °C' : '${_diagTemperature.toStringAsFixed(1)} °C', 
+              Icons.thermostat, 
+              _actualMachineStatus == 'STOPPED' ? Colors.grey : (_diagTemperature > 50 ? _error : (_diagTemperature >= 35 ? _primary : _green))
+            ),
+            _sensorTile(
+              'VOLTAGE', 
+              _actualMachineStatus == 'STOPPED' ? '0.0 V' : '${_diagVoltage.toStringAsFixed(1)} V', 
+              Icons.flash_on, 
+              _actualMachineStatus == 'STOPPED' ? Colors.grey : (_diagVoltage > 250 ? _error : _green)
+            ),
+            _sensorTile(
+              'VIBRATION', 
+              _actualMachineStatus == 'STOPPED' ? '0.00 mm/s' : '${_diagVibration.toStringAsFixed(2)} mm/s', 
+              Icons.vibration, 
+              _actualMachineStatus == 'STOPPED' ? Colors.grey : (_diagVibration > 20 ? _error : (_diagVibration >= 14 ? _primary : _green))
+            ),
+            _sensorTile(
+              'MAGNÉTIQUE', 
+              _actualMachineStatus == 'STOPPED' ? '0.00 mT' : '${_diagMagnetic.toStringAsFixed(2)} mT', 
+              Icons.explore, 
+              _actualMachineStatus == 'STOPPED' ? Colors.grey : _green
+            ),
+            _sensorTile(
+              'INFRA-ROUGE', 
+              _actualMachineStatus == 'STOPPED' ? 'INACTIF' : (_diagInfrared <= 0 ? 'N/A' : 'ACTIF'), 
+              Icons.wb_sunny, 
+              _actualMachineStatus == 'STOPPED' ? Colors.grey : _green
+            ),
           ],
         );
       }
@@ -990,7 +1135,118 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
     return _green;
   }
 
+  Widget _buildDangerBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF3B0000).withOpacity(0.8), // Dark red background
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.redAccent, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.red.withOpacity(0.4),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 36),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  '🚨 ARRÊT DANGER ACTIVÉ',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text('⚠️ Machine arrêtée automatiquement', style: GoogleFonts.inter(fontSize: 16, color: Colors.white)),
+          const SizedBox(height: 8),
+          if (_lastDangerInfo != null) ...[
+            Text('Cause : ${_lastDangerInfo!['reason']} (${_lastDangerInfo!['value']})', style: GoogleFonts.inter(fontSize: 16, color: Colors.white70)),
+            const SizedBox(height: 4),
+            Text('Heure : ${_lastDangerInfo!['timestamp'] != null ? DateTime.parse(_lastDangerInfo!['timestamp']).toLocal().toString().split('.')[0] : 'Inconnue'}', style: GoogleFonts.inter(fontSize: 16, color: Colors.white70)),
+          ],
+          const SizedBox(height: 24),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              ElevatedButton.icon(
+                onPressed: _isLoadingState ? null : _resetDanger,
+                icon: _isLoadingState ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.lock_open, size: 20),
+                label: Text('🔓 RÉINITIALISER', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 16)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.red[900],
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      backgroundColor: _surfaceContainerHigh,
+                      title: Text("📋 Rapport d'Incident", style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold)),
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("Détails de l'arrêt de sécurité automatique.", style: GoogleFonts.inter(color: Colors.white70)),
+                          const SizedBox(height: 16),
+                          if (_lastDangerInfo != null) ...[
+                            Text("Capteur : ${_lastDangerInfo!['sensor']?.toString().toUpperCase()}", style: const TextStyle(color: Colors.white)),
+                            const SizedBox(height: 8),
+                            Text("Valeur mesurée : ${_lastDangerInfo!['value']}", style: const TextStyle(color: Colors.white)),
+                            const SizedBox(height: 8),
+                            Text("Seuil critique : ${_lastDangerInfo!['threshold']}", style: const TextStyle(color: Colors.white)),
+                          ] else
+                            const Text("Aucun détail disponible.", style: TextStyle(color: Colors.white54)),
+                        ],
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text("Fermer", style: TextStyle(color: Colors.white70)),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.content_paste_search, size: 20),
+                label: Text('📋 VOIR RAPPORT', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 16)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _surfaceContainerHighest,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildIaDashboardCard() {
+    if (_actualMachineStatus == 'STOPPED_DANGER') {
+      return _buildDangerBanner();
+    }
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -1013,6 +1269,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
               _chipInfo('MACHINE', widget.machineName.toUpperCase(), _secondary),
               _chipInfo('ID', widget.machineId, _onSurfaceVariant),
               _chipInfo('ÉTAT', _machineStatus, _machineStatusColor),
+              _chipInfo('RELAIS', _actualMachineStatus == 'RUNNING' ? 'EN MARCHE' : (_actualMachineStatus == 'STOPPED' ? 'ARRÊTÉ' : _actualMachineStatus), _actualMachineStatus == 'RUNNING' ? _green : (_actualMachineStatus == 'STOPPED' ? Colors.red : _onSurfaceVariant)),
             ],
           ),
           Wrap(
@@ -1044,6 +1301,32 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
+                  ElevatedButton.icon(
+                    onPressed: _isLoadingState || _actualMachineStatus == 'STOPPED' ? null : _stopMachine,
+                    icon: _isLoadingState && _actualMachineStatus == 'RUNNING' ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.stop_circle, size: 18),
+                    label: Text('ARRÊT', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 14)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.redAccent,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: Colors.redAccent.withOpacity(0.3),
+                      disabledForegroundColor: Colors.white54,
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: _isLoadingState || _actualMachineStatus == 'RUNNING' ? null : _startMachine,
+                    icon: _isLoadingState && _actualMachineStatus == 'STOPPED' ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.play_circle, size: 18),
+                    label: Text('MARCHE', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 14)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: Colors.green.withOpacity(0.3),
+                      disabledForegroundColor: Colors.white54,
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
               ElevatedButton.icon(
                 onPressed: () {
                   _showIaDetailsDialog();

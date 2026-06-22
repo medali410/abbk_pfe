@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'services/api_service.dart';
+import 'services/global_notification_service.dart';
+import 'mission_control_page.dart';
 
 /// Page dédiée à l'envoi d'une mission depuis l'agent maintenance vers un technicien.
 class SendMissionPage extends StatefulWidget {
@@ -40,6 +43,11 @@ class _SendMissionPageState extends State<SendMissionPage>
   bool _isLoadingTechnicians = true;
   String? _techLoadError;
 
+  // Historique des missions
+  List<Map<String, dynamic>> _missionHistory = [];
+  bool _isLoadingHistory = true;
+  StreamSubscription? _missionUpdateSub;
+
   static const _bg = Color(0xFF0B0B1E);
   static const _surface = Color(0xFF131330);
   static const _surfaceHigh = Color(0xFF1D1D40);
@@ -58,6 +66,59 @@ class _SendMissionPageState extends State<SendMissionPage>
     _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     _animController.forward();
     _loadTechnicians();
+    _loadHistory();
+
+    _missionUpdateSub = GlobalNotificationService().missionUpdateStream.listen((data) {
+      // Recharger l'historique quand un statut change
+      _loadHistory();
+    });
+  }
+
+  Future<void> _loadHistory() async {
+    try {
+      final interventions = await ApiService.getDiagnosticInterventions();
+      List<Map<String, dynamic>> history = [];
+
+      for (var inter in interventions) {
+        final notes = inter['coordinationNotes'] as List<dynamic>? ?? [];
+        for (var note in notes) {
+          if (note['isMission'] == true && note['authorName'] == widget.agentName) {
+            final techId = inter['technicianId']?.toString() ?? '';
+            // On peut retrouver le nom du technicien dans la liste _technicians s'il a déjà été chargé
+            String techName = 'Technicien';
+            if (_technicians.isNotEmpty) {
+              final t = _technicians.firstWhere(
+                (element) => (element['_id'] ?? element['id']).toString() == techId,
+                orElse: () => <String, dynamic>{},
+              );
+              if (t.isNotEmpty) techName = (t['fullName'] ?? t['name'] ?? 'Technicien').toString();
+            }
+
+            history.add({
+              'interventionId': inter['id'] ?? inter['_id'],
+              'noteId': note['id'],
+              'content': note['content'] ?? '',
+              'createdAt': note['createdAt'] ?? '',
+              'status': note['missionStatus'] ?? 'SENT', // SENT, IN_PROGRESS, COMPLETED...
+              'techName': techName,
+            });
+          }
+        }
+      }
+
+      history.sort((a, b) => (b['createdAt'] as String).compareTo(a['createdAt'] as String));
+
+      if (mounted) {
+        setState(() {
+          _missionHistory = history;
+          _isLoadingHistory = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingHistory = false);
+      }
+    }
   }
 
   Future<void> _loadTechnicians() async {
@@ -81,6 +142,7 @@ class _SendMissionPageState extends State<SendMissionPage>
 
   @override
   void dispose() {
+    _missionUpdateSub?.cancel();
     _animController.dispose();
     _descController.dispose();
     super.dispose();
@@ -152,6 +214,7 @@ class _SendMissionPageState extends State<SendMissionPage>
           _sentMissionId = noteId;
           _isSending = false;
         });
+        _loadHistory(); // Rafraîchir l'historique
       }
     } catch (e) {
       if (mounted) {
@@ -281,6 +344,10 @@ class _SendMissionPageState extends State<SendMissionPage>
 
             // Send button
             _buildSendButton(),
+            const SizedBox(height: 20),
+
+            // History
+            _buildMissionHistory(),
             const SizedBox(height: 20),
           ],
         ),
@@ -596,6 +663,177 @@ class _SendMissionPageState extends State<SendMissionPage>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildMissionHistory() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Divider(color: Colors.white.withValues(alpha: 0.1), thickness: 1),
+        const SizedBox(height: 24),
+        _buildSectionLabel('📊 HISTORIQUE ET SUIVI DES MISSIONS'),
+        const SizedBox(height: 16),
+        if (_isLoadingHistory)
+          const Center(child: Padding(
+            padding: EdgeInsets.all(20.0),
+            child: CircularProgressIndicator(color: _accent),
+          ))
+        else if (_missionHistory.isEmpty)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Text(
+                'Aucune mission envoyée pour le moment.',
+                style: GoogleFonts.inter(color: _textMuted, fontSize: 13),
+              ),
+            ),
+          )
+        else
+          ..._missionHistory.map((m) => _buildHistoryCard(m)).toList(),
+      ],
+    );
+  }
+
+  Widget _buildHistoryCard(Map<String, dynamic> mission) {
+    final status = mission['status'] ?? 'SENT';
+    Color statusColor;
+    String statusText;
+    IconData statusIcon;
+
+    switch (status) {
+      case 'IN_PROGRESS':
+      case 'STARTED':
+      case 'CONFIRMED':
+        statusColor = Colors.cyanAccent;
+        statusText = 'EN COURS ⏳';
+        statusIcon = Icons.engineering;
+        break;
+      case 'COMPLETED':
+      case 'DONE':
+        statusColor = Colors.greenAccent;
+        statusText = 'TERMINÉE ✅';
+        statusIcon = Icons.check_circle;
+        break;
+      case 'CANCELLED':
+        statusColor = Colors.redAccent;
+        statusText = 'ÉCHEC ❌';
+        statusIcon = Icons.cancel;
+        break;
+      case 'SENT':
+      default:
+        statusColor = Colors.grey;
+        statusText = 'ENVOYÉE 🚀';
+        statusIcon = Icons.send;
+        break;
+    }
+
+    // Formatting date
+    String dateStr = '';
+    try {
+      final dt = DateTime.parse(mission['createdAt']).toLocal();
+      dateStr = '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} à ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (_) {}
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _surfaceHigh,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.person, color: _textMuted, size: 14),
+                  const SizedBox(width: 6),
+                  Text(
+                    mission['techName'] ?? 'Technicien',
+                    style: GoogleFonts.inter(
+                      color: _textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: statusColor.withValues(alpha: 0.5)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(statusIcon, color: statusColor, size: 12),
+                    const SizedBox(width: 4),
+                    Text(
+                      statusText,
+                      style: GoogleFonts.inter(
+                        color: statusColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            mission['content'] ?? '',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.inter(color: Colors.white70, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                dateStr,
+                style: GoogleFonts.inter(color: _textMuted, fontSize: 11),
+              ),
+              InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => MissionControlPage(
+                        initialArgs: {
+                          'interventionId': mission['interventionId'],
+                          'machineId': widget.machineId,
+                          'machineName': widget.machineName,
+                        },
+                      ),
+                    ),
+                  );
+                },
+                child: Row(
+                  children: [
+                    Text(
+                      'Détails',
+                      style: GoogleFonts.inter(color: _accent, fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.arrow_forward_ios, color: _accent, size: 10),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

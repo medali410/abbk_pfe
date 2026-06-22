@@ -122,6 +122,48 @@ class _MaintenanceAiAnalysisContentState extends State<MaintenanceAiAnalysisCont
             ],
           ),
         ),
+        Container(
+          height: 50,
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: rows.length,
+            itemBuilder: (context, idx) {
+              final m = rows[idx];
+              final name = (m['machineName'] ?? m['name'] ?? m['machineId'] ?? m['id'] ?? 'Machine').toString();
+              final isSelected = _currentPage == idx;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: ChoiceChip(
+                  label: Text(name),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    if (selected) {
+                      _pageController.animateToPage(
+                        idx,
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                      );
+                    }
+                  },
+                  selectedColor: _accent.withOpacity(0.2),
+                  backgroundColor: const Color(0xFF1D1D38),
+                  labelStyle: GoogleFonts.inter(
+                    color: isSelected ? _accent : _text,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    fontSize: 13,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: BorderSide(
+                      color: isSelected ? _accent : Colors.transparent,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
         Expanded(
           child: PageView.builder(
             controller: _pageController,
@@ -129,8 +171,8 @@ class _MaintenanceAiAnalysisContentState extends State<MaintenanceAiAnalysisCont
             itemCount: rows.length,
             itemBuilder: (context, i) {
               final m = rows[i];
-              final id = (m['machineId'] ?? '').toString();
-              final name = (m['machineName'] ?? id).toString();
+              final id = (m['machineId'] ?? m['id'] ?? '').toString();
+              final name = (m['machineName'] ?? m['name'] ?? id).toString();
               final motorType =
                   (m['motorType'] ?? m['type_moteur'] ?? 'EL_M').toString();
               final insight = iaInsightMessage(m);

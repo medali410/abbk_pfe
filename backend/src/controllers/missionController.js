@@ -15,7 +15,7 @@ const { prisma }         = require('../lib/prisma');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-async function notifyTechnician(mission, type = 'MISSION_ASSIGNED') {
+async function notifyTechnician(req, mission, type = 'MISSION_ASSIGNED') {
     try {
         const profile = await prisma.technician.findFirst({
             where: { technicianId: mission.technicianId },
@@ -36,6 +36,26 @@ async function notifyTechnician(mission, type = 'MISSION_ASSIGNED') {
             body:     `${mission.title} — Machine: ${mission.machineName || mission.machineId}`,
             missionId: mission.id,
         });
+
+        // 🚀 Émission Socket.io vers le technicien
+        if (req && req.app) {
+            const io = req.app.get('io');
+            if (io) {
+                // Enrichir la mission avec le senderName pour le Toast
+                let senderName = '';
+                if (mission.createdById) {
+                    try {
+                        const creator = await prisma.user.findUnique({ where: { id: mission.createdById } });
+                        if (creator) {
+                            const agentProfile = await prisma.maintenanceAgent.findFirst({ where: { userId: creator.id } });
+                            senderName = agentProfile ? `${agentProfile.firstName} ${agentProfile.lastName}`.trim() || creator.nom : creator.nom || '';
+                        }
+                    } catch (_) {}
+                }
+                const enrichedMission = { ...serializeMission(mission), senderName };
+                io.to(`global_user_${profile.userId}`).emit('new_mission', { mission: enrichedMission, type });
+            }
+        }
     } catch (_) {}
 }
 
@@ -154,7 +174,7 @@ async function create(req, res) {
         });
 
         // Notifier le technicien
-        notifyTechnician(mission, 'MISSION_ASSIGNED').catch(console.error);
+        notifyTechnician(req, mission, 'MISSION_ASSIGNED').catch(console.error);
 
         return res.status(201).json(serializeMission(mission));
     } catch (err) {
@@ -190,7 +210,48 @@ async function update(req, res) {
         const updated = await MissionModel.update(id, data);
 
         const notifType = status === 'CANCELLED' ? 'MISSION_CANCELLED' : 'MISSION_UPDATED';
-        notifyTechnician(updated, notifType).catch(console.error);
+        notifyTechnician(req, updated, notifType).catch(console.error);
+
+        // Si la mission est terminée, notifier le concepteur propriétaire de la machine
+        if (status === 'DONE' && req && req.app) {
+            const machine = await prisma.machine.findUnique({ where: { id: updated.machineId } });
+            if (machine && machine.concepteurId) {
+                const io = req.app.get('io');
+                if (io) {
+                    // Enrichir avec le nom du technicien
+                    let techName = '';
+                    try {
+                        const techProfile = await prisma.technician.findFirst({ where: { technicianId: updated.technicianId } });
+                        if (techProfile) {
+                            const user = await prisma.user.findUnique({ where: { id: techProfile.userId } });
+                            techName = user ? user.nom : '';
+                        }
+                    } catch (_) {}
+                    const enrichedMission = { ...serializeMission(updated), techName };
+                    io.to(`global_user_${machine.concepteurId}`).emit('mission_completed', { mission: enrichedMission });
+                }
+            }
+        }
+
+        // Notifier l'agent de maintenance qui a créé la mission si le statut est confirmé ou terminé
+        if ((status === 'IN_PROGRESS' || status === 'DONE') && updated.createdById && req && req.app) {
+            const io = req.app.get('io');
+            if (io) {
+                let techName = '';
+                try {
+                    const techProfile = await prisma.technician.findFirst({ where: { technicianId: updated.technicianId } });
+                    if (techProfile) {
+                        const user = await prisma.user.findUnique({ where: { id: techProfile.userId } });
+                        techName = user ? user.nom : '';
+                    }
+                } catch (_) {}
+                const enrichedMission = { ...serializeMission(updated), techName };
+                io.to(`global_user_${updated.createdById}`).emit('mission_status_updated', { 
+                    mission: enrichedMission, 
+                    status: status 
+                });
+            }
+        }
 
         return res.json(serializeMission(updated));
     } catch (err) {
@@ -207,7 +268,7 @@ async function remove(req, res) {
         const existing = await MissionModel.getById(id);
         if (!existing) return res.status(404).json({ error: 'Mission introuvable' });
 
-        await notifyTechnician(existing, 'MISSION_CANCELLED');
+        await notifyTechnician(req, existing, 'MISSION_CANCELLED');
         await MissionModel.remove(id);
         return res.json({ success: true });
     } catch (err) {

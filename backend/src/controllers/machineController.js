@@ -1,6 +1,7 @@
 const MachineModel = require('../models/machineModel');
 const { serializeMachine } = require('../views/machineView');
 const { validateCreateMachine, validateUpdateMachine } = require('../lib/validators');
+const mqtt = require('../lib/mqtt');
 
 async function getUserConcepteurId(req) {
     if (req.auth?.concepteurId) return String(req.auth.concepteurId);
@@ -95,6 +96,8 @@ async function stop(req, res) {
 
         console.log(`🛑 ARRÊT D'URGENCE machine ${machineId} par ${stoppedBy || 'inconnu'}. Raison: ${reason || 'non spécifiée'}`);
 
+        mqtt.publish(`machines/${machineId}/control`, JSON.stringify({ command: 'OFF' }));
+
         const row = await MachineModel.updateStatus(machineId, 'STOPPED');
         return res.json({
             success: true,
@@ -167,7 +170,14 @@ async function start(req, res) {
             }
         }
 
+        if (existing.status === 'STOPPED_DANGER') {
+            return res.status(403).json({ error: 'Démarrage bloqué : La machine est en ARRÊT DANGER. Veuillez réinitialiser la sécurité d\'abord.' });
+        }
+
         console.log(`🚀 DÉMARRAGE machine ${machineId}`);
+
+        mqtt.publish(`machines/${machineId}/control`, JSON.stringify({ command: 'ON' }));
+
         const row = await MachineModel.updateStatus(machineId, 'RUNNING');
         return res.json({
             success: true,
@@ -180,7 +190,6 @@ async function start(req, res) {
 }
 
 const { prisma } = require('../lib/prisma');
-const mqtt = require('../lib/mqtt');
 
 async function saveConfigAndPublish(req, res) {
     try {
@@ -231,4 +240,41 @@ async function saveConfigAndPublish(req, res) {
     }
 }
 
-module.exports = { list, create, getById, update, stop, start, remove, saveConfigAndPublish };
+async function resetDanger(req, res) {
+    try {
+        const { machineId } = req.params;
+        const existing = await MachineModel.findById(machineId);
+        if (!existing) return res.status(404).json({ error: 'Machine introuvable' });
+
+        if (req.auth?.role === 'conception' || req.auth?.role === 'concepteur') {
+            const userConcepteurId = await getUserConcepteurId(req);
+            if (existing.concepteurId && String(existing.concepteurId) !== userConcepteurId) {
+                return res.status(403).json({ error: 'Accès en lecture seule. Vous ne pouvez réinitialiser que vos propres machines.' });
+            }
+        }
+
+        if (existing.status !== 'STOPPED_DANGER') {
+            return res.status(400).json({ error: 'La machine n\'est pas en état d\'arrêt d\'urgence automatique.' });
+        }
+
+        // Marquer les incidents comme résolus
+        await prisma.securityIncident.updateMany({
+            where: { machineId: machineId, resolved: false },
+            data: { resolved: true, resolvedBy: req.auth?.email || 'System' }
+        });
+
+        console.log(`🔓 RÉINITIALISATION DANGER machine ${machineId}`);
+
+        const row = await MachineModel.updateStatus(machineId, 'STOPPED');
+        return res.json({
+            success: true,
+            message: 'Sécurité réinitialisée. Vous pouvez redémarrer la machine.',
+            machine: serializeMachine(row)
+        });
+    } catch (err) {
+        console.error('Erreur resetDanger:', err);
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+module.exports = { list, create, getById, update, stop, start, remove, saveConfigAndPublish, resetDanger };

@@ -20,6 +20,7 @@ import 'dart:async';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'widgets/message_equipe_view.dart';
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // ClientDashboardPage â€” shown after a client logs in
@@ -3103,6 +3104,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                   _navItem(Icons.auto_awesome, 'Analyse IA', 2),
                   _navItem(Icons.groups, 'Équipe', 3),
                   _navItem(Icons.description, 'Documents', 4),
+                  _navItem(Icons.chat_bubble_outline, 'Messages', 6),
                 ],
               ),
             ),

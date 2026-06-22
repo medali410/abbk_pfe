@@ -87,10 +87,16 @@ async function getMachines(req, res) {
 async function getTechnicians(req, res) {
     try {
         const { id } = req.params;
-        const techs = await prisma.technician.findMany({
-            where: { companyId: String(id) },
-            include: { user: true }
+        const machines = await MachineModel.findManyByCompany(id);
+        const machineIdsStr = machines.map(m => String(m.id));
+
+        const allTechs = await prisma.technician.findMany({ include: { user: true } });
+        const techs = allTechs.filter(t => {
+            let mIds = [];
+            try { mIds = JSON.parse(t.machineIds || '[]'); } catch(e) {}
+            return mIds.some(mId => machineIdsStr.includes(String(mId)));
         });
+
         return res.json(techs.map(t => mergeUserProfile(t.user, t)));
     } catch (err) {
         return res.status(500).json({ error: err.message });
@@ -100,10 +106,16 @@ async function getTechnicians(req, res) {
 async function getMaintenanceAgents(req, res) {
     try {
         const { id } = req.params;
-        const agents = await prisma.maintenanceAgent.findMany({
-            where: { clientId: String(id) },
-            include: { user: true }
+        const machines = await MachineModel.findManyByCompany(id);
+        const machineIdsStr = machines.map(m => String(m.id));
+
+        const allAgents = await prisma.maintenanceAgent.findMany({ include: { user: true } });
+        const agents = allAgents.filter(a => {
+            let mIds = [];
+            try { mIds = JSON.parse(a.machineIds || '[]'); } catch(e) {}
+            return mIds.some(mId => machineIdsStr.includes(String(mId)));
         });
+
         return res.json(agents.map(a => mergeUserProfile(a.user, a)));
     } catch (err) {
         return res.status(500).json({ error: err.message });

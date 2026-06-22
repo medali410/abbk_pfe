@@ -1879,7 +1879,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                   _buildTopHeader(args),
                                   Expanded(
                                     child: Padding(
-                                      padding: const EdgeInsets.all(24),
+                                      padding: const EdgeInsets.only(left: 24, top: 24, right: 24, bottom: 110),
                                       child: Center(
                                         child: Container(
                                           constraints: const BoxConstraints(maxWidth: 1200),

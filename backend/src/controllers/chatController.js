@@ -477,6 +477,372 @@ async function deleteChatMessage(req, res) {
     }
 }
 
+// ─── GET /api/chat/contacts/technician ─────────────────────────────────────
+// Returns all contacts (concepteur, agents, clients) related to the technician's machines
+async function getTechnicianContacts(req, res) {
+    try {
+        const userId = parseInt(req.auth.userId, 10);
+        if (isNaN(userId)) return res.status(400).json({ error: 'userId invalide' });
+
+        const tech = await prisma.technician.findUnique({ where: { userId } });
+        if (!tech) return res.status(404).json({ error: 'Profil technicien introuvable' });
+
+        let machineIds = [];
+        try {
+            machineIds = JSON.parse(tech.machineIds || '[]');
+        } catch(e) {
+            machineIds = [];
+        }
+
+        if (!Array.isArray(machineIds) || machineIds.length === 0) {
+            return res.json([]);
+        }
+
+        const contacts = [];
+
+        for (const mId of machineIds) {
+            const machine = await prisma.machine.findUnique({ where: { id: mId } });
+            if (!machine) continue;
+
+            if (machine.concepteurId) {
+                const concepteur = await prisma.concepteur.findUnique({
+                    where: { id: parseInt(machine.concepteurId, 10) },
+                    include: { user: true }
+                });
+                if (concepteur && !contacts.find(c => c.id === concepteur.userId && c.role === 'concepteur')) {
+                    contacts.push({
+                        id: concepteur.userId,
+                        name: concepteur.user?.nom || `Concepteur ${concepteur.id}`,
+                        role: 'concepteur',
+                        roleLabel: `Concepteur de la machine ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
+                }
+            }
+
+            const agents = await prisma.maintenanceAgent.findMany({
+                where: { machineIds: { contains: `"${machine.id}"` } },
+                include: { user: true }
+            });
+            for (const a of agents) {
+                if (a.userId === userId) continue;
+                if (!contacts.find(c => c.id === a.userId && c.role === 'maintenance')) {
+                    contacts.push({
+                        id: a.userId,
+                        name: a.user?.nom || `${a.firstName} ${a.lastName}`,
+                        role: 'maintenance',
+                        roleLabel: `Agent de maintenance de la machine ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
+                }
+            }
+
+            if (machine.companyId) {
+                const clients = await prisma.client.findMany({
+                    where: { clientId: machine.companyId },
+                    include: { user: true }
+                });
+                for (const c of clients) {
+                    if (!contacts.find(ct => ct.id === c.userId && ct.role === 'client')) {
+                        contacts.push({
+                            id: c.userId,
+                            name: c.user?.nom || `Client ${c.clientId}`,
+                            role: 'client',
+                            roleLabel: `Client de la machine ${machine.name || machine.id}`,
+                            machineId: machine.id
+                        });
+                    }
+                }
+            }
+        }
+
+        return res.json(contacts);
+    } catch (err) {
+        console.error('Erreur getTechnicianContacts:', err);
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+// ─── GET /api/chat/contacts/concepteur ─────────────────────────────────────
+// Returns all contacts (technicians, agents, clients) related to the concepteur's machines
+async function getConcepteurContacts(req, res) {
+    try {
+        const userId = parseInt(req.auth.userId, 10);
+        if (isNaN(userId)) return res.status(400).json({ error: 'userId invalide' });
+
+        const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+        if (!concepteur) return res.status(404).json({ error: 'Profil concepteur introuvable' });
+
+        // Get all machines owned by this concepteur
+        const machines = await prisma.machine.findMany({
+            where: { concepteurId: String(concepteur.id) }
+        });
+
+        if (machines.length === 0) {
+            return res.json([]);
+        }
+
+        const contacts = [];
+
+        for (const machine of machines) {
+            // 1. Find Technicians assigned to this machine
+            // Since machineIds is a JSON string array "[\"MAC-123\"]", we can use contains
+            const techs = await prisma.technician.findMany({
+                where: { machineIds: { contains: `"${machine.id}"` } },
+                include: { user: true }
+            });
+            for (const t of techs) {
+                // Avoid duplicates if a tech is assigned to multiple machines of this concepteur
+                if (!contacts.find(c => c.id === t.userId && c.role === 'technician')) {
+                    contacts.push({
+                        id: t.userId,
+                        name: t.user?.nom || `${t.firstName} ${t.lastName}`,
+                        role: 'technician',
+                        roleLabel: `Technicien de la machine ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
+                }
+            }
+
+            // 2. Find Maintenance Agents assigned to this machine
+            const agents = await prisma.maintenanceAgent.findMany({
+                where: { machineIds: { contains: `"${machine.id}"` } },
+                include: { user: true }
+            });
+            for (const a of agents) {
+                if (!contacts.find(c => c.id === a.userId && c.role === 'maintenance')) {
+                    contacts.push({
+                        id: a.userId,
+                        name: a.user?.nom || `${a.firstName} ${a.lastName}`,
+                        role: 'maintenance',
+                        roleLabel: `Agent de maintenance de la machine ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
+                }
+            }
+
+            // 3. Find Client who owns this machine
+            if (machine.companyId) {
+                const clients = await prisma.client.findMany({
+                    where: { clientId: machine.companyId },
+                    include: { user: true }
+                });
+                for (const c of clients) {
+                    if (!contacts.find(ct => ct.id === c.userId && ct.role === 'client')) {
+                        contacts.push({
+                            id: c.userId,
+                            name: c.user?.nom || `Client ${c.clientId}`,
+                            role: 'client',
+                            roleLabel: `Client de la machine ${machine.name || machine.id}`,
+                            machineId: machine.id
+                        });
+                    }
+                }
+            }
+        }
+
+        return res.json(contacts);
+    } catch (err) {
+        console.error('Erreur getConcepteurContacts:', err);
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+async function deleteChatRoom(req, res) {
+    try {
+        return res.json({ url: `/uploads/${finalName}` });
+    } catch (err) {
+        console.error('Erreur upload:', err);
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+// ─── DELETE /api/chat/rooms/:roomId ──────────────────────────────────────────
+// Deletes a room and all its messages (cascades via Prisma).
+async function deleteChatMessage(req, res) {
+    try {
+        const { messageId } = req.params;
+        await prisma.chatMessage.delete({
+            where: { id: parseInt(messageId) },
+        });
+        return res.json({ success: true, message: 'Message supprimé' });
+    } catch (err) {
+        console.error('Erreur suppression message:', err);
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+// ─── GET /api/chat/contacts/technician ─────────────────────────────────────
+// Returns all contacts (concepteur, agents, clients) related to the technician's machines
+async function getTechnicianContacts(req, res) {
+    try {
+        const userId = parseInt(req.auth.userId, 10);
+        if (isNaN(userId)) return res.status(400).json({ error: 'userId invalide' });
+
+        const tech = await prisma.technician.findUnique({ where: { userId } });
+        if (!tech) return res.status(404).json({ error: 'Profil technicien introuvable' });
+
+        let machineIds = [];
+        try {
+            machineIds = JSON.parse(tech.machineIds || '[]');
+        } catch(e) {
+            machineIds = [];
+        }
+
+        if (!Array.isArray(machineIds) || machineIds.length === 0) {
+            return res.json([]);
+        }
+
+        const contacts = [];
+
+        for (const mId of machineIds) {
+            const machine = await prisma.machine.findUnique({ where: { id: mId } });
+            if (!machine) continue;
+
+            if (machine.concepteurId) {
+                const concepteur = await prisma.concepteur.findUnique({
+                    where: { id: parseInt(machine.concepteurId, 10) },
+                    include: { user: true }
+                });
+                if (concepteur && !contacts.find(c => c.id === concepteur.userId && c.role === 'concepteur')) {
+                    contacts.push({
+                        id: concepteur.userId,
+                        name: concepteur.user?.nom || `Concepteur ${concepteur.id}`,
+                        role: 'concepteur',
+                        roleLabel: `Concepteur de la machine ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
+                }
+            }
+
+            const agents = await prisma.maintenanceAgent.findMany({
+                where: { machineIds: { contains: `"${machine.id}"` } },
+                include: { user: true }
+            });
+            for (const a of agents) {
+                if (a.userId === userId) continue;
+                if (!contacts.find(c => c.id === a.userId && c.role === 'maintenance')) {
+                    contacts.push({
+                        id: a.userId,
+                        name: a.user?.nom || `${a.firstName} ${a.lastName}`,
+                        role: 'maintenance',
+                        roleLabel: `Agent de maintenance de la machine ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
+                }
+            }
+
+            if (machine.companyId) {
+                const clients = await prisma.client.findMany({
+                    where: { clientId: machine.companyId },
+                    include: { user: true }
+                });
+                for (const c of clients) {
+                    if (!contacts.find(ct => ct.id === c.userId && ct.role === 'client')) {
+                        contacts.push({
+                            id: c.userId,
+                            name: c.user?.nom || `Client ${c.clientId}`,
+                            role: 'client',
+                            roleLabel: `Client de la machine ${machine.name || machine.id}`,
+                            machineId: machine.id
+                        });
+                    }
+                }
+            }
+        }
+
+        return res.json(contacts);
+    } catch (err) {
+        console.error('Erreur getTechnicianContacts:', err);
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+// ─── GET /api/chat/contacts/concepteur ─────────────────────────────────────
+// Returns all contacts (technicians, agents, clients) related to the concepteur's machines
+async function getConcepteurContacts(req, res) {
+    try {
+        const userId = parseInt(req.auth.userId, 10);
+        if (isNaN(userId)) return res.status(400).json({ error: 'userId invalide' });
+
+        const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+        if (!concepteur) return res.status(404).json({ error: 'Profil concepteur introuvable' });
+
+        // Get all machines owned by this concepteur
+        const machines = await prisma.machine.findMany({
+            where: { concepteurId: String(concepteur.id) }
+        });
+
+        if (machines.length === 0) {
+            return res.json([]);
+        }
+
+        const contacts = [];
+
+        for (const machine of machines) {
+            // 1. Find Technicians assigned to this machine
+            // Since machineIds is a JSON string array "[\"MAC-123\"]", we can use contains
+            const techs = await prisma.technician.findMany({
+                where: { machineIds: { contains: `"${machine.id}"` } },
+                include: { user: true }
+            });
+            for (const t of techs) {
+                // Avoid duplicates if a tech is assigned to multiple machines of this concepteur
+                if (!contacts.find(c => c.id === t.userId && c.role === 'technician')) {
+                    contacts.push({
+                        id: t.userId,
+                        name: t.user?.nom || `${t.firstName} ${t.lastName}`,
+                        role: 'technician',
+                        roleLabel: `Technicien de la machine ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
+                }
+            }
+
+            // 2. Find Maintenance Agents assigned to this machine
+            const agents = await prisma.maintenanceAgent.findMany({
+                where: { machineIds: { contains: `"${machine.id}"` } },
+                include: { user: true }
+            });
+            for (const a of agents) {
+                if (!contacts.find(c => c.id === a.userId && c.role === 'maintenance')) {
+                    contacts.push({
+                        id: a.userId,
+                        name: a.user?.nom || `${a.firstName} ${a.lastName}`,
+                        role: 'maintenance',
+                        roleLabel: `Agent de maintenance de la machine ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
+                }
+            }
+
+            // 3. Find Client who owns this machine
+            if (machine.companyId) {
+                const clients = await prisma.client.findMany({
+                    where: { clientId: machine.companyId },
+                    include: { user: true }
+                });
+                for (const c of clients) {
+                    if (!contacts.find(ct => ct.id === c.userId && ct.role === 'client')) {
+                        contacts.push({
+                            id: c.userId,
+                            name: c.user?.nom || `Client ${c.clientId}`,
+                            role: 'client',
+                            roleLabel: `Client de la machine ${machine.name || machine.id}`,
+                            machineId: machine.id
+                        });
+                    }
+                }
+            }
+        }
+
+        return res.json(contacts);
+    } catch (err) {
+        console.error('Erreur getConcepteurContacts:', err);
+        return res.status(500).json({ error: err.message });
+    }
+}
+
 async function deleteChatRoom(req, res) {
     try {
         const { roomId } = req.params;
@@ -493,6 +859,90 @@ async function deleteChatRoom(req, res) {
     }
 }
 
+// ─── GET /api/chat/contacts/client ─────────────────────────────────────────
+// Returns all contacts (concepteur, technicians, agents) related to the client's machines
+async function getClientContacts(req, res) {
+    try {
+        const userId = parseInt(req.auth.userId, 10);
+        if (isNaN(userId)) return res.status(400).json({ error: 'userId invalide' });
+
+        const client = await prisma.client.findUnique({ where: { userId } });
+        if (!client) return res.status(404).json({ error: 'Profil client introuvable' });
+
+        // Get all machines owned by this client
+        const machines = await prisma.machine.findMany({
+            where: { companyId: client.clientId }
+        });
+
+        if (machines.length === 0) {
+            return res.json([]);
+        }
+
+        const contacts = [];
+
+        for (const machine of machines) {
+            // 1. Find Concepteur of this machine
+            if (machine.concepteurId) {
+                const concepteur = await prisma.concepteur.findUnique({
+                    where: { id: parseInt(machine.concepteurId, 10) },
+                    include: { user: true }
+                });
+                if (concepteur && !contacts.find(c => c.id === concepteur.userId && c.role === 'conception')) {
+                    contacts.push({
+                        id: concepteur.userId,
+                        subId: concepteur.id,
+                        name: concepteur.user?.nom || `Concepteur ${concepteur.id}`,
+                        role: 'conception',
+                        roleLabel: `Concepteur de la machine ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
+                }
+            }
+
+            // 2. Find Technicians assigned to this machine
+            const techs = await prisma.technician.findMany({
+                where: { machineIds: { contains: `"${machine.id}"` } },
+                include: { user: true }
+            });
+            for (const t of techs) {
+                if (!contacts.find(c => c.id === t.userId && c.role === 'technician')) {
+                    contacts.push({
+                        id: t.userId,
+                        subId: t.technicianId || t.id,
+                        name: t.user?.nom || `${t.firstName} ${t.lastName}`,
+                        role: 'technician',
+                        roleLabel: `Technicien de la machine ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
+                }
+            }
+
+            // 3. Find Maintenance Agents assigned to this machine
+            const agents = await prisma.maintenanceAgent.findMany({
+                where: { machineIds: { contains: `"${machine.id}"` } },
+                include: { user: true }
+            });
+            for (const a of agents) {
+                if (!contacts.find(c => c.id === a.userId && c.role === 'maintenance')) {
+                    contacts.push({
+                        id: a.userId,
+                        subId: a.maintenanceAgentId || a.id,
+                        name: a.user?.nom || `${a.firstName} ${a.lastName}`,
+                        role: 'maintenance',
+                        roleLabel: `Agent de maintenance de la machine ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
+                }
+            }
+        }
+
+        return res.json(contacts);
+    } catch (err) {
+        console.error('Erreur getClientContacts:', err);
+        return res.status(500).json({ error: err.message });
+    }
+}
+
 module.exports = {
     getChatMessages,
     getConceptionConversations,
@@ -505,5 +955,6 @@ module.exports = {
     uploadAttachment,
     deleteChatRoom,
     deleteChatMessage,
+    getConcepteurContacts, getTechnicianContacts, getClientContacts,
     _ensureParticipant,
 };

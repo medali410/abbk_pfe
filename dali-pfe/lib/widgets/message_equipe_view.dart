@@ -19,6 +19,9 @@ class MessageEquipeView extends StatefulWidget {
   final String? senderName;
   final String? senderRole;
   final bool embedded;
+  final String? initialRoomId;
+
+  static String? currentActiveRoomId;
 
   const MessageEquipeView({
     super.key,
@@ -27,6 +30,7 @@ class MessageEquipeView extends StatefulWidget {
     this.senderName,
     this.senderRole,
     this.embedded = false,
+    this.initialRoomId,
   });
 
   @override
@@ -101,6 +105,15 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     super.initState();
     _technicianId = (widget.technicianId ?? '').toString();
     _clientId = (widget.clientId ?? '').toString();
+    
+    if (_technicianId.isEmpty && ApiService.savedTechnicianProfile != null) {
+      final tProfile = ApiService.savedTechnicianProfile!;
+      _technicianId = (tProfile['technicianId'] ?? tProfile['id'] ?? tProfile['_id'] ?? '').toString();
+    }
+    if (_clientId.isEmpty && ApiService.savedClientId != null) {
+      _clientId = ApiService.savedClientId!;
+    }
+    
     _senderName = (widget.senderName ?? 'Technicien').toString();
     _senderRole = (widget.senderRole ?? 'technician').toString().toLowerCase();
     
@@ -122,11 +135,18 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     if (_senderRole != 'client' && _senderRole != 'technician' && _senderRole != 'conception') {
       _senderRole = 'technician';
     }
+
+    if (widget.initialRoomId != null && widget.initialRoomId!.isNotEmpty) {
+      _activeRoomId = widget.initialRoomId!;
+      MessageEquipeView.currentActiveRoomId = _activeRoomId;
+    }
+
     _initChat();
   }
 
   @override
   void dispose() {
+    MessageEquipeView.currentActiveRoomId = null;
     _input.dispose();
     _searchController.dispose();
     _messagesScroll.dispose();
@@ -262,183 +282,159 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
       final userRole = ApiService.savedUserRole?.toLowerCase();
       final isConcepteur = userRole == 'concepteur' || (userRole == 'conception' && !ApiService.isSuperAdmin);
 
-      if (isConcepteur) {
-        final myProfile = ApiService.savedConcepteurProfile;
-        final myConcepteurId = myProfile != null ? (myProfile['id'] ?? myProfile['_id'] ?? '').toString() : '';
-        final adminRoom = 'chat_conception_$myConcepteurId';
-        
+      if (_senderRole == 'client') {
+        if (_clientId.isNotEmpty) {
+          final list = <Map<String, dynamic>>[];
+          final contacts = await ApiService.getClientContacts();
+
+          // Group by role
+          final concepteurs = contacts.where((c) => c['role'] == 'conception').toList();
+          final techs = contacts.where((c) => c['role'] == 'technician').toList();
+          final agents = contacts.where((c) => c['role'] == 'maintenance').toList();
+
+          list.add({'roomId': '__section_admin__', 'isSectionHeader': true, 'sectionLabel': 'SUPPORT GÉNÉRAL', 'sectionIcon': 'admin_panel_settings', 'sectionColor': 'red'});
+          list.add({
+            'roomId': 'chat_client_${_clientId}_admin', 'name': 'Administrateur',
+            'subId': 'admin', 'roleLabel': 'Admin', 'lastText': 'Contacter le support', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+            'role': 'admin'
+          });
+
+          if (concepteurs.isNotEmpty) {
+            list.add({'roomId': '__section_concep__', 'isSectionHeader': true, 'sectionLabel': 'CONCEPTEURS', 'sectionIcon': 'engineering', 'sectionColor': 'purple'});
+            for (final c in concepteurs) {
+              list.add({
+                'roomId': 'chat_client_${_clientId}_concepteur_${c['subId']}', 'name': c['name'], 'subId': c['subId'].toString(),
+                'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+                'machineId': c['machineId'], 'role': 'conception'
+              });
+            }
+          }
+
+          if (techs.isNotEmpty) {
+            list.add({'roomId': '__section_tech__', 'isSectionHeader': true, 'sectionLabel': 'TECHNICIENS', 'sectionIcon': 'build', 'sectionColor': 'blue'});
+            for (final t in techs) {
+              list.add({
+                'roomId': 'chat_client_${_clientId}_tech_${t['subId']}', 'name': t['name'], 'subId': t['subId'].toString(),
+                'roleLabel': t['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+                'machineId': t['machineId'], 'role': 'technician'
+              });
+            }
+          }
+
+          if (agents.isNotEmpty) {
+            list.add({'roomId': '__section_maint__', 'isSectionHeader': true, 'sectionLabel': 'AGENTS DE MAINTENANCE', 'sectionIcon': 'support_agent', 'sectionColor': 'orange'});
+            for (final a in agents) {
+              list.add({
+                'roomId': 'chat_client_${_clientId}_maint_${a['subId']}', 'name': a['name'], 'subId': a['subId'].toString(),
+                'roleLabel': a['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+                'machineId': a['machineId'], 'role': 'maintenance'
+              });
+            }
+          }
+
+          _conversations = list;
+        }
+      } else if (_senderRole == 'conception' || _senderRole == 'concepteur') {
         final list = <Map<String, dynamic>>[];
-        
-        list.add({
-          'roomId': adminRoom,
-          'name': 'Admin',
-          'lastText': 'Discuter avec l\'administrateur',
-          'lastAt': DateTime.now().toIso8601String(),
-          'senderName': 'Admin',
-          'roleLabel': 'Admin',
-        });
-        
-        try {
-          final clients = await ApiService.getClients();
-          for (final c in clients) {
-            final clientId = (c['clientId'] ?? c['id'] ?? '').toString();
-            final clientName = (c['nom'] ?? c['name'] ?? 'Client').toString();
-            if (clientId.isNotEmpty) {
-              list.add({
-                'roomId': 'chat_client_${clientId}_conception_${myConcepteurId}',
-                'name': clientName,
-                'lastText': 'Ouvrir la discussion',
-                'lastAt': DateTime.now().toIso8601String(),
-                'senderName': '',
-                'roleLabel': 'Client',
-              });
-            }
-          }
-        } catch (_) {}
+        final isAdmin = ApiService.isSuperAdmin;
 
-        try {
-          final concepteurs = await ApiService.getConcepteurs();
-          for (final c in concepteurs) {
-            final otherConcepteurId = (c['concepteurId'] ?? c['id'] ?? '').toString();
-            final concepteurName = (c['nom'] ?? c['name'] ?? 'Concepteur').toString();
-            if (otherConcepteurId.isNotEmpty && otherConcepteurId != myConcepteurId) {
-              final sortedIds = [myConcepteurId, otherConcepteurId]..sort();
-              list.add({
-                'roomId': 'chat_concep_${sortedIds[0]}_${sortedIds[1]}',
-                'name': concepteurName,
-                'lastText': 'Ouvrir la discussion',
-                'lastAt': DateTime.now().toIso8601String(),
-                'senderName': '',
-                'roleLabel': 'Concepteur',
-              });
-            }
-          }
-        } catch (_) {}
-
-        try {
-          final maintenance = await ApiService.getMaintenanceAgents();
-          for (final m in maintenance) {
-            final agentId = (m['maintenanceAgentId'] ?? m['id'] ?? '').toString();
-            final agentName = (m['nom'] ?? m['name'] ?? '${m['firstName'] ?? ''} ${m['lastName'] ?? ''}'.trim()).toString();
-            if (agentId.isNotEmpty) {
-              list.add({
-                'roomId': 'chat_maintenance_${agentId}_conception_${myConcepteurId}',
-                'name': agentName.isNotEmpty ? agentName : 'Agent Maintenance',
-                'lastText': 'Ouvrir la discussion',
-                'lastAt': DateTime.now().toIso8601String(),
-                'senderName': '',
-                'roleLabel': 'Maintenance',
-              });
-            }
-          }
-        } catch (_) {}
-        
-        _conversations = list;
-        if (mounted) setState(() {});
-        
-        // Load last message in background
-        for (final conv in _conversations) {
+        if (isAdmin) {
+          // ── Admin : charger tous les contacts du système ──
+          list.add({'roomId': '__section_tech__', 'isSectionHeader': true, 'sectionLabel': 'TECHNICIENS', 'sectionIcon': 'engineering', 'sectionColor': 'purple'});
           try {
-            final messages = await ApiService.getChatMessages(conv['roomId'], limit: 1);
-            if (messages.isNotEmpty) {
-              conv['lastText'] = messages.first['text'] ?? '';
-              conv['lastAt'] = messages.first['createdAt'] ?? '';
-              conv['senderName'] = messages.first['senderName'] ?? '';
+            final techs = await ApiService.getTechnicians();
+            for (final t in techs) {
+              final techId = (t['technicianId'] ?? t['id'] ?? '').toString();
+              final fullName = '${t['firstName'] ?? ''} ${t['lastName'] ?? ''}'.trim();
+              if (techId.isEmpty) continue;
+              list.add({
+                'roomId': 'chat_admin_tech_$techId', 'name': fullName.isNotEmpty ? fullName : 'Technicien',
+                'subId': techId, 'roleLabel': 'Technicien', 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+              });
+            }
+          } catch (_) {}
+
+          list.add({'roomId': '__section_maint__', 'isSectionHeader': true, 'sectionLabel': 'AGENTS DE MAINTENANCE', 'sectionIcon': 'support_agent', 'sectionColor': 'blue'});
+          try {
+            final agents = await ApiService.getMaintenanceAgents();
+            for (final a in agents) {
+              final agentId = (a['maintenanceAgentId'] ?? a['id'] ?? '').toString();
+              final fullName = '${a['firstName'] ?? a['nom'] ?? ''} ${a['lastName'] ?? ''}'.trim();
+              if (agentId.isEmpty) continue;
+              list.add({
+                'roomId': 'chat_admin_maint_$agentId', 'name': fullName.isNotEmpty ? fullName : 'Agent Maintenance',
+                'subId': agentId, 'roleLabel': 'Maintenance', 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+              });
+            }
+          } catch (_) {}
+
+          list.add({'roomId': '__section_clients__', 'isSectionHeader': true, 'sectionLabel': 'CLIENTS', 'sectionIcon': 'groups', 'sectionColor': 'green'});
+          try {
+            final clients = await ApiService.getClients();
+            for (final c in clients) {
+              final clientId = (c['clientId'] ?? c['id'] ?? '').toString();
+              final clientName = (c['nom'] ?? c['name'] ?? c['companyName'] ?? '').toString();
+              if (clientId.isEmpty) continue;
+              list.add({
+                'roomId': 'chat_admin_client_$clientId', 'name': clientName.isNotEmpty ? clientName : 'Client',
+                'subId': clientId, 'roleLabel': 'Client', 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+              });
+            }
+          } catch (_) {}
+        } else {
+          // ── Concepteur : charger uniquement ses contacts (par machine) ──
+          final myProfile = ApiService.savedConcepteurProfile;
+          final myConcepteurId = myProfile != null ? (myProfile['id'] ?? myProfile['_id'] ?? '').toString() : '';
+          
+          if (myConcepteurId.isNotEmpty) {
+            list.add({
+              'roomId': 'chat_conception_$myConcepteurId',
+              'name': 'Admin',
+              'lastText': 'Discuter avec l\'administrateur',
+              'lastAt': DateTime.now().toIso8601String(),
+              'senderName': 'Admin',
+              'roleLabel': 'Admin',
+            });
+          }
+
+          try {
+            final contacts = await ApiService.getConcepteurContacts();
+            
+            final techs = contacts.where((c) => c['role'] == 'technician').toList();
+            final agents = contacts.where((c) => c['role'] == 'maintenance').toList();
+            final clients = contacts.where((c) => c['role'] == 'client').toList();
+
+            if (clients.isNotEmpty) {
+              list.add({'roomId': '__section_clients__', 'isSectionHeader': true, 'sectionLabel': 'CLIENTS', 'sectionIcon': 'groups', 'sectionColor': 'green'});
+              for (final c in clients) {
+                list.add({
+                  'roomId': 'chat_conception_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
+                  'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+                });
+              }
+            }
+
+            if (techs.isNotEmpty) {
+              list.add({'roomId': '__section_tech__', 'isSectionHeader': true, 'sectionLabel': 'TECHNICIENS', 'sectionIcon': 'engineering', 'sectionColor': 'purple'});
+              for (final c in techs) {
+                list.add({
+                  'roomId': 'chat_conception_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
+                  'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+                });
+              }
+            }
+
+            if (agents.isNotEmpty) {
+              list.add({'roomId': '__section_maint__', 'isSectionHeader': true, 'sectionLabel': 'AGENTS DE MAINTENANCE', 'sectionIcon': 'support_agent', 'sectionColor': 'blue'});
+              for (final c in agents) {
+                list.add({
+                  'roomId': 'chat_conception_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
+                  'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+                });
+              }
             }
           } catch (_) {}
         }
-        if (mounted) setState(() {});
-        
-        await _switchConversation(_conversations.first);
-      } else if (_senderRole == 'client') {
-        if (_clientId.isNotEmpty) {
-          _conversations = await ApiService.getClientConversations(_clientId);
-        }
-      } else if (_senderRole == 'conception') {
-        // ── Admin : charger techniciens, agents de maintenance et clients ──
-        final list = <Map<String, dynamic>>[];
-
-        // ── SECTION : Techniciens ──
-        list.add({
-          'roomId': '__section_tech__',
-          'isSectionHeader': true,
-          'sectionLabel': 'TECHNICIENS',
-          'sectionIcon': 'engineering',
-          'sectionColor': 'purple',
-        });
-        try {
-          final techs = await ApiService.getTechnicians();
-          for (final t in techs) {
-            final techId = (t['technicianId'] ?? t['id'] ?? '').toString();
-            final firstName = (t['firstName'] ?? '').toString();
-            final lastName  = (t['lastName']  ?? '').toString();
-            final fullName  = '$firstName $lastName'.trim();
-            if (techId.isEmpty) continue;
-            list.add({
-              'roomId': 'chat_admin_tech_$techId',
-              'name': fullName.isNotEmpty ? fullName : 'Technicien',
-              'subId': techId,
-              'roleLabel': 'Technicien',
-              'lastText': 'Ouvrir la discussion',
-              'lastAt': DateTime.now().toIso8601String(),
-              'senderName': '',
-            });
-          }
-        } catch (_) {}
-
-        // ── SECTION : Agents de Maintenance ──
-        list.add({
-          'roomId': '__section_maint__',
-          'isSectionHeader': true,
-          'sectionLabel': 'AGENTS DE MAINTENANCE',
-          'sectionIcon': 'support_agent',
-          'sectionColor': 'blue',
-        });
-        try {
-          final agents = await ApiService.getMaintenanceAgents();
-          for (final a in agents) {
-            final agentId   = (a['maintenanceAgentId'] ?? a['id'] ?? '').toString();
-            final firstName = (a['firstName'] ?? a['nom'] ?? '').toString();
-            final lastName  = (a['lastName']  ?? '').toString();
-            final fullName  = '$firstName $lastName'.trim();
-            if (agentId.isEmpty) continue;
-            list.add({
-              'roomId': 'chat_admin_maint_$agentId',
-              'name': fullName.isNotEmpty ? fullName : 'Agent Maintenance',
-              'subId': agentId,
-              'roleLabel': 'Maintenance',
-              'lastText': 'Ouvrir la discussion',
-              'lastAt': DateTime.now().toIso8601String(),
-              'senderName': '',
-            });
-          }
-        } catch (_) {}
-
-        // ── SECTION : Clients ──
-        list.add({
-          'roomId': '__section_clients__',
-          'isSectionHeader': true,
-          'sectionLabel': 'CLIENTS',
-          'sectionIcon': 'groups',
-          'sectionColor': 'green',
-        });
-        try {
-          final clients = await ApiService.getClients();
-          for (final c in clients) {
-            final clientId   = (c['clientId'] ?? c['id'] ?? '').toString();
-            final clientName = (c['nom'] ?? c['name'] ?? c['companyName'] ?? '').toString();
-            if (clientId.isEmpty) continue;
-            list.add({
-              'roomId': 'chat_admin_client_$clientId',
-              'name': clientName.isNotEmpty ? clientName : 'Client',
-              'subId': clientId,
-              'roleLabel': 'Client',
-              'lastText': 'Ouvrir la discussion',
-              'lastAt': DateTime.now().toIso8601String(),
-              'senderName': '',
-            });
-          }
-        } catch (_) {}
 
         _conversations = list;
         if (mounted) setState(() {});
@@ -459,12 +455,57 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
         return; // évite le bloc générique ci-dessous
       } else {
         if (_technicianId.isNotEmpty) {
-          final allConvs = await ApiService.getTechnicianConversations(_technicianId);
-          _conversations = allConvs.where((c) {
-            final roomId = (c['roomId'] ?? '').toString();
-            if (_technicianId.isNotEmpty && !roomId.contains(_technicianId)) return false;
-            return true;
-          }).toList();
+          final list = <Map<String, dynamic>>[];
+          list.add({
+            'roomId': 'chat_technicien_$_technicianId',
+            'name': 'Admin',
+            'lastText': 'Discuter avec l\'administrateur',
+            'lastAt': DateTime.now().toIso8601String(),
+            'senderName': 'Admin',
+            'roleLabel': 'Admin',
+          });
+
+          try {
+            final contacts = await ApiService.getTechnicianContacts();
+            
+            final concepteurs = contacts.where((c) => c['role'] == 'concepteur').toList();
+            final agents = contacts.where((c) => c['role'] == 'maintenance').toList();
+            final clients = contacts.where((c) => c['role'] == 'client').toList();
+
+            if (concepteurs.isNotEmpty) {
+              list.add({'roomId': '__section_concep__', 'isSectionHeader': true, 'sectionLabel': 'CONCEPTEURS', 'sectionIcon': 'engineering', 'sectionColor': 'orange'});
+              for (final c in concepteurs) {
+                list.add({
+                  'roomId': 'chat_direct_${_technicianId}_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
+                  'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+                });
+              }
+            }
+
+            if (agents.isNotEmpty) {
+              list.add({'roomId': '__section_maint__', 'isSectionHeader': true, 'sectionLabel': 'AGENTS DE MAINTENANCE', 'sectionIcon': 'support_agent', 'sectionColor': 'blue'});
+              for (final c in agents) {
+                list.add({
+                  'roomId': 'chat_direct_${_technicianId}_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
+                  'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+                });
+              }
+            }
+
+            if (clients.isNotEmpty) {
+              list.add({'roomId': '__section_clients__', 'isSectionHeader': true, 'sectionLabel': 'CLIENTS', 'sectionIcon': 'groups', 'sectionColor': 'green'});
+              for (final c in clients) {
+                list.add({
+                  'roomId': 'chat_direct_${_technicianId}_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
+                  'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+                });
+              }
+            }
+          } catch (_) {}
+
+          _conversations = list;
+          if (mounted) setState(() {});
+          return;
         }
       }
       
@@ -500,18 +541,21 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     final room = (c['roomId'] ?? '').toString();
     if (room.isEmpty) return;
     _activeRoomId = room;
+    MessageEquipeView.currentActiveRoomId = room;
     _socket?.emit('join_chat_room', {'roomId': room});
+
+    _selectedDesignerDetails = c;
 
     final userRole = ApiService.savedUserRole?.toLowerCase();
     final isConcepteur = userRole == 'concepteur' || (userRole == 'conception' && !ApiService.isSuperAdmin);
 
-    if (isConcepteur) {
+    if (isConcepteur || _senderRole == 'client') {
       if (mounted) {
         setState(() {
           _selectedDesignerDetails = {
             'name': (c['name'] ?? 'Admin').toString(),
             'specialite': (c['roleLabel'] ?? '').toString(),
-            'machines': <String>[],
+            'machines': c['machineId'] != null && c['machineId'].toString().isNotEmpty ? <String>[ c['machineId'].toString() ] : <String>[],
           };
         });
       }
@@ -577,6 +621,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
 
   void _closeConversation() {
     _pollingTimer?.cancel();
+    MessageEquipeView.currentActiveRoomId = null;
     if (mounted) {
       setState(() {
         _activeRoomId = '';
@@ -1070,6 +1115,39 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     });
   }
 
+  Color _getRoleColor(String roleLabel) {
+    final lower = roleLabel.toLowerCase();
+    if (lower.contains('admin')) return const Color(0xFFEF4444); // Red
+    if (lower.contains('concepteur') || lower.contains('conception')) return const Color(0xFFA855F7); // Purple
+    if (lower.contains('technicien') || lower.contains('technician')) return const Color(0xFF3B82F6); // Blue
+    if (lower.contains('maintenance')) return const Color(0xFFF97316); // Orange
+    if (lower.contains('client')) return const Color(0xFF10B981); // Green
+    return const Color(0xFF6366F1); // Indigo default
+  }
+
+  String _formatRoleBadge(String roleLabel) {
+    if (roleLabel.isEmpty) return 'CONTACT';
+    final lower = roleLabel.toLowerCase();
+    if (lower.contains('admin')) return 'ADMIN';
+    if (lower.contains('concepteur') || lower.contains('conception')) {
+      final machine = roleLabel.contains('machine ') ? roleLabel.split('machine ').last : '';
+      return machine.isNotEmpty ? 'CONCEPTEUR • $machine'.toUpperCase() : 'CONCEPTEUR';
+    }
+    if (lower.contains('technicien') || lower.contains('technician')) {
+      final machine = roleLabel.contains('machine ') ? roleLabel.split('machine ').last : '';
+      return machine.isNotEmpty ? 'TECHNICIEN • $machine'.toUpperCase() : 'TECHNICIEN';
+    }
+    if (lower.contains('maintenance')) {
+      final machine = roleLabel.contains('machine ') ? roleLabel.split('machine ').last : '';
+      return machine.isNotEmpty ? 'MAINTENANCE • $machine'.toUpperCase() : 'MAINTENANCE';
+    }
+    if (lower.contains('client')) {
+      final machine = roleLabel.contains('machine ') ? roleLabel.split('machine ').last : '';
+      return machine.isNotEmpty ? 'CLIENT • $machine'.toUpperCase() : 'CLIENT';
+    }
+    return roleLabel.toUpperCase();
+  }
+
   void _scrollToLatest() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_messagesScroll.hasClients) return;
@@ -1177,6 +1255,22 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                             final c = _conversations[i];
                             final room = (c['roomId'] ?? '').toString();
                             final active = room == _activeRoomId;
+                            
+                            if (c['isSectionHeader'] == true) {
+                              return Padding(
+                                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                                child: Text(
+                                  (c['sectionLabel'] ?? '').toString(),
+                                  style: GoogleFonts.spaceGrotesk(
+                                    color: _muted.withOpacity(0.5),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                              );
+                            }
+
                             return Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                               child: Stack(
@@ -1229,34 +1323,73 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                     children: [
                                                       Expanded(
-                                                         child: Text(
+                                                        child: Text(
                                                           _resolveDesignerName(c),
                                                           style: GoogleFonts.inter(
                                                             color: active ? Colors.white : _text,
-                                                            fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                                                            fontWeight: active ? FontWeight.w800 : FontWeight.w700,
                                                             fontSize: 14.5,
                                                           ),
                                                           overflow: TextOverflow.ellipsis,
                                                         ),
                                                       ),
+                                                      const SizedBox(width: 8),
                                                       Text(_fmtTime(c['lastAt']),
                                                           style: GoogleFonts.inter(
                                                             color: active ? _accent : _muted.withOpacity(0.5),
-                                                            fontSize: 10,
-                                                            fontWeight: active ? FontWeight.w700 : FontWeight.normal
+                                                            fontSize: 11,
+                                                            fontWeight: active ? FontWeight.w700 : FontWeight.w500
                                                           )),
                                                     ],
                                                   ),
                                                   const SizedBox(height: 6),
-                                                  Text(
-                                                    (c['lastText'] ?? 'Ouvrir la discussion').toString(),
-                                                    style: GoogleFonts.inter(
-                                                      color: active ? Colors.white.withOpacity(0.8) : _muted.withOpacity(0.7),
-                                                      fontSize: 12,
-                                                      fontWeight: active ? FontWeight.w500 : FontWeight.normal
-                                                    ),
-                                                    maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
+                                                  Row(
+                                                    children: [
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                                        decoration: BoxDecoration(
+                                                          color: _getRoleColor(c['roleLabel'] ?? '').withOpacity(0.15),
+                                                          borderRadius: BorderRadius.circular(4),
+                                                          border: Border.all(color: _getRoleColor(c['roleLabel'] ?? '').withOpacity(0.3)),
+                                                        ),
+                                                        child: Row(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          children: [
+                                                            Container(
+                                                              width: 5,
+                                                              height: 5,
+                                                              decoration: BoxDecoration(
+                                                                color: _getRoleColor(c['roleLabel'] ?? ''),
+                                                                shape: BoxShape.circle,
+                                                              ),
+                                                            ),
+                                                            const SizedBox(width: 4),
+                                                            Text(
+                                                              _formatRoleBadge(c['roleLabel'] ?? ''),
+                                                              style: GoogleFonts.spaceGrotesk(
+                                                                color: _getRoleColor(c['roleLabel'] ?? ''),
+                                                                fontSize: 9,
+                                                                fontWeight: FontWeight.w700,
+                                                                letterSpacing: 0.5,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Expanded(
+                                                        child: Text(
+                                                          (c['lastText'] ?? 'Ouvrir la discussion').toString(),
+                                                          style: GoogleFonts.inter(
+                                                            color: active ? Colors.white.withOpacity(0.9) : _muted.withOpacity(0.8),
+                                                            fontSize: 12.5,
+                                                            fontWeight: active ? FontWeight.w500 : FontWeight.normal
+                                                          ),
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow.ellipsis,
+                                                        ),
+                                                      ),
+                                                    ],
                                                   ),
                                                 ],
                                               ),
@@ -1436,12 +1569,13 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                                   const SizedBox(height: 5),
                                 ],
 
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                Wrap(
+                                  alignment: WrapAlignment.end,
+                                  crossAxisAlignment: WrapCrossAlignment.end,
+                                  spacing: 8,
+                                  runSpacing: 4,
                                   children: [
-                                    Flexible(child: Text(text, style: GoogleFonts.inter(color: _text, fontSize: 13.5))),
-                                    const SizedBox(width: 8),
+                                    Text(text, style: GoogleFonts.inter(color: _text, fontSize: 13.5)),
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
@@ -1516,23 +1650,19 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                     : Row(
                         children: [
                           IconButton(
-                            onPressed: () => _pickAndUploadFile(isImage: true),
-                            icon: const Icon(Icons.image_outlined, color: _muted, size: 24),
-                            tooltip: 'Envoyer une image',
+                            onPressed: () {}, // TODO: Emoji picker
+                            icon: const Icon(Icons.emoji_emotions_outlined, color: _muted, size: 24),
+                            tooltip: 'Emoji',
                           ),
                           IconButton(
-                            onPressed: _isLocating ? null : _shareRealLocation,
-                            icon: _isLocating
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      color: _accent,
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.location_on_outlined, color: _muted, size: 24),
-                            tooltip: 'Partager ma localisation',
+                            onPressed: () => _pickAndUploadFile(isImage: false),
+                            icon: const Icon(Icons.attach_file, color: _muted, size: 24),
+                            tooltip: 'Joindre un fichier',
+                          ),
+                          IconButton(
+                            onPressed: () => _pickAndUploadFile(isImage: true),
+                            icon: const Icon(Icons.camera_alt_outlined, color: _muted, size: 24),
+                            tooltip: 'Prendre une photo',
                           ),
                           Expanded(
                             child: Container(
@@ -1546,7 +1676,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                                 onChanged: (v) => setState(() => _isTyping = v.trim().isNotEmpty),
                                 style: GoogleFonts.inter(color: _text, fontSize: 15),
                                 decoration: const InputDecoration(
-                                  hintText: 'Taper un message',
+                                  hintText: 'Écrire un message...',
                                   hintStyle: TextStyle(color: _muted),
                                   border: InputBorder.none,
                                 ),
@@ -1557,8 +1687,8 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                           ),
                           const SizedBox(width: 8),
                           Container(
-                            decoration: const BoxDecoration(
-                              color: _primary,
+                            decoration: BoxDecoration(
+                              color: _isTyping ? Colors.blueAccent : _primary,
                               shape: BoxShape.circle,
                             ),
                             child: IconButton(
@@ -1584,7 +1714,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 20),
-                    Text('INFORMATIONS CONCEPTEUR',
+                    Text('INFORMATIONS CONTACT',
                         style: GoogleFonts.spaceGrotesk(color: _muted, fontSize: 11, letterSpacing: 1.2)),
                     const SizedBox(height: 20),
                     const Center(child: CircularProgressIndicator(color: _primary)),
@@ -1594,7 +1724,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 20),
-                    Text('INFORMATIONS CONCEPTEUR',
+                    Text('INFORMATIONS CONTACT',
                         style: GoogleFonts.spaceGrotesk(color: _muted, fontSize: 11, letterSpacing: 1.2)),
                     const SizedBox(height: 32),
                     Center(
@@ -1668,7 +1798,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
       ],
     );
 
-    if (widget.embedded) return body;
+    if (widget.embedded) return SizedBox.expand(child: body);
 
     return Scaffold(
       backgroundColor: _bg,
