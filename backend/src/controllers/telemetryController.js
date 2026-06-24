@@ -65,6 +65,33 @@ exports.saveTelemetry = async (data, io) => {
             }
         });
 
+        // 📡 Émettre les données live en temps réel via socket (sans polling)
+        if (io) {
+            const voltage = parseFloat(data.voltage || data.tension || data.pressure || data.pression || 0);
+            const infrared = parseFloat(data.infrared || data.infrarouge || 0);
+            const courant = parseFloat(data.courant || data.current || 0);
+            const puissance = parseFloat(data.puissance || data.power || 0);
+            const presence = parseInt(data.presence || 0);
+            io.emit('telemetry_live', {
+                machineId: machineId,
+                temperature: temp,
+                voltage: voltage,
+                tension: voltage,
+                pressure: voltage,
+                vibration: vibration,
+                magnetic: magnetic,
+                magnet: magnetic,
+                infrared: infrared,
+                infrarouge: infrared,
+                courant: courant,
+                current: courant,
+                puissance: puissance,
+                power: puissance,
+                presence: presence,
+                timestamp: new Date().toISOString()
+            });
+        }
+
         // 🚨 Vérification de sécurité (Arrêt d'urgence automatique)
         let dangerReason = null;
         let sensorName = null;
@@ -126,6 +153,81 @@ exports.saveTelemetry = async (data, io) => {
                     });
                     // Aussi envoyer update de statut
                     io.emit('machine_status_update', { machineId: machineId, status: 'STOPPED_DANGER' });
+                }
+
+                // 5. Génération Automatique de Mission IA + notification globale
+                try {
+                    const { predictMachineRisk } = require('../lib/aiPredictionService');
+                    const aiResult = await predictMachineRisk(machineId, data);
+                    
+                    const techs = await prisma.technician.findMany();
+                    const assignedTechs = techs.filter(t => {
+                        try {
+                            const ids = JSON.parse(t.machineIds || '[]');
+                            return ids.includes(machineId);
+                        } catch(e) { return false; }
+                    });
+
+                    const { nextBusinessId } = require('../lib/ids');
+                    for (const tech of assignedTechs) {
+                        const missionIdStr = await nextBusinessId('MISS');
+                        const mission = await prisma.mission.create({
+                            data: {
+                                missionId: missionIdStr,
+                                technicianId: tech.technicianId,
+                                machineId: machine.id,
+                                machineName: machine.name,
+                                title: "MISSION DANGER",
+                                priority: "CRITICAL",
+                                description: JSON.stringify(aiResult),
+                                status: "PENDING"
+                            }
+                        });
+
+                        if (io) {
+                            io.emit('danger_mission_alert', {
+                                mission,
+                                aiReport: aiResult,
+                                machineName: machine.name,
+                                technicianId: tech.technicianId
+                            });
+                        }
+                    }
+
+                    // ✅ Notifier admin/client/maintenance agents liés à cette machine
+                    if (io) {
+                        // Chercher les maintenance agents qui ont cette machine
+                        const maintenanceAgents = await prisma.maintenanceAgent.findMany();
+                        const assignedAgents = maintenanceAgents.filter(a => {
+                            try { return JSON.parse(a.machineIds || '[]').includes(machineId); }
+                            catch(e) { return false; }
+                        });
+
+                        const dangerBroadcast = {
+                            machineId,
+                            machineName: machine.name,
+                            reason: dangerReason,
+                            sensor: sensorName,
+                            value: measuredValue,
+                            aiReport: aiResult,
+                            timestamp: new Date()
+                        };
+
+                        // Notifier tous les maintenance agents liés
+                        for (const agent of assignedAgents) {
+                            io.emit('danger_alert_admin', { ...dangerBroadcast, targetAgentId: agent.maintenanceAgentId });
+                        }
+
+                        // Notifier le concepteur de la machine
+                        if (machine.concepteurId) {
+                            io.emit('danger_alert_admin', { ...dangerBroadcast, targetConcepteurId: machine.concepteurId });
+                        }
+
+                        // Broadcast général pour admin/superviseur
+                        io.emit('danger_alert_admin', dangerBroadcast);
+                    }
+                } catch(e) {
+                    console.error("Erreur génération auto mission DANGER:", e);
                 }
             }
         }

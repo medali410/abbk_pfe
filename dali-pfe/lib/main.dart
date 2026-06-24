@@ -11,6 +11,7 @@ import 'client_dashboard_page.dart';
 import 'add_client_page.dart';
 import 'technician_profile_page.dart';
 import 'add_technician_page.dart';
+import 'widgets/global_alert_listener.dart';
 import 'machine_team_page.dart';
 import 'machine_detail_ai_page.dart';
 import 'message_equipe_page.dart';
@@ -313,11 +314,13 @@ class MyApp extends StatelessWidget {
       ),
       initialRoute: resolveInitialWebRoute(),
       builder: (context, child) {
-        return Stack(
-          clipBehavior: Clip.none,
-          children: [
-            if (child != null) Positioned.fill(child: child),
-          ],
+        return GlobalAlertListener(
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              if (child != null) Positioned.fill(child: child),
+            ],
+          ),
         );
       },
       routes: {

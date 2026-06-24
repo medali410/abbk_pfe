@@ -60,6 +60,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
   String _actualMachineStatus = 'UNKNOWN';
   StreamSubscription? _machineStatusSub;
   StreamSubscription? _dangerAlertSub;
+  StreamSubscription? _telemetryLiveSub; // 📡 socket live
   Map<String, dynamic>? _lastDangerInfo;
 
   // ── Colors from Tailwind config ──
@@ -90,13 +91,33 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.machineId.isNotEmpty) {
         _fetchMachineStatus();
-        _runLivePrediction();
         _loadTelemetryHistory();
+        // ⏱️ Délai de 3s avant le premier appel IA — la page s'affiche immédiatement
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted && widget.machineId.isNotEmpty) {
+            _runLivePrediction();
+          }
+        });
       }
     });
-    _liveRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    // 🔄 IA prédiction toutes les 30s (moins fréquent, données live via socket)
+    _liveRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!mounted || widget.machineId.isEmpty || _predictLoading) return;
       _runLivePrediction();
+    });
+
+    // 📡 Écouter les données MQTT en temps réel via socket (0 latence HTTP)
+    _telemetryLiveSub = GlobalNotificationService().telemetryLiveStream.listen((data) {
+      if (data['machineId'] != widget.machineId) return;
+      if (!mounted) return;
+      setState(() {
+        _diagTemperature = (data['temperature'] as num?)?.toDouble() ?? _diagTemperature;
+        _diagVoltage     = (data['voltage']     as num?)?.toDouble() ?? _diagVoltage;
+        _diagVibration   = (data['vibration']   as num?)?.toDouble() ?? _diagVibration;
+        _diagMagnetic    = (data['magnetic']    as num?)?.toDouble() ?? _diagMagnetic;
+        _diagInfrared    = (data['infrared']    as num?)?.toDouble() ?? _diagInfrared;
+        _diagPower       = (data['puissance']   as num?)?.toDouble() ?? _diagPower;
+      });
     });
 
     _machineStatusSub = GlobalNotificationService().machineStatusStream.listen((data) {
@@ -238,6 +259,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
     _liveRefreshTimer?.cancel();
     _machineStatusSub?.cancel();
     _dangerAlertSub?.cancel();
+    _telemetryLiveSub?.cancel(); // 📡 socket live
     super.dispose();
   }
 
@@ -1135,8 +1157,294 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
     return _green;
   }
 
+  void _showDangerReportModal(BuildContext context) {
+    String cause = "Inconnue";
+    String valeur = "0";
+    String seuil = "1";
+    double ecart = 0.0;
+    
+    if (_lastDangerInfo != null) {
+      cause = _lastDangerInfo!['reason']?.toString() ?? 'Capteur inconnu';
+      valeur = _lastDangerInfo!['value']?.toString() ?? '0';
+      seuil = _lastDangerInfo!['threshold']?.toString() ?? '1';
+      
+      try {
+        double valD = double.parse(valeur);
+        double seuilD = double.parse(seuil);
+        if (seuilD != 0) {
+          ecart = ((valD - seuilD) / seuilD) * 100;
+        }
+      } catch (_) {}
+    }
+
+    int rulCycles = 0;
+    String recommandation = "Aucune recommandation disponible.";
+    Map<String, dynamic> scenarios = {};
+
+    if (_predictResult != null) {
+      if (_predictResult!['details'] != null) {
+        rulCycles = _predictResult!['details']['rul_cycles'] ?? 0;
+        if (_predictResult!['details']['scenario_scores'] is Map) {
+           scenarios = Map<String, dynamic>.from(_predictResult!['details']['scenario_scores']);
+        }
+      }
+      recommandation = _predictResult!['recommandation']?.toString() ?? recommandation;
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            width: 800, // Largeur max
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1E24).withOpacity(0.85),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.redAccent.withOpacity(0.5), width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.redAccent.withOpacity(0.15),
+                  blurRadius: 40,
+                  spreadRadius: 10,
+                ),
+              ],
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // En-tête
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent.withOpacity(0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.shield_outlined, color: Colors.redAccent, size: 36),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "RAPPORT D'ANALYSE IA",
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                letterSpacing: 1.5,
+                              ),
+                            ),
+                            Text(
+                              "ARRÊT PRÉVENTIF AUTOMATIQUE",
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                color: Colors.redAccent,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 1.1,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close, color: Colors.white54),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Section 1: Estimation
+                  _buildReportSection(
+                    icon: Icons.timer_outlined,
+                    title: "ESTIMATION DE PANNE",
+                    color: Colors.orange,
+                    child: RichText(
+                      text: TextSpan(
+                        style: GoogleFonts.inter(fontSize: 16, color: Colors.white70, height: 1.5),
+                        children: [
+                          const TextSpan(text: "Si la machine n'avait pas été arrêtée préventivement, la casse réelle était estimée dans environ "),
+                          TextSpan(
+                            text: "~$rulCycles cycles",
+                            style: GoogleFonts.spaceGrotesk(fontSize: 18, color: Colors.orange, fontWeight: FontWeight.bold),
+                          ),
+                          const TextSpan(text: " de fonctionnement continu."),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Section 2: Cause
+                  _buildReportSection(
+                    icon: Icons.warning_amber_rounded,
+                    title: "CAUSE DU DANGER",
+                    color: Colors.redAccent,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Déclencheur : $cause", style: GoogleFonts.inter(fontSize: 16, color: Colors.white, fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Text("Valeur mesurée : $valeur", style: GoogleFonts.spaceGrotesk(fontSize: 15, color: Colors.white70)),
+                            const SizedBox(width: 24),
+                            Text("Seuil critique : $seuil", style: GoogleFonts.spaceGrotesk(fontSize: 15, color: Colors.white70)),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.trending_up, color: Colors.redAccent, size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                "+${ecart.toStringAsFixed(1)}% au-dessus du seuil",
+                                style: GoogleFonts.inter(color: Colors.redAccent, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Section 3: Scénarios
+                  _buildReportSection(
+                    icon: Icons.analytics_outlined,
+                    title: "RÉPARTITION DES SCÉNARIOS (IA)",
+                    color: Colors.blueAccent,
+                    child: Column(
+                      children: scenarios.entries.map((e) {
+                        double val = (e.value is num) ? (e.value as num).toDouble() : 0.0;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 150,
+                                child: Text(
+                                  e.key.toUpperCase(),
+                                  style: GoogleFonts.spaceGrotesk(fontSize: 13, color: Colors.white70, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              Expanded(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: LinearProgressIndicator(
+                                    value: val,
+                                    minHeight: 8,
+                                    backgroundColor: Colors.white.withOpacity(0.05),
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      val > 0.7 ? Colors.redAccent : val > 0.4 ? Colors.orange : Colors.blueAccent,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              SizedBox(
+                                width: 50,
+                                child: Text(
+                                  "${(val * 100).toStringAsFixed(1)}%",
+                                  textAlign: TextAlign.right,
+                                  style: GoogleFonts.inter(fontSize: 13, color: Colors.white, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Section 4: Recommandations
+                  _buildReportSection(
+                    icon: Icons.lightbulb_outline,
+                    title: "RECOMMANDATIONS",
+                    color: Colors.greenAccent,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.greenAccent.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.greenAccent.withOpacity(0.2)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.check_circle_outline, color: Colors.greenAccent, size: 24),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              recommandation,
+                              style: GoogleFonts.inter(fontSize: 15, color: Colors.white, height: 1.5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReportSection({required IconData icon, required String title, required Color color, required Widget child}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: color,
+                letterSpacing: 1.2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Padding(
+          padding: const EdgeInsets.only(left: 28),
+          child: child,
+        ),
+      ],
+    );
+  }
+
   Widget _buildDangerBanner() {
-    return Container(
+    return GestureDetector(
+      onTap: () => _showDangerReportModal(context),
+      child: Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -1196,37 +1504,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
                 ),
               ),
               ElevatedButton.icon(
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      backgroundColor: _surfaceContainerHigh,
-                      title: Text("📋 Rapport d'Incident", style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold)),
-                      content: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text("Détails de l'arrêt de sécurité automatique.", style: GoogleFonts.inter(color: Colors.white70)),
-                          const SizedBox(height: 16),
-                          if (_lastDangerInfo != null) ...[
-                            Text("Capteur : ${_lastDangerInfo!['sensor']?.toString().toUpperCase()}", style: const TextStyle(color: Colors.white)),
-                            const SizedBox(height: 8),
-                            Text("Valeur mesurée : ${_lastDangerInfo!['value']}", style: const TextStyle(color: Colors.white)),
-                            const SizedBox(height: 8),
-                            Text("Seuil critique : ${_lastDangerInfo!['threshold']}", style: const TextStyle(color: Colors.white)),
-                          ] else
-                            const Text("Aucun détail disponible.", style: TextStyle(color: Colors.white54)),
-                        ],
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text("Fermer", style: TextStyle(color: Colors.white70)),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+                onPressed: () => _showDangerReportModal(context),
                 icon: const Icon(Icons.content_paste_search, size: 20),
                 label: Text('📋 VOIR RAPPORT', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 16)),
                 style: ElevatedButton.styleFrom(
@@ -1239,6 +1517,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
             ],
           ),
         ],
+      ),
       ),
     );
   }

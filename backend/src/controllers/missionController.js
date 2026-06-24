@@ -403,6 +403,129 @@ async function updateMyMissionStatus(req, res) {
         return res.status(500).json({ error: err.message });
     }
 }
+async function resolveDangerMission(req, res) {
+    try {
+        const userId = getAuthUserId(req);
+        if (!userId) return res.status(401).json({ error: 'Non authentifié' });
+
+        const id = parseInt(req.params.id, 10);
+        const existing = await MissionModel.getById(id);
+        if (!existing) return res.status(404).json({ error: 'Mission introuvable' });
+
+        // Terminer la mission danger
+        const updated = await MissionModel.update(id, { status: 'DONE', completedAt: new Date() });
+
+        // Remettre la machine en STOPPED (prête à relancer)
+        await prisma.machine.update({
+            where: { id: existing.machineId },
+            data: { status: 'STOPPED' }
+        });
+
+        const machine = await prisma.machine.findUnique({ where: { id: existing.machineId } });
+        const io = req.app?.get('io');
+
+        if (io && machine) {
+            // ✅ 1. Notifier tout le monde du changement de statut machine
+            io.emit('machine_status_update', { machineId: existing.machineId, status: 'STOPPED' });
+
+            // ✅ 2. Notif "Machine en bon état" à tous les utilisateurs liés
+            const goodStatePayload = {
+                machineId: existing.machineId,
+                machineName: machine.name,
+                message: `Machine ${machine.name} vérifiée — danger résolu. Prête à être relancée.`,
+                resolvedBy: existing.technicianId,
+                timestamp: new Date()
+            };
+            io.emit('machine_good_state', goodStatePayload);
+
+            // ✅ 3. Terminer toutes les autres missions DANGER PENDING sur cette machine
+            const otherDangerMissions = await prisma.mission.findMany({
+                where: {
+                    machineId: existing.machineId,
+                    title: 'MISSION DANGER',
+                    status: 'PENDING',
+                    id: { not: id }
+                }
+            });
+            for (const m of otherDangerMissions) {
+                await prisma.mission.update({
+                    where: { id: m.id },
+                    data: { status: 'DONE', completedAt: new Date() }
+                });
+            }
+        }
+
+        return res.json(serializeMission(updated));
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+async function confirmPanneMission(req, res) {
+    try {
+        const userId = getAuthUserId(req);
+        if (!userId) return res.status(401).json({ error: 'Non authentifié' });
+
+        const id = parseInt(req.params.id, 10);
+        const existing = await MissionModel.getById(id);
+        if (!existing) return res.status(404).json({ error: 'Mission introuvable' });
+
+        const updated = await MissionModel.update(id, { status: 'PANNE_CONFIRMÉE' });
+
+        const techProfile = await prisma.technician.findFirst({ where: { technicianId: existing.technicianId } });
+        const user = techProfile ? await prisma.user.findUnique({ where: { id: techProfile.userId } }) : null;
+        const techName = user ? `${user.nom} ${user.prenom || ''}`.trim() : 'Un technicien';
+
+        const machine = await prisma.machine.findUnique({ where: { id: existing.machineId } });
+        const io = req.app?.get('io');
+
+        if (machine && io) {
+            // ✅ 1. Notifier le concepteur (alerte panne confirmée)
+            if (machine.concepteurId) {
+                // Créer une mission pour le concepteur
+                const concepteurMissionId = await nextBusinessId('MISS');
+                const concepteurMission = await prisma.mission.create({
+                    data: {
+                        missionId: concepteurMissionId,
+                        technicianId: machine.concepteurId,
+                        machineId: machine.id,
+                        machineName: machine.name,
+                        title: 'GUIDE INTERVENTION PANNE',
+                        priority: 'CRITICAL',
+                        description: JSON.stringify({
+                            type: 'GUIDE_REQUEST',
+                            technicianName: techName,
+                            technicianId: existing.technicianId,
+                            machineName: machine.name,
+                            originalMissionId: id,
+                            message: `Le technicien ${techName} confirme une panne réelle sur ${machine.name}. Veuillez fournir un guide d'intervention dans la section Missions.`
+                        }),
+                        status: 'PENDING'
+                    }
+                });
+
+                io.emit('panne_confirmed_alert', {
+                    mission: serializeMission(concepteurMission),
+                    machineName: machine.name,
+                    techName: techName,
+                    machineId: machine.id,
+                    concepteurId: machine.concepteurId
+                });
+            }
+
+            // ✅ 2. Notifier tous les utilisateurs liés (admin, client, maintenance)
+            io.emit('machine_status_update', {
+                machineId: machine.id,
+                status: 'PANNE_CONFIRMÉE',
+                message: `Panne confirmée sur ${machine.name} par ${techName}`
+            });
+        }
+
+        return res.json(serializeMission(updated));
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
 
 module.exports = {
     listAll,
@@ -413,4 +536,6 @@ module.exports = {
     listMine,
     getSidebarData,
     updateMyMissionStatus,
+    resolveDangerMission,
+    confirmPanneMission,
 };

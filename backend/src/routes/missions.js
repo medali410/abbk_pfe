@@ -10,6 +10,8 @@ const router = express.Router();
 router.get('/me',               requireAuth, ctrl.listMine);
 router.get('/me/sidebar',       requireAuth, ctrl.getSidebarData);
 router.patch('/me/:id/status',  requireAuth, ctrl.updateMyMissionStatus);
+router.post('/me/:id/danger/resolve', requireAuth, ctrl.resolveDangerMission);
+router.post('/me/:id/danger/confirm', requireAuth, ctrl.confirmPanneMission);
 
 // ─── Routes admin / fleet manager ─────────────────────────────────────────────
 router.get('/',                 requireAuth, requireFleetManager, ctrl.listAll);

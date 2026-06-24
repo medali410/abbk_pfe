@@ -30,6 +30,24 @@ class GlobalNotificationService with WidgetsBindingObserver {
   final StreamController<Map<String, dynamic>> _missionUpdateController = StreamController.broadcast();
   Stream<Map<String, dynamic>> get missionUpdateStream => _missionUpdateController.stream;
 
+  final StreamController<Map<String, dynamic>> _dangerMissionAlertController = StreamController.broadcast();
+  Stream<Map<String, dynamic>> get dangerMissionAlertStream => _dangerMissionAlertController.stream;
+
+  final StreamController<Map<String, dynamic>> _panneConfirmedAlertController = StreamController.broadcast();
+  Stream<Map<String, dynamic>> get panneConfirmedAlertStream => _panneConfirmedAlertController.stream;
+
+  // 📡 Stream en temps réel des données MQTT (sans polling HTTP)
+  final StreamController<Map<String, dynamic>> _telemetryLiveController = StreamController.broadcast();
+  Stream<Map<String, dynamic>> get telemetryLiveStream => _telemetryLiveController.stream;
+
+  // 🚨 Danger alert pour admin/client/maintenance/concepteur
+  final StreamController<Map<String, dynamic>> _dangerAlertAdminController = StreamController.broadcast();
+  Stream<Map<String, dynamic>> get dangerAlertAdminStream => _dangerAlertAdminController.stream;
+
+  // ✅ Notification machine en bon état (après résolution danger)
+  final StreamController<Map<String, dynamic>> _machineGoodStateController = StreamController.broadcast();
+  Stream<Map<String, dynamic>> get machineGoodStateStream => _machineGoodStateController.stream;
+
   void init() {
     if (_socket != null) return;
     WidgetsBinding.instance.addObserver(this);
@@ -85,6 +103,34 @@ class GlobalNotificationService with WidgetsBindingObserver {
     _socket!.on('diagnostic_coordination_update', (data) {
       if (data == null) return;
       _missionUpdateController.add(Map<String, dynamic>.from(data));
+    });
+
+    _socket!.on('danger_mission_alert', (data) {
+      if (data == null) return;
+      _dangerMissionAlertController.add(Map<String, dynamic>.from(data));
+    });
+
+    _socket!.on('panne_confirmed_alert', (data) {
+      if (data == null) return;
+      _panneConfirmedAlertController.add(Map<String, dynamic>.from(data));
+    });
+
+    // 📡 Données MQTT live (pas de polling HTTP)
+    _socket!.on('telemetry_live', (data) {
+      if (data == null) return;
+      _telemetryLiveController.add(Map<String, dynamic>.from(data));
+    });
+
+    // 🚨 Danger pour admin/maintenance/concepteur
+    _socket!.on('danger_alert_admin', (data) {
+      if (data == null) return;
+      _dangerAlertAdminController.add(Map<String, dynamic>.from(data));
+    });
+
+    // ✅ Machine en bon état (danger résolu)
+    _socket!.on('machine_good_state', (data) {
+      if (data == null) return;
+      _machineGoodStateController.add(Map<String, dynamic>.from(data));
     });
 
     _socket!.onDisconnect((_) {
