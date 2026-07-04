@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
@@ -17,6 +18,7 @@ import 'chat/chat_layout.dart';
 import 'chat/chat_sidebar.dart';
 import 'chat/chat_main_area.dart';
 import 'chat/chat_info_panel.dart';
+import 'chat/call_screen.dart';
 
 class MessageEquipeView extends StatefulWidget {
   final String? technicianId;
@@ -25,6 +27,7 @@ class MessageEquipeView extends StatefulWidget {
   final String? senderRole;
   final bool embedded;
   final String? initialRoomId;
+  final bool isDarkMode;
 
   static String? currentActiveRoomId;
 
@@ -36,6 +39,7 @@ class MessageEquipeView extends StatefulWidget {
     this.senderRole,
     this.embedded = false,
     this.initialRoomId,
+    this.isDarkMode = false,
   });
 
   @override
@@ -43,22 +47,23 @@ class MessageEquipeView extends StatefulWidget {
 }
 
 class _MessageEquipeViewState extends State<MessageEquipeView> {
-  static const _bg = Color(0xFF080D14);
-  static const _sidebar = Color(0xFF0D1526);
-  static const _header = Color(0xFF0F1C31);
-  static const _itemActive = Color(0xFF162240);
+  // ── Theme-aware color getters ──
+  Color get _bg        => widget.isDarkMode ? const Color(0xFF080D14) : const Color(0xFFFCFAF7);
+  Color get _sidebar   => widget.isDarkMode ? const Color(0xFF0D1526) : const Color(0xFFFFFFFF);
+  Color get _header    => widget.isDarkMode ? const Color(0xFF0F1C31) : const Color(0xFFF5F0E8);
+  Color get _itemActive => widget.isDarkMode ? const Color(0xFF162240) : const Color(0xFFFFEDD5);
+  Color get _text      => widget.isDarkMode ? const Color(0xFFE2E8F0) : const Color(0xFF332A21);
+  Color get _muted     => widget.isDarkMode ? const Color(0xFF6B869A) : const Color(0xFF8B5E3C);
+  Color get _borderColor => widget.isDarkMode ? Colors.white.withOpacity(0.05) : const Color(0xFFCD7F32).withOpacity(0.2);
+  Color get _low       => widget.isDarkMode ? const Color(0xFF1A1A2E) : const Color(0xFFF5F0E8);
+  Color get _highest   => widget.isDarkMode ? const Color(0xFF1E2240) : const Color(0xFFF0EBE3);
+  Color get _secondary => widget.isDarkMode ? const Color(0xFF75D1FF) : const Color(0xFF8B5E3C);
+
+  // fixed colors
   static const _myBubble = Color(0xFF1A3A6E);
-  static const _otherBubble = Color(0xFF0F1C31);
-  static const _text = Color(0xFFE2E8F0);
-  static const _muted = Color(0xFF6B869A);
   static const _accent = Color(0xFF3B82F6);
-  static const _secondary = Color(0xFF3B82F6);
   static const _primary = Color(0xFF3B82F6);
-  static const _highest = Color(0xFF162035);
   static const _error = Color(0xFFF15C6D);
-  static const _low = Color(0xFF080D14);
-  static const _high = Color(0xFF202C33);
-  static const _container = Color(0xFF111B21);
 
   io.Socket? _socket;
   final TextEditingController _input = TextEditingController();
@@ -87,6 +92,13 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
   final ScrollController _messagesScroll = ScrollController();
   List<Map<String, dynamic>> _searchResults = [];
   bool _isSearching = false;
+  bool _showEmojiPicker = false;
+
+  // Call state
+  bool _inCall = false;
+  String _callType = 'voice';
+  Map<String, dynamic>? _incomingCallData;
+  final AudioPlayer _ringtonePlayer = AudioPlayer();
   final TextEditingController _searchController = TextEditingController();
   int get _currentUserId {
     final userRole = ApiService.savedUserRole?.toLowerCase();
@@ -108,6 +120,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     return 1;
   }
   Map<String, dynamic>? _selectedDesignerDetails;
+  List<int> _blockedUserIds = [];
 
   @override
   void initState() {
@@ -162,6 +175,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     _messagesScroll.dispose();
     _socket?.dispose();
     _audioRecorder.dispose();
+    _ringtonePlayer.dispose();
     _recordingTimer?.cancel();
     _pollingTimer?.cancel();
     _typingDebounceTimer?.cancel();
@@ -236,6 +250,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
       if (_activeRoomId.isNotEmpty) {
         _socket!.emit('join_chat_room', {'roomId': _activeRoomId});
       }
+      _joinAllConversationsRooms();
     });
     _socket!.onConnectError((err) => debugPrint('❌ Chat ConnectError: $err'));
     _socket!.onError((err) => debugPrint('❌ Chat Error: $err'));
@@ -323,6 +338,21 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
       } catch (_) {}
     });
 
+    // ── WebRTC call signaling listeners ──
+    _socket!.on('incoming_call', (raw) {
+      try {
+        final data = raw is String ? jsonDecode(raw) : raw;
+        if (data is! Map) return;
+        final roomId = (data['roomId'] ?? '').toString();
+        if (roomId != _activeRoomId) return;
+        if (mounted && !_inCall) {
+          setState(() => _incomingCallData = Map<String, dynamic>.from(data));
+          _startRingtone();
+          _showIncomingCallDialog();
+        }
+      } catch (_) {}
+    });
+
     if (_socket!.connected && _activeRoomId.isNotEmpty) {
       _socket!.emit('join_chat_room', {'roomId': _activeRoomId});
     }
@@ -388,46 +418,20 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
         final isAdmin = ApiService.isSuperAdmin;
 
         if (isAdmin) {
-          // ── Admin : charger tous les contacts du système ──
-          list.add({'roomId': '__section_tech__', 'isSectionHeader': true, 'sectionLabel': 'TECHNICIENS', 'sectionIcon': 'engineering', 'sectionColor': 'purple'});
+          // ── Admin : charger uniquement les concepteurs ──
           try {
-            final techs = await ApiService.getTechnicians();
-            for (final t in techs) {
-              final techId = (t['technicianId'] ?? t['id'] ?? '').toString();
-              final fullName = '${t['firstName'] ?? ''} ${t['lastName'] ?? ''}'.trim();
-              if (techId.isEmpty) continue;
-              list.add({
-                'roomId': 'chat_admin_tech_$techId', 'name': fullName.isNotEmpty ? fullName : 'Technicien',
-                'subId': techId, 'roleLabel': 'Technicien', 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-              });
-            }
-          } catch (_) {}
-
-          list.add({'roomId': '__section_maint__', 'isSectionHeader': true, 'sectionLabel': 'AGENTS DE MAINTENANCE', 'sectionIcon': 'support_agent', 'sectionColor': 'blue'});
-          try {
-            final agents = await ApiService.getMaintenanceAgents();
-            for (final a in agents) {
-              final agentId = (a['maintenanceAgentId'] ?? a['id'] ?? '').toString();
-              final fullName = '${a['firstName'] ?? a['nom'] ?? ''} ${a['lastName'] ?? ''}'.trim();
-              if (agentId.isEmpty) continue;
-              list.add({
-                'roomId': 'chat_admin_maint_$agentId', 'name': fullName.isNotEmpty ? fullName : 'Agent Maintenance',
-                'subId': agentId, 'roleLabel': 'Maintenance', 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-              });
-            }
-          } catch (_) {}
-
-          list.add({'roomId': '__section_clients__', 'isSectionHeader': true, 'sectionLabel': 'CLIENTS', 'sectionIcon': 'groups', 'sectionColor': 'green'});
-          try {
-            final clients = await ApiService.getClients();
-            for (final c in clients) {
-              final clientId = (c['clientId'] ?? c['id'] ?? '').toString();
-              final clientName = (c['nom'] ?? c['name'] ?? c['companyName'] ?? '').toString();
-              if (clientId.isEmpty) continue;
-              list.add({
-                'roomId': 'chat_admin_client_$clientId', 'name': clientName.isNotEmpty ? clientName : 'Client',
-                'subId': clientId, 'roleLabel': 'Client', 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-              });
+            final contacts = await ApiService.getConcepteurContacts();
+            final concepteurs = contacts.where((c) => c['role'] == 'conception').toList();
+            if (concepteurs.isNotEmpty) {
+              list.add({'roomId': '__section_concepteurs__', 'isSectionHeader': true, 'sectionLabel': 'CONCEPTEURS', 'sectionIcon': 'engineering', 'sectionColor': 'orange'});
+              for (final c in concepteurs) {
+                list.add({
+                  'roomId': 'chat_conception_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
+                  'roleLabel': c['roleLabel'] ?? 'Concepteur',
+                  'machines': c['machines'] ?? <String>[],
+                  'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+                });
+              }
             }
           } catch (_) {}
         } else {
@@ -691,6 +695,13 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
 
       if (mounted) setState(() {});
     } catch (_) {}
+
+    // Fetch blocked users list
+    try {
+      _blockedUserIds = await ApiService.getBlockedUsers();
+      if (mounted) setState(() {});
+    } catch (_) {}
+    _joinAllConversationsRooms();
   }
 
   Future<void> _switchConversation(Map<String, dynamic> c) async {
@@ -725,17 +736,23 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     } else {
       // Resolve designer details: find the designer/technician participant (not the admin)
       String designerName = _resolveDesignerName(c);
+      final machinesFromConv = c['machines'] as List?;
 
       if (designerName.isNotEmpty && !designerName.toLowerCase().contains('admin')) {
         // Try to search for the designer first for full profile info
         try {
           final results = await ApiService.searchConcepteurs(designerName);
           if (mounted && results.isNotEmpty) {
+            final matched = results.firstWhere(
+              (r) => r['name'] == designerName, 
+              orElse: () => results.first,
+            );
+            // Merge machines from conversation if search result has none
+            if (machinesFromConv != null && machinesFromConv.isNotEmpty && (matched['machines'] as List?)?.isEmpty != false) {
+              matched['machines'] = machinesFromConv;
+            }
             setState(() {
-              _selectedDesignerDetails = results.firstWhere(
-                (r) => r['name'] == designerName, 
-                orElse: () => results.first,
-              );
+              _selectedDesignerDetails = matched;
             });
           } else {
             // Fallback: build minimal info from resolved name
@@ -744,7 +761,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                 _selectedDesignerDetails = {
                   'name': designerName,
                   'specialite': '',
-                  'machines': <String>[],
+                  'machines': machinesFromConv ?? <String>[],
                 };
               });
             }
@@ -755,7 +772,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
               _selectedDesignerDetails = {
                 'name': designerName,
                 'specialite': '',
-                'machines': <String>[],
+                'machines': machinesFromConv ?? <String>[],
               };
             });
           }
@@ -767,7 +784,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
             _selectedDesignerDetails = {
               'name': designerName.isNotEmpty ? designerName : 'Discussion',
               'specialite': '',
-              'machines': <String>[],
+              'machines': machinesFromConv ?? <String>[],
             };
           });
         }
@@ -805,7 +822,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
         content: Text('Voulez-vous vraiment supprimer tout l\'historique de cette discussion ? Cette action est irréversible.', 
           style: GoogleFonts.inter(color: _muted)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ANNULER', style: TextStyle(color: _muted))),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('ANNULER', style: TextStyle(color: _muted))),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true), 
             child: const Text('EFFACER', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold))
@@ -924,8 +941,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
 
     try {
       final result = await FilePicker.pickFiles(
-        type: isImage ? FileType.image : FileType.custom,
-        allowedExtensions: isImage ? null : ['pdf', 'doc', 'docx', 'txt'],
+        type: isImage ? FileType.image : FileType.any,
         withData: true,
       );
 
@@ -969,6 +985,13 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
           'attachmentUrl': url,
           'attachmentType': attachmentType,
         });
+
+        _updateConversationLastMessage(
+          _activeRoomId,
+          textMsg,
+          DateTime.now().toIso8601String(),
+          _senderName,
+        );
       }
     } catch (e) {
       debugPrint('Erreur sélection fichier: $e');
@@ -1052,7 +1075,11 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
 
 
   Future<void> _startVoiceRecording() async {
-    if (!await _audioRecorder.hasPermission()) return;
+    try {
+      if (Platform.isAndroid || Platform.isIOS) {
+        if (!await _audioRecorder.hasPermission()) return;
+      }
+    } catch (_) {}
     
     final dir = await getTemporaryDirectory();
     final filePath = path.join(dir.path, 'voice_${DateTime.now().millisecondsSinceEpoch}.m4a');
@@ -1121,6 +1148,13 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
           'attachmentUrl': url,
           'attachmentType': 'audio',
         });
+
+        _updateConversationLastMessage(
+          _activeRoomId,
+          '[Message Vocal]',
+          DateTime.now().toIso8601String(),
+          _senderName,
+        );
       }
     }
   }
@@ -1255,6 +1289,167 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     });
   }
 
+  List<Map<String, dynamic>> get _sortedConversations {
+    final pinned = _conversations.where((c) => c['isPinned'] == true && c['isSectionHeader'] != true).toList();
+    final other = _conversations.where((c) => c['isPinned'] != true).toList();
+    
+    pinned.sort((a, b) => (b['lastAt'] ?? '').compareTo(a['lastAt'] ?? ''));
+
+    if (pinned.isEmpty) return _conversations;
+
+    return [
+      {'roomId': '__section_pinned__', 'isSectionHeader': true, 'sectionLabel': 'ÉPINGLÉS', 'sectionIcon': 'push_pin', 'sectionColor': 'red'},
+      ...pinned,
+      ...other,
+    ];
+  }
+
+  Future<void> _togglePin(String roomId) async {
+    final idx = _conversations.indexWhere((c) => c['roomId'] == roomId);
+    if (idx < 0) return;
+    final current = _conversations[idx]['isPinned'] == true;
+    try {
+      await ApiService.togglePinRoom(roomId, !current);
+      if (mounted) setState(() => _conversations[idx]['isPinned'] = !current);
+    } catch (e) {
+      debugPrint('Pin error: $e');
+    }
+  }
+
+  Future<void> _toggleMute(String roomId) async {
+    final idx = _conversations.indexWhere((c) => c['roomId'] == roomId);
+    if (idx < 0) return;
+    final current = _conversations[idx]['isMuted'] == true;
+    try {
+      await ApiService.toggleMuteRoom(roomId, !current);
+      if (mounted) setState(() => _conversations[idx]['isMuted'] = !current);
+    } catch (e) {
+      debugPrint('Mute error: $e');
+    }
+  }
+
+  Future<void> _blockContact() async {
+    if (_selectedDesignerDetails == null) return;
+    final blockedId = int.tryParse((_selectedDesignerDetails!['id'] ?? _selectedDesignerDetails!['subId'] ?? '').toString());
+    if (blockedId == null) return;
+
+    final isCurrentlyBlocked = _blockedUserIds.contains(blockedId);
+    try {
+      if (isCurrentlyBlocked) {
+        await ApiService.unblockUser(blockedId);
+        if (mounted) {
+          setState(() => _blockedUserIds.remove(blockedId));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Contact débloqué'), backgroundColor: Colors.green),
+          );
+        }
+      } else {
+        await ApiService.blockUser(blockedId);
+        if (mounted) {
+          setState(() => _blockedUserIds.add(blockedId));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Contact bloqué'), backgroundColor: Colors.redAccent),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Block/Unblock error: $e');
+    }
+  }
+
+  Future<void> _clearHistory(String roomId) async {
+    final theme = ChatTheme.of(context);
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: theme.bg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Effacer l\'historique', style: TextStyle(color: theme.text, fontWeight: FontWeight.bold)),
+        content: Text(
+          'Voulez-vous vraiment effacer tous les messages de cette conversation ? La conversation restera ouverte.',
+          style: TextStyle(color: theme.muted),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('Annuler', style: TextStyle(color: theme.muted))),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Effacer', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      await ApiService.clearRoomHistory(roomId);
+      if (mounted) setState(() => _messages.clear());
+    } catch (e) {
+      debugPrint('Clear history error: $e');
+    }
+  }
+
+  void _showNewDiscussionDialog() {
+    List<Map<String, dynamic>> contacts = [];
+    bool isLoading = true;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            brightness: widget.isDarkMode ? Brightness.dark : Brightness.light,
+          ),
+          child: StatefulBuilder(
+            builder: (dialogCtx, setDialogState) {
+              final theme = ChatTheme.of(dialogCtx);
+              if (isLoading) {
+                ApiService.getConcepteurContacts().then((results) {
+                  if (mounted) {
+                    setDialogState(() {
+                      contacts = results;
+                      isLoading = false;
+                    });
+                  }
+                });
+              }
+
+              return AlertDialog(
+                backgroundColor: theme.bg,
+                title: Text('Nouvelle discussion', style: theme.titleStyle),
+                content: SizedBox(
+                  width: 400,
+                  height: 400,
+                  child: isLoading
+                      ? Center(child: CircularProgressIndicator(color: theme.myBubble))
+                      : ListView.builder(
+                          itemCount: contacts.length,
+                          itemBuilder: (listCtx, i) {
+                            final c = contacts[i];
+                            return ListTile(
+                              title: Text(c['name'] ?? '', style: theme.nameStyle),
+                              subtitle: Text(c['roleLabel'] ?? '', style: theme.subtitleStyle),
+                              onTap: () {
+                                Navigator.pop(dialogCtx);
+                                _startChatWith({
+                                  'roomId': 'chat_conception_${c['id']}',
+                                  'name': c['name'],
+                                  'roleLabel': c['roleLabel'],
+                                });
+                              },
+                            );
+                          },
+                        ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogCtx),
+                    child: Text('Annuler', style: TextStyle(color: theme.muted)),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
   String _fmtTime(dynamic raw) {
     final dt = DateTime.tryParse((raw ?? '').toString());
     if (dt == null) return '--:--';
@@ -1276,6 +1471,72 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
         _conversations.insert(0, conv);
       }
     });
+  }
+
+  void _joinAllConversationsRooms() {
+    if (_socket == null) return;
+    for (final conv in _conversations) {
+      if (conv['isSectionHeader'] == true) continue;
+      final rId = conv['roomId'];
+      if (rId != null && rId.toString().isNotEmpty) {
+        _socket!.emit('join_chat_room', {'roomId': rId.toString()});
+        debugPrint('Joined room for notification/calling: $rId');
+      }
+    }
+  }
+
+  void _sendCallLogMessage(String type) {
+    if (_activeRoomId.isEmpty) return;
+    final text = type == 'video' ? '📽️ Appel vidéo terminé' : '📞 Appel vocal terminé';
+    final localMessage = <String, dynamic>{
+      'roomId': _activeRoomId,
+      'from': _senderRole,
+      'senderName': _senderName,
+      'text': text,
+      'createdAt': DateTime.now().toIso8601String(),
+    };
+
+    if (mounted) {
+      setState(() {
+        _messages.add(localMessage);
+      });
+      _scrollToLatest();
+    }
+
+    final currentUserId = _currentUserId;
+    final payload = {
+      'roomId': _activeRoomId,
+      'from': _senderRole,
+      'userId': currentUserId,
+      'senderName': _senderName,
+      'text': text,
+    };
+
+    _socket?.emit('chat_message', payload);
+    ApiService.postChatMessage(payload).catchError((err) {
+      debugPrint('REST call log message failed: $err');
+    });
+
+    _updateConversationLastMessage(
+      _activeRoomId,
+      text,
+      DateTime.now().toIso8601String(),
+      _senderName,
+    );
+  }
+
+  void _handleCallEnded() {
+    _stopRingtone();
+    if (mounted) {
+      final wasCaller = _incomingCallData == null;
+      setState(() {
+        _inCall = false;
+        _incomingCallData = null;
+      });
+      if (wasCaller) {
+        _sendCallLogMessage(_callType);
+      }
+    }
   }
 
   Color _getRoleColor(String roleLabel) {
@@ -1311,14 +1572,101 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     return roleLabel.toUpperCase();
   }
 
+  void _initiateCall(String type) {
+    if (_activeRoomId.isEmpty || _socket == null) return;
+    setState(() {
+      _inCall = true;
+      _callType = type;
+    });
+  }
+
+  void _startRingtone() {
+    try {
+      _ringtonePlayer.setReleaseMode(ReleaseMode.loop);
+      _ringtonePlayer.play(UrlSource('https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav'));
+    } catch (e) {
+      debugPrint('Ringtone play error: $e');
+    }
+  }
+
+  void _stopRingtone() {
+    try {
+      _ringtonePlayer.stop();
+    } catch (_) {}
+  }
+
+  void _showIncomingCallDialog() {
+    if (_incomingCallData == null) return;
+    final callerName = (_incomingCallData!['callerName'] ?? 'Inconnu').toString();
+    final callType = (_incomingCallData!['callType'] ?? 'voice').toString();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF0D1526),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(
+              callType == 'video' ? Icons.videocam : Icons.call,
+              color: const Color(0xFF22C55E),
+              size: 28,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Appel ${callType == 'video' ? 'vidéo' : 'vocal'} entrant',
+                style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          '$callerName vous appelle...',
+          style: GoogleFonts.inter(color: Colors.white70, fontSize: 15),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _stopRingtone();
+              _socket?.emit('call_reject', {'roomId': _activeRoomId});
+              setState(() => _incomingCallData = null);
+            },
+            child: const Text('REFUSER', style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF22C55E),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _stopRingtone();
+              setState(() {
+                _inCall = true;
+                _callType = callType;
+                _incomingCallData = null;
+              });
+            },
+            child: const Text('ACCEPTER', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _scrollToLatest() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_messagesScroll.hasClients) return;
-      _messagesScroll.animateTo(
-        _messagesScroll.position.maxScrollExtent + 80,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOut,
-      );
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (!mounted) return;
+      if (_messagesScroll.hasClients) {
+        _messagesScroll.animateTo(
+          _messagesScroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
     });
   }
 
@@ -1332,10 +1680,12 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     final body = ChatLayout(
       showSidebarOnMobile: showSidebar,
       sidebar: ChatSidebar(
-        conversations: _conversations,
+        conversations: _sortedConversations,
         activeRoomId: _activeRoomId,
+        onNewDiscussion: _showNewDiscussionDialog,
         searchController: _searchController,
         isSearching: _isSearching,
+        isDarkMode: widget.isDarkMode,
         onSearchChanged: (val) {
           setState(() {
             _isSearching = val.isNotEmpty;
@@ -1385,22 +1735,42 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
           }
         },
         onCloseConversation: _closeConversation,
+        onVoiceCall: () => _initiateCall('voice'),
+        onVideoCall: () => _initiateCall('video'),
+        showEmojiPicker: _showEmojiPicker,
+        onToggleEmojiPicker: () {
+          setState(() => _showEmojiPicker = !_showEmojiPicker);
+        },
+        onEmojiSelected: (emoji) {
+          final text = _input.text;
+          final selection = _input.selection;
+          final newText = text.replaceRange(
+            selection.isValid ? selection.start : text.length,
+            selection.isValid ? selection.end : text.length,
+            emoji,
+          );
+          _input.text = newText;
+          _input.selection = TextSelection.fromPosition(
+            TextPosition(offset: (selection.isValid ? selection.start : text.length) + emoji.length),
+          );
+          setState(() {});
+        },
         buildMessageItem: (m) {
           final senderId = (m['senderId'] ?? m['sender_id'] ?? 0) as int;
           final mine = senderId == _currentUserId;
           final text = (m['text'] ?? '').toString();
 
           return Align(
-            alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+            alignment: mine ? Alignment.centerLeft : Alignment.centerRight,
             child: Container(
               constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: mine ? ChatTheme.myBubble : ChatTheme.otherBubble,
+                color: mine ? ChatTheme.of(context).myBubble : ChatTheme.of(context).otherBubble,
                 borderRadius: BorderRadius.circular(16).copyWith(
-                  bottomRight: mine ? const Radius.circular(0) : const Radius.circular(16),
-                  bottomLeft: !mine ? const Radius.circular(0) : const Radius.circular(16),
+                  bottomLeft: mine ? const Radius.circular(0) : const Radius.circular(16),
+                  bottomRight: !mine ? const Radius.circular(0) : const Radius.circular(16),
                 ),
                 boxShadow: [
                   BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2)),
@@ -1412,7 +1782,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                   if (!mine && m['senderName'] != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(m['senderName'].toString(), style: GoogleFonts.inter(color: ChatTheme.accent, fontSize: 12, fontWeight: FontWeight.bold)),
+                      child: Text(m['senderName'].toString(), style: GoogleFonts.inter(color: ChatTheme.of(context).accent, fontSize: 12, fontWeight: FontWeight.bold)),
                     ),
                     
                   if (m['attachmentUrl'] != null && m['attachmentUrl'].toString().isNotEmpty) ...[
@@ -1428,7 +1798,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                     else if (m['attachmentType'] == 'document')
                       Container(
                         padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8), border: Border.all(color: ChatTheme.muted.withOpacity(0.3))),
+                        decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8), border: Border.all(color: ChatTheme.of(context).muted.withOpacity(0.3))),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -1441,19 +1811,19 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                     else if (m['attachmentType'] == 'audio')
                       VoicePlayerWidget(
                         url: '${ApiService.baseUrl.replaceAll('/api', '')}${m['attachmentUrl']}',
-                        color: mine ? Colors.white : ChatTheme.myBubble,
+                        color: mine ? Colors.white : ChatTheme.of(context).myBubble,
                       ),
                     const SizedBox(height: 5),
                   ],
 
                   if (text.isNotEmpty)
-                    Text(text, style: ChatTheme.messageStyle),
+                    Text(text, style: ChatTheme.of(context).messageStyle),
                   
                   const SizedBox(height: 4),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(_fmtTime(m['createdAt'] ?? m['at']), style: ChatTheme.timeStyle.copyWith(fontSize: 10)),
+                      Text(_fmtTime(m['createdAt'] ?? m['at']), style: ChatTheme.of(context).timeStyle.copyWith(fontSize: 10)),
                       if (mine) ...[
                         const SizedBox(width: 4),
                         const Icon(Icons.done_all, color: Colors.blueAccent, size: 14),
@@ -1468,15 +1838,60 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
       ) : const SizedBox.shrink(),
       infoPanel: _activeRoomId.isNotEmpty ? ChatInfoPanel(
         selectedContactDetails: _selectedDesignerDetails,
-        onClose: () {},
+        onClose: _closeConversation,
+        isPinned: _conversations.any((c) => c['roomId'] == _activeRoomId && c['isPinned'] == true),
+        isBlocked: (() {
+          final bid = int.tryParse((_selectedDesignerDetails?['id'] ?? _selectedDesignerDetails?['subId'] ?? '').toString());
+          return bid != null && _blockedUserIds.contains(bid);
+        })(),
+        onTogglePin: () => _togglePin(_activeRoomId),
+        onBlock: () => _blockContact(),
+        onClearHistory: () => _clearHistory(_activeRoomId),
       ) : null,
     );
 
-    if (widget.embedded) return SizedBox.expand(child: body);
+    final themedBody = Theme(
+      data: Theme.of(context).copyWith(
+        brightness: widget.isDarkMode ? Brightness.dark : Brightness.light,
+      ),
+      child: body,
+    );
+
+    if (widget.embedded) {
+      return Stack(
+        children: [
+          SizedBox.expand(child: themedBody),
+          if (_inCall && _socket != null)
+            CallScreen(
+              socket: _socket!,
+              roomId: _activeRoomId,
+              callType: _callType,
+              callerName: _selectedDesignerDetails?['name']?.toString() ?? 'Contact',
+              myName: _senderName,
+              isIncoming: _incomingCallData != null,
+              onCallEnded: _handleCallEnded,
+            ),
+        ],
+      );
+    }
 
     return Scaffold(
       backgroundColor: _bg,
-      body: body,
+      body: Stack(
+        children: [
+          themedBody,
+          if (_inCall && _socket != null)
+            CallScreen(
+              socket: _socket!,
+              roomId: _activeRoomId,
+              callType: _callType,
+              callerName: _selectedDesignerDetails?['name']?.toString() ?? 'Contact',
+              myName: _senderName,
+              isIncoming: _incomingCallData != null,
+              onCallEnded: _handleCallEnded,
+            ),
+        ],
+      ),
     );
   }
 

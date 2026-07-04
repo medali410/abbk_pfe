@@ -6,12 +6,14 @@ import 'services/api_service.dart';
 
 class ActiveMachinesPage extends StatefulWidget {
   final bool embedded;
+  final bool isDarkMode;
   final void Function(String machineId, String machineName, {String? clientId, String? location})? onOpenMachine;
   final VoidCallback? onAddTechnician;
 
   const ActiveMachinesPage({
     super.key,
     this.embedded = false,
+    this.isDarkMode = false,
     this.onOpenMachine,
     this.onAddTechnician,
   });
@@ -59,18 +61,18 @@ class _MachineListItem {
 }
 
 class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
-  static const _bg = Color(0xFF10102B);
-  static const _surfaceContainerLow = Color(0xFF191934);
-  static const _surfaceContainer = Color(0xFF1D1D38);
-  static const _surfaceContainerHighest = Color(0xFF32324E);
-  static const _primary = Color(0xFFFFB692);
-  static const _secondary = Color(0xFF75D1FF);
-  static const _onSurface = Color(0xFFE2DFFF);
-  static const _onSurfaceVariant = Color(0xFFE2BFB0);
-  static const _outlineVariant = Color(0xFF594136);
-  static const _green = Color(0xFF66BB6A);
-  static const _errorColor = Color(0xFFFFB4AB);
-  static const _orange = Color(0xFFFF6E00);
+  Color get _bg => widget.isDarkMode ? const Color(0xFF10102B) : const Color(0xFFF5E0C3);
+  Color get _surfaceContainerLow => widget.isDarkMode ? const Color(0xFF191934) : const Color(0xFFF5E0C3);
+  Color get _surfaceContainer => widget.isDarkMode ? const Color(0xFF1D1D38) : const Color(0xFFFAEBD7);
+  Color get _surfaceContainerHighest => widget.isDarkMode ? const Color(0xFF32324E) : const Color(0xFFFFE4C4);
+  Color get _primary => widget.isDarkMode ? const Color(0xFFFFB692) : const Color(0xFFB8860B);
+  Color get _secondary => widget.isDarkMode ? const Color(0xFF75D1FF) : const Color(0xFF8B5E3C);
+  Color get _onSurface => widget.isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF332A21);
+  Color get _onSurfaceVariant => widget.isDarkMode ? const Color(0xFFE2BFB0) : const Color(0xFF8B5E3C);
+  Color get _outlineVariant => widget.isDarkMode ? const Color(0xFF594136) : const Color(0xFFB87333);
+  Color get _green => widget.isDarkMode ? const Color(0xFF66BB6A) : const Color(0xFF66BB6A);
+  Color get _errorColor => widget.isDarkMode ? const Color(0xFFFFB4AB) : const Color(0xFFFF6E00);
+  Color get _orange => widget.isDarkMode ? const Color(0xFFFF6E00) : const Color(0xFFFF6E00);
 
   bool _loading = true;
   String? _loadError;
@@ -470,9 +472,12 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
       width: isDesktop ? 300 : double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E2243).withOpacity(0.9),
+        color: widget.isDarkMode ? const Color(0xFF1E2243).withOpacity(0.9) : const Color(0xFFFFFFFF),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1.5),
+        border: Border.all(
+          color: widget.isDarkMode ? Colors.white.withOpacity(0.08) : const Color(0xFFCD7F32).withOpacity(0.35),
+          width: 1.5,
+        ),
       ),
       child: TextField(
         style: GoogleFonts.spaceGrotesk(color: _onSurface, fontSize: 14),
@@ -518,16 +523,19 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
       width: isDesktop ? 220 : double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E2243).withOpacity(0.9),
+        color: widget.isDarkMode ? const Color(0xFF1E2243).withOpacity(0.9) : const Color(0xFFFFFFFF),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1.5),
+        border: Border.all(
+          color: widget.isDarkMode ? Colors.white.withOpacity(0.08) : const Color(0xFFCD7F32).withOpacity(0.35),
+          width: 1.5,
+        ),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String?>(
           isExpanded: true,
           value: _filterClientId,
           icon: Icon(Icons.keyboard_arrow_down, color: _onSurfaceVariant, size: 18),
-          dropdownColor: const Color(0xFF131730),
+          dropdownColor: widget.isDarkMode ? const Color(0xFF131730) : const Color(0xFFFFFFFF),
           style: GoogleFonts.spaceGrotesk(color: _onSurface, fontSize: 14),
           items: items,
           onChanged: (v) {
@@ -544,21 +552,51 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
       width: isDesktop ? 220 : double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E2243).withOpacity(0.9),
+        color: widget.isDarkMode ? const Color(0xFF1E2243).withOpacity(0.9) : const Color(0xFFFFFFFF),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1.5),
+        border: Border.all(
+          color: widget.isDarkMode ? Colors.white.withOpacity(0.08) : const Color(0xFFCD7F32).withOpacity(0.35),
+          width: 1.5,
+        ),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           isExpanded: true,
           value: _sortKey,
           icon: Icon(Icons.keyboard_arrow_down, color: _onSurfaceVariant, size: 18),
-          dropdownColor: const Color(0xFF131730),
+          dropdownColor: widget.isDarkMode ? const Color(0xFF131730) : const Color(0xFFFFFFFF),
           style: GoogleFonts.spaceGrotesk(color: _onSurface, fontSize: 14),
           items: [
-            DropdownMenuItem(value: 'health_desc', child: Text('Santé (décroissant)', style: GoogleFonts.spaceGrotesk(fontSize: 14))),
-            DropdownMenuItem(value: 'health_asc', child: Text('Santé (croissant)', style: GoogleFonts.spaceGrotesk(fontSize: 14))),
-            DropdownMenuItem(value: 'updated_desc', child: Text('Dernière mise à jour', style: GoogleFonts.spaceGrotesk(fontSize: 14))),
+            DropdownMenuItem(
+              value: 'health_desc',
+              child: Text(
+                'Santé (décroissant)',
+                style: GoogleFonts.spaceGrotesk(
+                  color: _onSurface,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            DropdownMenuItem(
+              value: 'health_asc',
+              child: Text(
+                'Santé (croissant)',
+                style: GoogleFonts.spaceGrotesk(
+                  color: _onSurface,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            DropdownMenuItem(
+              value: 'updated_desc',
+              child: Text(
+                'Dernière mise à jour',
+                style: GoogleFonts.spaceGrotesk(
+                  color: _onSurface,
+                  fontSize: 14,
+                ),
+              ),
+            ),
           ],
           onChanged: (v) {
             if (v == null) return;
@@ -716,9 +754,9 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
             ],
             const SizedBox(height: 32),
             if (_loading)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 48),
-                child: Center(child: CircularProgressIndicator(color: _secondary)),
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: 48),
+                  child: Center(child: CircularProgressIndicator(color: _secondary)),
               )
             else if (_loadError != null)
               Padding(
@@ -735,7 +773,7 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
                     const SizedBox(height: 16),
                     TextButton.icon(
                       onPressed: _load,
-                      icon: const Icon(Icons.refresh, color: _secondary),
+                      icon: Icon(Icons.refresh, color: _secondary),
                       label: Text('Réessayer', style: GoogleFonts.spaceGrotesk(color: _secondary)),
                     ),
                   ],
@@ -1241,8 +1279,8 @@ class _HoverCardWrapperState extends State<_HoverCardWrapper> {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              const Color(0xFF1E2243).withOpacity(0.95),
-              const Color(0xFF131730).withOpacity(0.85),
+              const Color(0xFFF5E0C3).withOpacity(0.95),
+              const Color(0xFFFAEBD7).withOpacity(0.85),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,

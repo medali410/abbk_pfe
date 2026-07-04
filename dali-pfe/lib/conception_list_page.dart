@@ -17,12 +17,15 @@ class ConceptionListPage extends StatefulWidget {
   /// 0 = concepteurs, 1 = documents
   final int initialTabIndex;
 
+  final bool isDarkMode;
+
   const ConceptionListPage({
     super.key,
     required this.onAddConception,
     this.onAddConcepteur,
     this.onEditConcepteur,
     this.initialTabIndex = 0,
+    this.isDarkMode = false,
   });
 
   @override
@@ -30,12 +33,12 @@ class ConceptionListPage extends StatefulWidget {
 }
 
 class _ConceptionListPageState extends State<ConceptionListPage> {
-  static const _bg = Color(0xFF10102B);
-  static const _surface = Color(0xFF1D1D38);
-  static const _onSurface = Color(0xFFE2DFFF);
-  static const _onVariant = Color(0xFFE2BFB0);
-  static const _primary = Color(0xFFFF6E00);
-  static const _secondary = Color(0xFF75D1FF);
+  Color get _bg => widget.isDarkMode ? const Color(0xFF10102B) : const Color(0xFFFCFAF7);
+  Color get _surface => widget.isDarkMode ? const Color(0xFF1D1D38) : const Color(0xFFFFFFFF);
+  Color get _onSurface => widget.isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF332A21);
+  Color get _onVariant => widget.isDarkMode ? const Color(0xFFE2BFB0) : const Color(0xFF8B5E3C);
+  Color get _primary => const Color(0xFFFF6E00);
+  Color get _secondary => widget.isDarkMode ? const Color(0xFF75D1FF) : const Color(0xFF8B5E3C);
 
   late Future<List<Map<String, dynamic>>> _concepteursFuture;
 
@@ -89,15 +92,15 @@ class _ConceptionListPageState extends State<ConceptionListPage> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: _surface,
-        title: Text('Supprimer $username?', style: GoogleFonts.inter(color: Colors.white)),
-        content: const Text(
+        title: Text('Supprimer $username?', style: GoogleFonts.inter(color: _onSurface)),
+        content: Text(
           'Cela supprimera définitivement le compte du concepteur.',
-          style: TextStyle(color: Colors.white70),
+          style: TextStyle(color: _onSurface.withOpacity(0.8)),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('ANNULER', style: TextStyle(color: Colors.white54)),
+            child: Text('ANNULER', style: TextStyle(color: _onSurface.withOpacity(0.5))),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
@@ -140,10 +143,12 @@ class _ConceptionListPageState extends State<ConceptionListPage> {
       decoration: BoxDecoration(
         color: _surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(
+          color: widget.isDarkMode ? Colors.white.withOpacity(0.05) : const Color(0xFFCD7F32).withOpacity(0.25),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.2),
+            color: widget.isDarkMode ? Colors.black.withOpacity(0.2) : const Color(0xFFB87333).withOpacity(0.08),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -228,7 +233,11 @@ class _ConceptionListPageState extends State<ConceptionListPage> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  const Divider(color: Colors.white10),
+                  Divider(
+                    color: widget.isDarkMode
+                        ? Colors.white10
+                        : const Color(0xFFCD7F32).withOpacity(0.2),
+                  ),
                   const SizedBox(height: 12),
                   if (location.isNotEmpty) ...[
                     Row(
@@ -289,7 +298,7 @@ class _ConceptionListPageState extends State<ConceptionListPage> {
       future: _concepteursFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: _primary));
+          return Center(child: CircularProgressIndicator(color: _primary));
         }
         if (snapshot.hasError) {
           return _errorState(

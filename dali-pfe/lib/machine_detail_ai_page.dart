@@ -3729,6 +3729,7 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                   MachineHistoryView(
                     isDesktop: isDesktop,
                     machineId: _machineId,
+                    isDarkMode: true,
                   ),
                 ],
               ),

@@ -5,28 +5,30 @@ import '../services/api_service.dart';
 class MachineHistoryView extends StatefulWidget {
   final bool isDesktop;
   final String? machineId;
-  const MachineHistoryView({super.key, required this.isDesktop, this.machineId});
+  final bool isDarkMode;
+  const MachineHistoryView({
+    super.key,
+    required this.isDesktop,
+    this.machineId,
+    this.isDarkMode = false,
+  });
 
   @override
   State<MachineHistoryView> createState() => _MachineHistoryViewState();
 }
 
 class _MachineHistoryViewState extends State<MachineHistoryView> {
-  static const _surface = Color(0xFF1D1D38);
-  static const _onSurface = Color(0xFFE2DFFF);
-  static const _onVariant = Color(0xFFE2BFB0);
-  static const _primary = Color(0xFFFF6E00);
-  static const _secondary = Color(0xFF75D1FF);
+  Color get _surface => widget.isDarkMode ? const Color(0xFF1D1D38) : const Color(0xFFFFFFFF);
+  Color get _onSurface => widget.isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF332A21);
+  Color get _onVariant => widget.isDarkMode ? const Color(0xFFE2BFB0) : const Color(0xFF8B5E3C);
+  Color get _primary => const Color(0xFFFF6E00);
+  Color get _secondary => widget.isDarkMode ? const Color(0xFF75D1FF) : const Color(0xFF8B5E3C);
 
-  late Future<List<Map<String, dynamic>>> _archivesFuture;
-  late Future<List<Map<String, dynamic>>> _missionsFuture;
   late Future<List<Map<String, dynamic>>> _controlesFuture;
 
   @override
   void initState() {
     super.initState();
-    _archivesFuture = ApiService.getInterventionArchives(machineId: widget.machineId);
-    _missionsFuture = ApiService.getMaintenanceOrders(machineId: widget.machineId);
     _controlesFuture = widget.machineId != null 
         ? ApiService.getControlesForMachine(widget.machineId!) 
         : ApiService.getControles();
@@ -34,8 +36,6 @@ class _MachineHistoryViewState extends State<MachineHistoryView> {
 
   void _reloadHistory() {
     setState(() {
-      _archivesFuture = ApiService.getInterventionArchives(machineId: widget.machineId);
-      _missionsFuture = ApiService.getMaintenanceOrders(machineId: widget.machineId);
       _controlesFuture = widget.machineId != null 
           ? ApiService.getControlesForMachine(widget.machineId!) 
           : ApiService.getControles();
@@ -78,50 +78,6 @@ class _MachineHistoryViewState extends State<MachineHistoryView> {
             ),
           ),
           const SizedBox(height: 32),
-          _buildSectionHeader('Comptes-rendus de pannes (Archives)'),
-          const SizedBox(height: 16),
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: _archivesFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const LinearProgressIndicator(color: _primary);
-              }
-              final rows = snapshot.data ?? [];
-              if (rows.isEmpty) {
-                return _emptyBoxSmall('Aucun compte-rendu archivé.');
-              }
-              return ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: rows.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, i) => _archiveCard(rows[i]),
-              );
-            },
-          ),
-          const SizedBox(height: 48),
-          _buildSectionHeader('Missions & Ordres de maintenance'),
-          const SizedBox(height: 16),
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: _missionsFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const LinearProgressIndicator(color: _secondary);
-              }
-              final rows = snapshot.data ?? [];
-              if (rows.isEmpty) {
-                return _emptyBoxSmall('Aucune mission en cours.');
-              }
-              return ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: rows.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, i) => _missionCard(rows[i]),
-              );
-            },
-          ),
-          const SizedBox(height: 48),
           _buildSectionHeader('Historique de contrôle'),
           const SizedBox(height: 16),
           FutureBuilder<List<Map<String, dynamic>>>(
@@ -156,7 +112,7 @@ class _MachineHistoryViewState extends State<MachineHistoryView> {
       color: _primary,
       onRefresh: () async {
         _reloadHistory();
-        await Future.wait([_archivesFuture, _missionsFuture, _controlesFuture]);
+        await _controlesFuture;
       },
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -193,136 +149,14 @@ class _MachineHistoryViewState extends State<MachineHistoryView> {
       decoration: BoxDecoration(
         color: _surface.withOpacity(0.5),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _onVariant.withOpacity(0.05)),
+        border: Border.all(
+          color: widget.isDarkMode ? _onVariant.withOpacity(0.05) : const Color(0xFFCD7F32).withOpacity(0.25),
+        ),
       ),
       child: Center(
         child: Text(
           text,
           style: GoogleFonts.spaceGrotesk(fontSize: 13, color: _onVariant.withOpacity(0.6)),
-        ),
-      ),
-    );
-  }
-
-  Widget _archiveCard(Map<String, dynamic> r) {
-    final title = (r['title'] ?? 'Archive panne').toString();
-    final client = (r['clientName'] ?? r['client']?['name'] ?? 'Client').toString();
-    final machine = (r['machineId'] ?? 'Machine').toString();
-    final date = r['createdAt']?.toString().split('T').first ?? '—';
-
-    return Material(
-      color: _surface,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () {},
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.redAccent.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.archive_outlined, color: Colors.redAccent, size: 20),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: _onSurface, fontSize: 14),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '$client • $machine',
-                      style: GoogleFonts.spaceGrotesk(color: _onVariant, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                date,
-                style: GoogleFonts.spaceGrotesk(color: _onVariant.withOpacity(0.7), fontSize: 11),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _missionCard(Map<String, dynamic> r) {
-    final title = (r['description'] ?? 'Mission de maintenance').toString();
-    final tech = (r['technicianName'] ?? 'Technicien').toString();
-    final status = (r['status'] ?? 'PENDING').toString();
-    final date = r['createdAt']?.toString().split('T').first ?? '—';
-
-    Color statusColor = _primary;
-    if (status == 'COMPLETED') statusColor = Colors.greenAccent;
-    if (status == 'IN_PROGRESS') statusColor = _secondary;
-
-    return Material(
-      color: _surface,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () {},
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.assignment_outlined, color: statusColor, size: 20),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.inter(fontWeight: FontWeight.bold, color: _onSurface, fontSize: 14),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Assigné à : $tech',
-                      style: GoogleFonts.spaceGrotesk(color: _onVariant, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    status,
-                    style: GoogleFonts.spaceGrotesk(
-                      color: statusColor,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    date,
-                    style: GoogleFonts.spaceGrotesk(color: _onVariant.withOpacity(0.7), fontSize: 11),
-                  ),
-                ],
-              ),
-            ],
-          ),
         ),
       ),
     );
@@ -376,7 +210,7 @@ class _MachineHistoryViewState extends State<MachineHistoryView> {
                     const SizedBox(height: 6),
                     Text(
                       notes.isNotEmpty ? 'Message: $notes' : 'Aucun message de mission',
-                      style: GoogleFonts.spaceGrotesk(color: Colors.white.withOpacity(0.7), fontSize: 12),
+                      style: GoogleFonts.spaceGrotesk(color: _onSurface.withOpacity(0.8), fontSize: 12),
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                     ),

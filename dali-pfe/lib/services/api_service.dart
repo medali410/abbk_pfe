@@ -2086,6 +2086,97 @@ class ApiService {
     required String filename,
   }) => uploadFile(base64Data: base64Data, filename: filename);
 
+  static Future<void> togglePinRoom(String roomId, bool isPinned) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/chat/rooms/${Uri.encodeComponent(roomId)}/pin'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode({'isPinned': isPinned}),
+    );
+    if (response.statusCode != 200) _throwApiError(response, 'Erreur lors de l’épinglage de la discussion');
+  }
+
+  static Future<void> toggleMuteRoom(String roomId, bool isMuted) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/chat/rooms/${Uri.encodeComponent(roomId)}/mute'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode({'isMuted': isMuted}),
+    );
+    if (response.statusCode != 200) _throwApiError(response, 'Erreur lors de la mise en sourdine');
+  }
+
+  static Future<void> clearRoomHistory(String roomId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/chat/rooms/${Uri.encodeComponent(roomId)}/clear'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode != 200) _throwApiError(response, 'Erreur lors de l’effacement de l’historique');
+  }
+
+  static Future<void> blockUser(int blockedId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/chat/blocks'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode({'blockedId': blockedId}),
+    );
+    if (response.statusCode != 200) _throwApiError(response, 'Erreur lors du blocage');
+  }
+
+  static Future<void> unblockUser(int blockedId) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/chat/blocks/$blockedId'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode != 200) _throwApiError(response, 'Erreur lors du déblocage');
+  }
+
+  static Future<List<int>> getBlockedUsers() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/chat/blocks'),
+        headers: await jsonHeadersAuthorized(),
+      );
+      if (response.statusCode == 200) {
+        final decoded = json.decode(response.body);
+        if (decoded is List) {
+          return decoded.map<int>((e) => e is int ? e : int.tryParse(e.toString()) ?? 0).toList();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error getBlockedUsers: $e');
+    }
+    return [];
+  }
+
+  static Future<int> getUnreadMessageCount() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/notifications'),
+        headers: await jsonHeadersAuthorized(),
+      );
+      if (response.statusCode == 200) {
+        final decoded = json.decode(response.body);
+        if (decoded is Map && decoded['notifications'] is List) {
+          final notifs = decoded['notifications'] as List;
+          return notifs.where((n) => n['isRead'] == false && n['type'] == 'NEW_MESSAGE').length;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error getUnreadMessageCount: $e');
+    }
+    return 0;
+  }
+
+  static Future<void> markChatNotificationsAsRead() async {
+    try {
+      await http.patch(
+        Uri.parse('$baseUrl/notifications/read-all'),
+        headers: await jsonHeadersAuthorized(),
+      );
+    } catch (e) {
+      debugPrint('Error markChatNotificationsAsRead: $e');
+    }
+  }
+
   // -------------------------
   // CONTROLES (STEP 4 & 5)
   // -------------------------

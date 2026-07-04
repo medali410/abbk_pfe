@@ -89,6 +89,9 @@ async function getConceptionConversations(req, res) {
                 displayName = participantsWithNames[0].userName;
             }
 
+            const callerId = req.auth && req.auth.userId ? parseInt(req.auth.userId, 10) : null;
+            const myPart = callerId ? (room.participants || []).find(pp => pp.userId === callerId) : null;
+
             return {
                 roomId: room.roomId,
                 name: displayName,
@@ -96,6 +99,8 @@ async function getConceptionConversations(req, res) {
                 lastAt: last ? last.createdAt : room.createdAt,
                 senderName: last ? last.senderName : '',
                 participants: participantsWithNames,
+                isPinned: myPart ? myPart.isPinned : false,
+                isMuted: myPart ? myPart.isMuted : false,
             };
         }));
 
@@ -145,6 +150,8 @@ async function getConversationsByUser(req, res) {
                     role: pp.role,
                     userName: pp.userName,
                 })),
+                isPinned: p.isPinned ?? false,
+                isMuted: p.isMuted ?? false,
             };
         });
 
@@ -245,15 +252,22 @@ async function searchConcepteurs(req, res) {
             concepteurs.map(async (c) => {
                 let machines = [];
                 try {
-                    const ids = JSON.parse(c.machineIds || '[]');
-                    if (Array.isArray(ids) && ids.length > 0) {
-                        const rows = await prisma.machine.findMany({
-                            where: { id: { in: ids } },
-                            select: { id: true, name: true },
-                        });
-                        machines = rows.map((m) => m.name);
+                    const rows = await prisma.machine.findMany({
+                        where: { concepteurId: String(c.id) },
+                        select: { id: true, name: true },
+                    });
+                    machines = rows.map((m) => m.name || m.id);
+                    if (machines.length === 0) {
+                        const ids = JSON.parse(c.machineIds || '[]');
+                        if (Array.isArray(ids) && ids.length > 0) {
+                            const fallbackRows = await prisma.machine.findMany({
+                                where: { id: { in: ids } },
+                                select: { id: true, name: true },
+                            });
+                            machines = fallbackRows.map((m) => m.name || m.id);
+                        }
                     }
-                } catch (_) {}
+                } catch (_) { }
 
                 return {
                     id: c.userId,
@@ -267,7 +281,15 @@ async function searchConcepteurs(req, res) {
             }),
         );
 
-        return res.json(results);
+        let blockedIds = [];
+        const callerId = req.auth ? parseInt(req.auth.userId, 10) : null;
+        if (callerId) {
+            const blocks = await prisma.userBlock.findMany({ where: { blockerId: callerId } });
+            blockedIds = blocks.map(b => b.blockedId);
+        }
+
+        const filteredResults = results.filter(r => !blockedIds.includes(r.id));
+        return res.json(filteredResults);
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
@@ -312,6 +334,22 @@ async function postChatMessage(req, res) {
                 role: from || 'unknown',
                 userName: senderName || '',
             });
+        }
+
+        // Notify admins if sent by a concepteur
+        if (from === 'conception') {
+            const admins = await prisma.admin.findMany({ select: { userId: true } });
+            const ops = admins.map(admin => prisma.notification.create({
+                data: {
+                    userId: admin.userId,
+                    role: 'admin',
+                    type: 'NEW_MESSAGE',
+                    title: 'Nouveau message',
+                    body: `Message de ${senderName || 'un concepteur'}`,
+                    isRead: false
+                }
+            }));
+            await Promise.all(ops);
         }
 
         return res.status(201).json(message);
@@ -422,7 +460,7 @@ async function getTechnicianContacts(req, res) {
         if (!tech) return res.status(404).json({ error: 'Profil technicien introuvable' });
 
         let machineIds = [];
-        try { machineIds = JSON.parse(tech.machineIds || '[]'); } catch(e) { machineIds = []; }
+        try { machineIds = JSON.parse(tech.machineIds || '[]'); } catch (e) { machineIds = []; }
 
         if (!Array.isArray(machineIds) || machineIds.length === 0) return res.json([]);
 
@@ -502,40 +540,34 @@ async function getConcepteurContacts(req, res) {
 
         if (isAdmin) {
             const contacts = [];
-            const techs = await prisma.technician.findMany({ include: { user: true } });
-            for (const t of techs) {
-                contacts.push({
-                    id: t.userId,
-                    name: t.user?.nom || `${t.firstName} ${t.lastName}`,
-                    role: 'technician',
-                    roleLabel: `Technicien`
-                });
-            }
-            const agents = await prisma.maintenanceAgent.findMany({ include: { user: true } });
-            for (const a of agents) {
-                contacts.push({
-                    id: a.userId,
-                    name: a.user?.nom || `${a.firstName} ${a.lastName}`,
-                    role: 'maintenance',
-                    roleLabel: `Agent de maintenance`
-                });
-            }
-            const clients = await prisma.client.findMany({ include: { user: true } });
-            for (const c of clients) {
-                contacts.push({
-                    id: c.userId,
-                    name: c.user?.nom || `Client ${c.clientId}`,
-                    role: 'client',
-                    roleLabel: `Client`
-                });
-            }
             const concepteurs = await prisma.concepteur.findMany({ include: { user: true } });
             for (const c of concepteurs) {
+                let machines = [];
+                try {
+                    const rows = await prisma.machine.findMany({
+                        where: { concepteurId: String(c.id) },
+                        select: { id: true, name: true }
+                    });
+                    machines = rows.map(m => m.name || m.id);
+                    if (machines.length === 0) {
+                        const ids = JSON.parse(c.machineIds || '[]');
+                        if (Array.isArray(ids) && ids.length > 0) {
+                            const fallbackRows = await prisma.machine.findMany({
+                                where: { id: { in: ids } },
+                                select: { id: true, name: true }
+                            });
+                            machines = fallbackRows.map(m => m.name || m.id);
+                        }
+                    }
+                } catch (_) { }
+
                 contacts.push({
                     id: c.userId,
+                    concepteurId: c.id,
                     name: c.user?.nom || `Concepteur ${c.id}`,
                     role: 'conception',
-                    roleLabel: `Concepteur`
+                    roleLabel: `Concepteur`,
+                    machines: machines
                 });
             }
             return res.json(contacts);
@@ -698,7 +730,7 @@ async function getMaintenanceAgentContacts(req, res) {
         if (!agent) return res.status(404).json({ error: 'Profil agent de maintenance introuvable' });
 
         let machineIds = [];
-        try { machineIds = JSON.parse(agent.machineIds || '[]'); } catch(e) { machineIds = []; }
+        try { machineIds = JSON.parse(agent.machineIds || '[]'); } catch (e) { machineIds = []; }
 
         if (!Array.isArray(machineIds) || machineIds.length === 0) return res.json([]);
 
@@ -766,6 +798,100 @@ async function getMaintenanceAgentContacts(req, res) {
     }
 }
 
+// ─── NEW MESSAGE/ROOM ACTIONS ────────────────────────────────────────────────
+async function togglePinRoom(req, res) {
+    try {
+        const userId = parseInt(req.auth.userId, 10);
+        const { roomId } = req.params;
+        const { isPinned } = req.body;
+        if (isNaN(userId)) return res.status(400).json({ error: 'userId invalide' });
+
+        await prisma.chatRoomParticipant.updateMany({
+            where: { roomId, userId },
+            data: { isPinned: !!isPinned }
+        });
+        return res.json({ success: true, isPinned: !!isPinned });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+async function toggleMuteRoom(req, res) {
+    try {
+        const userId = parseInt(req.auth.userId, 10);
+        const { roomId } = req.params;
+        const { isMuted } = req.body;
+        if (isNaN(userId)) return res.status(400).json({ error: 'userId invalide' });
+
+        await prisma.chatRoomParticipant.updateMany({
+            where: { roomId, userId },
+            data: { isMuted: !!isMuted }
+        });
+        return res.json({ success: true, isMuted: !!isMuted });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+async function clearRoomHistory(req, res) {
+    try {
+        const { roomId } = req.params;
+        await prisma.chatMessage.deleteMany({
+            where: { roomId }
+        });
+        return res.json({ success: true, message: 'Historique effacé' });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+// ─── USER BLOCKING ACTIONS ───────────────────────────────────────────────────
+async function blockUser(req, res) {
+    try {
+        const blockerId = parseInt(req.auth.userId, 10);
+        const blockedId = parseInt(req.body.blockedId, 10);
+        if (isNaN(blockerId) || isNaN(blockedId)) return res.status(400).json({ error: 'IDs invalides' });
+
+        await prisma.userBlock.upsert({
+            where: { blockerId_blockedId: { blockerId, blockedId } },
+            create: { blockerId, blockedId },
+            update: {}
+        });
+        return res.json({ success: true, message: 'Utilisateur bloqué' });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+async function unblockUser(req, res) {
+    try {
+        const blockerId = parseInt(req.auth.userId, 10);
+        const blockedId = parseInt(req.params.blockedId, 10);
+        if (isNaN(blockerId) || isNaN(blockedId)) return res.status(400).json({ error: 'IDs invalides' });
+
+        await prisma.userBlock.deleteMany({
+            where: { blockerId, blockedId }
+        });
+        return res.json({ success: true, message: 'Utilisateur débloqué' });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
+async function getBlockedUsers(req, res) {
+    try {
+        const blockerId = parseInt(req.auth.userId, 10);
+        if (isNaN(blockerId)) return res.status(400).json({ error: 'userId invalide' });
+
+        const blocks = await prisma.userBlock.findMany({
+            where: { blockerId }
+        });
+        return res.json(blocks.map(b => b.blockedId));
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+}
+
 module.exports = {
     getChatMessages,
     getConceptionConversations,
@@ -783,4 +909,10 @@ module.exports = {
     getClientContacts,
     getMaintenanceAgentContacts,
     _ensureParticipant,
+    togglePinRoom,
+    toggleMuteRoom,
+    clearRoomHistory,
+    blockUser,
+    unblockUser,
+    getBlockedUsers,
 };

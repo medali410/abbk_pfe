@@ -8,7 +8,8 @@ import 'widgets/machine_history_view.dart';
 
 /// Section Machines du dashboard admin : liste, terminal actif, onboarding technicien.
 class AdminMachinesHubPage extends StatefulWidget {
-  const AdminMachinesHubPage({super.key});
+  final bool isDarkMode;
+  const AdminMachinesHubPage({super.key, this.isDarkMode = false});
 
   @override
   State<AdminMachinesHubPage> createState() => _AdminMachinesHubPageState();
@@ -17,11 +18,17 @@ class AdminMachinesHubPage extends StatefulWidget {
 enum _MachinesSubview { list, detail, history }
 
 class _AdminMachinesHubPageState extends State<AdminMachinesHubPage> {
+  // Color getters based on isDarkMode flag
+  Color get _primary => widget.isDarkMode ? const Color(0xFFFF6E00) : const Color(0xFFB8860B);
+  Color get _onSurface => widget.isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF332A21);
+  Color get _secondary => widget.isDarkMode ? const Color(0xFF75D1FF) : const Color(0xFF8B5E3C);
+
   _MachinesSubview _view = _MachinesSubview.list;
   String? _selectedMachineId;
   String? _selectedMachineName;
   String? _selectedClientId;
   String? _selectedLocation;
+
 
   void _openList() {
     setState(() {
@@ -63,6 +70,7 @@ class _AdminMachinesHubPageState extends State<AdminMachinesHubPage> {
           child: switch (_view) {
             _MachinesSubview.list => ActiveMachinesPage(
                 embedded: true,
+                isDarkMode: widget.isDarkMode,
                 onOpenMachine: _openDetail,
               ),
             _MachinesSubview.detail => MachineDetailAiPage(
@@ -76,7 +84,10 @@ class _AdminMachinesHubPageState extends State<AdminMachinesHubPage> {
                 embedded: true,
                 onBack: _openList,
               ),
-            _MachinesSubview.history => MachineHistoryView(isDesktop: isDesktop),
+            _MachinesSubview.history => MachineHistoryView(
+                isDesktop: isDesktop,
+                isDarkMode: widget.isDarkMode,
+              ),
           },
         ),
       ],
@@ -89,18 +100,30 @@ class _AdminMachinesHubPageState extends State<AdminMachinesHubPage> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            const Color(0xFF1E2243).withOpacity(0.95),
-            const Color(0xFF131730).withOpacity(0.85),
-          ],
+          colors: widget.isDarkMode
+              ? [
+                  const Color(0xFF1E2243).withOpacity(0.95),
+                  const Color(0xFF131730).withOpacity(0.85),
+                ]
+              : [
+                  const Color(0xFFFFF8F0).withOpacity(0.98),
+                  const Color(0xFFF5E0C3).withOpacity(0.92),
+                ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1.5),
+        border: Border.all(
+          color: widget.isDarkMode
+              ? Colors.white.withOpacity(0.08)
+              : const Color(0xFFCD7F32).withOpacity(0.3),
+          width: 1.5,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: widget.isDarkMode
+                ? Colors.black.withOpacity(0.3)
+                : const Color(0xFFB87333).withOpacity(0.08),
             blurRadius: 15,
             offset: const Offset(0, 4),
           ),
@@ -147,8 +170,8 @@ class _AdminMachinesHubPageState extends State<AdminMachinesHubPage> {
             gradient: active
                 ? LinearGradient(
                     colors: [
-                      const Color(0xFFFF6E00).withOpacity(0.25),
-                      const Color(0xFFFF6E00).withOpacity(0.08),
+                      _primary.withOpacity(0.25),
+                      _primary.withOpacity(0.08),
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -156,21 +179,21 @@ class _AdminMachinesHubPageState extends State<AdminMachinesHubPage> {
                 : null,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: active ? const Color(0xFFFF6E00).withOpacity(0.5) : Colors.transparent,
+              color: active ? _primary.withOpacity(0.5) : Colors.transparent,
               width: 1.5,
             ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 18, color: active ? const Color(0xFFFFB692) : const Color(0xFF9AA3B8)),
+              Icon(icon, size: 18, color: active ? _primary : _onSurface.withOpacity(0.6)),
               const SizedBox(width: 8),
               Text(
                 label,
                 style: GoogleFonts.inter(
                   fontSize: 13,
                   fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-                  color: active ? const Color(0xFFF4F4F9) : const Color(0xFF9AA3B8),
+                  color: active ? _onSurface : _onSurface.withOpacity(0.6),
                 ),
               ),
             ],

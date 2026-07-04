@@ -25,6 +25,15 @@ class _HomePageState extends State<HomePage> {
   late Future<List<Map<String, dynamic>>> _machinesFuture;
   bool _animateIn = false;
   bool _canBuyAsClient = false;
+  bool _isDarkMode = true;
+
+  Color get tc => _isDarkMode ? Colors.white : const Color(0xFF332A21);
+  Color get subTc => _isDarkMode ? const Color(0xFFA7B1C6) : const Color(0xFF8A735E);
+  Color get cardBg => _isDarkMode ? const Color(0x55182236) : const Color(0xFFFFFFFF);
+  Color get cardBorder => _isDarkMode ? const Color(0x33FFFFFF) : const Color(0xFFDED0BC);
+  Color get headerBg => _isDarkMode ? const Color(0x33121A30) : const Color(0xFFF4EDE2);
+  Color get _borderColor => cardBorder;
+
   String _searchQuery = '';
   String? _catalogStatusFilter;
   String? _catalogBrandFilter;
@@ -222,11 +231,13 @@ class _HomePageState extends State<HomePage> {
 
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF0B1020), Color(0xFF141D34), Color(0xFF1A1730)],
+            colors: _isDarkMode
+                ? const [Color(0xFF0B1020), Color(0xFF141D34), Color(0xFF1A1730)]
+                : const [Color(0xFFFCFAF7), Color(0xFFF4EDE2), Color(0xFFECE4D5)],
           ),
         ),
         child: SafeArea(
@@ -441,9 +452,9 @@ class _HomePageState extends State<HomePage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: const Color(0xAA121A30),
+            color: _isDarkMode ? const Color(0xAA121A30) : const Color(0xEEF9F5EF),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0x33FFFFFF)),
+            border: Border.all(color: _borderColor),
           ),
           child: _buildHeader(context),
         ),
@@ -454,7 +465,7 @@ class _HomePageState extends State<HomePage> {
   Widget _buildHeader(BuildContext context) {
     final navStyle = GoogleFonts.inter(
       fontSize: 11,
-      color: const Color(0xFFA7B1C6),
+      color: subTc,
       fontWeight: FontWeight.w500,
     );
     final w = MediaQuery.sizeOf(context).width;
@@ -519,18 +530,18 @@ class _HomePageState extends State<HomePage> {
               ),
               child:
                   w < 380
-                      ? const Icon(
+                      ? Icon(
                         Icons.verified_user_rounded,
                         size: 16,
-                        color: Color(0xFF8BE9B3),
+                        color: _isDarkMode ? const Color(0xFF8BE9B3) : const Color(0xFF2F855A),
                       )
                       : Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.verified_user_rounded,
                             size: 14,
-                            color: Color(0xFF8BE9B3),
+                            color: _isDarkMode ? const Color(0xFF8BE9B3) : const Color(0xFF2F855A),
                           ),
                           const SizedBox(width: 6),
                           Text(
@@ -538,7 +549,7 @@ class _HomePageState extends State<HomePage> {
                             style: GoogleFonts.inter(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
-                              color: const Color(0xFFBEEFD4),
+                              color: _isDarkMode ? const Color(0xFFBEEFD4) : const Color(0xFF2F855A),
                             ),
                           ),
                         ],
@@ -618,7 +629,7 @@ class _HomePageState extends State<HomePage> {
         minimumSize: Size.zero,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-        foregroundColor: const Color(0xFFD7E7FF),
+        foregroundColor: _isDarkMode ? const Color(0xFFD7E7FF) : const Color(0xFF1E3A8A),
       ),
       child: Text(
         "s'inscrire",
@@ -626,9 +637,21 @@ class _HomePageState extends State<HomePage> {
           fontSize: tightHeader ? 11 : 12,
           fontWeight: FontWeight.w600,
           decoration: TextDecoration.underline,
-          decorationColor: const Color(0xFFD7E7FF),
+          decorationColor: _isDarkMode ? const Color(0xFFD7E7FF) : const Color(0xFF1E3A8A),
         ),
       ),
+    );
+
+    final themeToggleBtn = IconButton(
+      onPressed: () => setState(() => _isDarkMode = !_isDarkMode),
+      icon: Icon(
+        _isDarkMode ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+        color: _isDarkMode ? const Color(0xFFFFB87A) : const Color(0xFFFF6E00),
+      ),
+      iconSize: 20,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(),
+      tooltip: _isDarkMode ? 'Mode Jour' : 'Mode Nuit',
     );
 
     final authActions = Row(
@@ -636,6 +659,8 @@ class _HomePageState extends State<HomePage> {
       textDirection: TextDirection.ltr,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        themeToggleBtn,
+        const SizedBox(width: 8),
         if (!_canBuyAsClient) ...[
           signUpButton,
           SizedBox(width: tightHeader ? 4 : 8),
@@ -751,7 +776,9 @@ class _HomePageState extends State<HomePage> {
             Text(
               label,
               style: baseStyle.copyWith(
-                color: isActive ? const Color(0xFFFFBE86) : baseStyle.color,
+                color: isActive
+                    ? (_isDarkMode ? const Color(0xFFFFBE86) : const Color(0xFFFF6E00))
+                    : baseStyle.color,
                 fontWeight: isActive ? FontWeight.w700 : baseStyle.fontWeight,
               ),
             ),
@@ -990,23 +1017,23 @@ class _HomePageState extends State<HomePage> {
   }) {
     final searchRow = Row(
       children: [
-        const Icon(
+        Icon(
           Icons.search_rounded,
           size: 18,
-          color: Color(0xFFA7B1C6),
+          color: subTc,
         ),
         const SizedBox(width: 8),
         Expanded(
           child: TextField(
             onChanged: (v) => setState(() => _searchQuery = v),
             style: GoogleFonts.inter(
-              color: Colors.white,
+              color: tc,
               fontSize: compact ? 12 : 13,
             ),
             decoration: InputDecoration(
               hintText: 'Rechercher par nom, ID ou marque...',
               hintStyle: GoogleFonts.inter(
-                color: const Color(0x77A7B1C6),
+                color: _isDarkMode ? const Color(0x77A7B1C6) : const Color(0x9964748B),
                 fontSize: compact ? 12 : 13,
               ),
               border: InputBorder.none,
@@ -1042,13 +1069,6 @@ class _HomePageState extends State<HomePage> {
             fillWidth: true,
           ),
         ),
-        const SizedBox(width: 8),
-        IconButton(
-          onPressed: () => setState(() => _isListView = !_isListView),
-          icon: Icon(_isListView ? Icons.grid_view_rounded : Icons.view_list_rounded),
-          color: const Color(0xFFA7B1C6),
-          iconSize: 20,
-        ),
       ],
     );
 
@@ -1063,8 +1083,8 @@ class _HomePageState extends State<HomePage> {
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                color: const Color(0x55182236),
-                border: Border.all(color: const Color(0x33FFFFFF)),
+                color: cardBg,
+                border: Border.all(color: _borderColor),
               ),
               child: compact
                   ? Column(
@@ -1077,24 +1097,24 @@ class _HomePageState extends State<HomePage> {
                     )
                   : Row(
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.search_rounded,
                           size: 18,
-                          color: Color(0xFFA7B1C6),
+                          color: subTc,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: TextField(
                             onChanged: (v) => setState(() => _searchQuery = v),
                             style: GoogleFonts.inter(
-                              color: Colors.white,
+                              color: tc,
                               fontSize: 13,
                             ),
                             decoration: InputDecoration(
                               hintText:
                                   'Rechercher par nom, ID ou marque...',
                               hintStyle: GoogleFonts.inter(
-                                color: const Color(0x77A7B1C6),
+                                color: _isDarkMode ? const Color(0x77A7B1C6) : const Color(0x9964748B),
                                 fontSize: 13,
                               ),
                               border: InputBorder.none,
@@ -1119,16 +1139,6 @@ class _HomePageState extends State<HomePage> {
                           active:
                               _catalogPanel == CatalogToolbarPanel.sort ||
                               _catalogSort != null,
-                        ),
-                        const SizedBox(width: 8),
-                        Container(width: 1, height: 24, color: const Color(0x33FFFFFF)),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          onPressed: () => setState(() => _isListView = !_isListView),
-                          icon: Icon(_isListView ? Icons.grid_view_rounded : Icons.view_list_rounded),
-                          color: const Color(0xFFA7B1C6),
-                          iconSize: 20,
-                          tooltip: _isListView ? 'Vue Grille' : 'Vue Liste',
                         ),
                       ],
                     ),
@@ -1248,9 +1258,9 @@ class _HomePageState extends State<HomePage> {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 20, vertical: isMobile ? 12 : 16),
       decoration: BoxDecoration(
-        color: const Color(0x33121A30),
+        color: headerBg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0x33FFFFFF)),
+        border: Border.all(color: _borderColor),
       ),
       child: Row(
         children: [
@@ -1273,7 +1283,7 @@ class _HomePageState extends State<HomePage> {
                       child: Text(
                         concepteurName.toUpperCase(),
                         style: GoogleFonts.inter(
-                          color: Colors.white,
+                          color: tc,
                           fontSize: isMobile ? 16 : 20,
                           fontWeight: FontWeight.w800,
                         ),
@@ -1285,48 +1295,20 @@ class _HomePageState extends State<HomePage> {
                   ],
                 ),
                 const SizedBox(height: 4),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 4,
+                Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.precision_manufacturing_rounded, size: 14, color: Color(0xFFA7B1C6)),
-                        const SizedBox(width: 4),
-                        Text(
-                          '$machineCount machine(s)',
-                          style: GoogleFonts.inter(color: const Color(0xFFA7B1C6), fontSize: 13),
-                        ),
-                      ],
-                    ),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.star_rounded, size: 16, color: Color(0xFFFFB87A)),
-                        const SizedBox(width: 4),
-                        Text(
-                          rating.toStringAsFixed(1),
-                          style: GoogleFonts.inter(color: const Color(0xFFFFB87A), fontSize: 13, fontWeight: FontWeight.w600),
-                        ),
-                      ],
+                    const Icon(Icons.precision_manufacturing_rounded, size: 14, color: Color(0xFFA7B1C6)),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$machineCount machine(s)',
+                      style: GoogleFonts.inter(color: const Color(0xFFA7B1C6), fontSize: 13),
                     ),
                   ],
                 ),
               ],
             ),
           ),
-          if (!isMobile)
-            OutlinedButton(
-              onPressed: () {}, // Profile redirection can be implemented later
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: const BorderSide(color: Color(0x66FFFFFF)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              ),
-              child: Text('Voir profil', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
-            ),
         ],
       ),
     );
@@ -1375,7 +1357,7 @@ class _HomePageState extends State<HomePage> {
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: GoogleFonts.inter(
-        color: const Color(0xFFD2E6FF),
+        color: _isDarkMode ? const Color(0xFFD2E6FF) : const Color(0xFF7A4B29),
         fontWeight: FontWeight.w600,
         fontSize: 12,
       ),
@@ -1384,16 +1366,24 @@ class _HomePageState extends State<HomePage> {
       width: fillWidth ? double.infinity : null,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: active ? const Color(0x441D88E5) : const Color(0x221D88E5),
+        color: active
+            ? (_isDarkMode ? const Color(0x441D88E5) : const Color(0x44D67332))
+            : (_isDarkMode ? const Color(0x221D88E5) : const Color(0x11D67332)),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: active ? const Color(0xFF1D88E5) : const Color(0x3D7CB8FF),
+          color: active
+              ? (_isDarkMode ? const Color(0xFF1D88E5) : const Color(0xFFD67332))
+              : (_isDarkMode ? const Color(0x3D7CB8FF) : const Color(0x66D67332)),
         ),
       ),
       child: Row(
         mainAxisSize: fillWidth ? MainAxisSize.max : MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: const Color(0xFFAED0FF)),
+          Icon(
+            icon,
+            size: 14,
+            color: _isDarkMode ? const Color(0xFFAED0FF) : const Color(0xFF7A4B29),
+          ),
           const SizedBox(width: 6),
           if (fillWidth) Expanded(child: label) else label,
         ],
@@ -1432,7 +1422,7 @@ class _HomePageState extends State<HomePage> {
             Text(
               'Machines en vedette',
               style: GoogleFonts.inter(
-                color: Colors.white,
+                color: tc,
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
               ),
@@ -1488,6 +1478,7 @@ class _HomePageState extends State<HomePage> {
                 isDataImage: isDataImg,
                 isNetworkImage: isNetImg,
                 concepteurName: (m['concepteurName'] ?? 'Concepteur').toString(),
+                isDarkMode: _isDarkMode,
                 onTap: () => _runIfAuthenticatedCarousel(context, () {
                   Navigator.push(
                     context,
@@ -1603,6 +1594,7 @@ class _HomePageState extends State<HomePage> {
           child: _MachineCard(
             machine: machines[i],
             canBuy: _canBuyAsClient,
+            isDarkMode: _isDarkMode,
             onRequireLogin: () async {
               final result = await Navigator.push<bool>(
                 context,
@@ -1639,6 +1631,7 @@ class _HomePageState extends State<HomePage> {
               (_, i) => _MachineCard(
                 machine: machines[i],
                 canBuy: _canBuyAsClient,
+                isDarkMode: _isDarkMode,
                 onRequireLogin: () async {
                   final result = await Navigator.push<bool>(
                     context,
@@ -1915,11 +1908,13 @@ class _MachineCard extends StatefulWidget {
   const _MachineCard({
     required this.machine,
     required this.canBuy,
+    required this.isDarkMode,
     this.onRequireLogin,
   });
 
   final Map<String, dynamic> machine;
   final bool canBuy;
+  final bool isDarkMode;
   final Future<void> Function()? onRequireLogin;
 
   @override
@@ -1999,19 +1994,19 @@ class _MachineCardState extends State<_MachineCard> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
-        color: const Color(0x33A7B1C6),
+        color: widget.isDarkMode ? const Color(0x33A7B1C6) : const Color(0xFFF1F5F9),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: const Color(0x11FFFFFF)),
+        border: Border.all(color: widget.isDarkMode ? const Color(0x11FFFFFF) : const Color(0xFFE2E8F0)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 10, color: const Color(0xFFD8E0F1)),
+          Icon(icon, size: 10, color: widget.isDarkMode ? const Color(0xFFD8E0F1) : const Color(0xFF475569)),
           const SizedBox(width: 4),
           Text(
             text,
             style: GoogleFonts.inter(
-              color: const Color(0xFFD8E0F1),
+              color: widget.isDarkMode ? const Color(0xFFD8E0F1) : const Color(0xFF475569),
               fontSize: 9,
               fontWeight: FontWeight.w600,
             ),
@@ -2051,22 +2046,27 @@ class _MachineCardState extends State<_MachineCard> {
           padding: const EdgeInsets.all(0),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            gradient: const LinearGradient(
+            gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xBB1B2238), Color(0x99151B2E)],
+              colors: widget.isDarkMode
+                  ? const [Color(0xBB1B2238), Color(0x99151B2E)]
+                  : const [Color(0xFFFFFFFF), Color(0xFFFCFAF7)],
             ),
             border: Border.all(
               color:
                   _isHovered
                       ? const Color(0x88FFB87A)
-                      : const Color(0x3DFFFFFF),
+                      : (widget.isDarkMode
+                          ? const Color(0x3DFFFFFF)
+                          : const Color(0xFFE2E8F0)),
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(
-                  0xFF000000,
-                ).withOpacity(_isHovered ? 0.4 : 0.2),
+                color: (widget.isDarkMode
+                        ? const Color(0xFF000000)
+                        : const Color(0x0A000000))
+                    .withOpacity(_isHovered ? 0.4 : 0.2),
                 blurRadius: _isHovered ? 30 : 16,
                 offset: Offset(0, _isHovered ? 16 : 8),
               ),
@@ -2205,7 +2205,7 @@ class _MachineCardState extends State<_MachineCard> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.inter(
-                          color: Colors.white,
+                          color: widget.isDarkMode ? Colors.white : const Color(0xFF1E293B),
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
                           height: 1.2,
@@ -2219,7 +2219,7 @@ class _MachineCardState extends State<_MachineCard> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.inter(
-                          color: const Color(0xFFA7B1C6),
+                          color: widget.isDarkMode ? const Color(0xFFA7B1C6) : const Color(0xFF475569),
                           fontSize: 11,
                           height: 1.4,
                         ),
@@ -2288,18 +2288,18 @@ class _MachineCardState extends State<_MachineCard> {
                                 );
                               }),
                               style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: Color(0x557AA7E8)),
-                                foregroundColor: const Color(0xFFD7E7FF),
+                                side: BorderSide(color: widget.isDarkMode ? const Color(0x557AA7E8) : const Color(0xFF3B82F6)),
+                                foregroundColor: widget.isDarkMode ? const Color(0xFFD7E7FF) : const Color(0xFF1E3A8A),
                                 padding: const EdgeInsets.symmetric(vertical: 8),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                               ).copyWith(
                                 overlayColor: WidgetStateProperty.all(
-                                  const Color(0x337AA7E8),
+                                  widget.isDarkMode ? const Color(0x337AA7E8) : const Color(0x113B82F6),
                                 ),
                               ),
-                              child: Text('👁️', style: GoogleFonts.inter(fontSize: 13)),
+                              child: Text('Voir détails', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -2324,7 +2324,7 @@ class _MachineCardState extends State<_MachineCard> {
                                   const Color(0xFFFF6E00).withOpacity(0.4),
                                 ),
                               ),
-                              child: Text('🛒 Acheter', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700)),
+                              child: Text('Acheter', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700)),
                             ),
                           ),
                         ],
@@ -2643,6 +2643,7 @@ class _CarouselMachineCard extends StatefulWidget {
     required this.isDataImage,
     required this.isNetworkImage,
     required this.concepteurName,
+    required this.isDarkMode,
     required this.onTap,
   });
 
@@ -2654,6 +2655,7 @@ class _CarouselMachineCard extends StatefulWidget {
   final bool isDataImage;
   final bool isNetworkImage;
   final String concepteurName;
+  final bool isDarkMode;
   final VoidCallback onTap;
 
   @override
@@ -2689,15 +2691,21 @@ class _CarouselMachineCardState extends State<_CarouselMachineCard> {
 
   Widget _fallbackImg() {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF1D2A4A), Color(0xFF161E35)],
+          colors: widget.isDarkMode
+              ? const [Color(0xFF1D2A4A), Color(0xFF161E35)]
+              : const [Color(0xFFEFE8DD), Color(0xFFE2D6C5)],
         ),
       ),
-      child: const Center(
-        child: Icon(Icons.precision_manufacturing_rounded, color: Color(0xFF3D5080), size: 36),
+      child: Center(
+        child: Icon(
+          Icons.precision_manufacturing_rounded,
+          color: widget.isDarkMode ? const Color(0xFF3D5080) : const Color(0xFFA5927F),
+          size: 36,
+        ),
       ),
     );
   }
@@ -2718,17 +2726,22 @@ class _CarouselMachineCardState extends State<_CarouselMachineCard> {
             width: 260,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              gradient: const LinearGradient(
+              gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [Color(0xCC1B2238), Color(0xAA151B2E)],
+                colors: widget.isDarkMode
+                    ? const [Color(0xCC1B2238), Color(0xAA151B2E)]
+                    : const [Color(0xFFFFFFFF), Color(0xFFFCFAF7)],
               ),
               border: Border.all(
-                color: _isHovered ? const Color(0x88FFB87A) : const Color(0x3DFFFFFF),
+                color: _isHovered
+                    ? const Color(0x88FFB87A)
+                    : (widget.isDarkMode ? const Color(0x3DFFFFFF) : const Color(0xFFE2E8F0)),
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(_isHovered ? 0.45 : 0.2),
+                  color: (widget.isDarkMode ? Colors.black : const Color(0x08000000))
+                      .withOpacity(_isHovered ? 0.45 : 0.2),
                   blurRadius: _isHovered ? 24 : 10,
                   offset: Offset(0, _isHovered ? 12 : 4),
                 ),
@@ -2781,7 +2794,7 @@ class _CarouselMachineCardState extends State<_CarouselMachineCard> {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.inter(
-                                color: Colors.white,
+                                color: widget.isDarkMode ? Colors.white : const Color(0xFF1E293B),
                                 fontSize: 13,
                                 fontWeight: FontWeight.w700,
                                 height: 1.2,
@@ -2791,7 +2804,7 @@ class _CarouselMachineCardState extends State<_CarouselMachineCard> {
                             Text(
                               'Par ${widget.concepteurName}',
                               style: GoogleFonts.inter(
-                                color: const Color(0xFF7A869A),
+                                color: widget.isDarkMode ? const Color(0xFF7A869A) : const Color(0xFF64748B),
                                 fontSize: 10,
                               ),
                             ),
@@ -2806,7 +2819,7 @@ class _CarouselMachineCardState extends State<_CarouselMachineCard> {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: GoogleFonts.inter(
-                                  color: const Color(0xFFFFBE86),
+                                  color: widget.isDarkMode ? const Color(0xFFFFBE86) : const Color(0xFFFF6E00),
                                   fontSize: 13,
                                   fontWeight: FontWeight.w800,
                                 ),

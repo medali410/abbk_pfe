@@ -19,30 +19,33 @@ class ChatLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final lineBorder = isDark ? Colors.white.withOpacity(0.05) : const Color(0xFFCD7F32).withOpacity(0.15);
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final isDesktop = constraints.maxWidth > 900;
-        final isTablet = constraints.maxWidth > 600 && constraints.maxWidth <= 900;
+        final isPlatformTablet = constraints.maxWidth > 600 && constraints.maxWidth <= 900;
         
         if (isDesktop) {
           // 3-pane layout for desktop
           return Row(
             children: [
               SizedBox(width: 320, child: sidebar),
-              Container(width: 1, color: Colors.white.withOpacity(0.05)),
+              Container(width: 1, color: lineBorder),
               Expanded(child: mainArea),
               if (infoPanel != null) ...[
-                Container(width: 1, color: Colors.white.withOpacity(0.05)),
+                Container(width: 1, color: lineBorder),
                 SizedBox(width: 280, child: infoPanel!),
               ],
             ],
           );
-        } else if (isTablet) {
+        } else if (isPlatformTablet) {
           // 2-pane layout for tablet (hide info panel)
           return Row(
             children: [
               SizedBox(width: 300, child: sidebar),
-              Container(width: 1, color: Colors.white.withOpacity(0.05)),
+              Container(width: 1, color: lineBorder),
               Expanded(child: mainArea),
             ],
           );

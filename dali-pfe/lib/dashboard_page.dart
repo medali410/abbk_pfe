@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'client_list_view.dart';
 import 'admin_machines_hub_page.dart';
+import 'active_machines_page.dart';
 import 'add_technician_page.dart';
 import 'add_conception_page.dart';
 import 'add_concepteur_page.dart';
@@ -16,9 +18,6 @@ import 'all_missions_history_page.dart';
 import 'services/api_service.dart';
 import 'mvc/controllers/dashboard_controller.dart';
 
-// ─────────────────────────────────────────────────────────────
-// Shell page that holds sidebar + topbar and swaps content area
-// ─────────────────────────────────────────────────────────────
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
 
@@ -27,9 +26,29 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  // 0 = overview | 1 = add client | 2 = clients | 3 = machines | 4 = équipe projet | 5 = add tech
-  // 6 = conception hub | 8 = add document conception | 9 = (libre) | 10 = add concepteur | 11 = add maintenance agent | 12 = diagnostic panne | 13 = add machine
   int _currentPage = 0;
+  bool _isDarkMode = true;
+
+  // ── Notification badge ────────────────────────────────────────
+  int _unreadCount = 0;
+  Timer? _notifTimer;
+
+  Color get tc => _isDarkMode ? Colors.white : const Color(0xFF1A1207);
+  Color get subTc => _isDarkMode ? const Color(0xFFA7B1C6) : const Color(0xFF9A5B20);
+  Color get cardBg => _isDarkMode ? const Color(0x55182236) : const Color(0xFFFFFFFF);
+  Color get cardBorder => _isDarkMode ? const Color(0x33FFFFFF) : const Color(0xFFCD7F32);
+  Color get headerBg => _isDarkMode ? const Color(0x33121A30) : const Color(0xFFFFFFFF);
+
+  // Additional theme color getters
+  Color get _primary => _isDarkMode ? const Color(0xFFFFB692) : const Color(0xFFB8860B);
+  Color get _secondary => _isDarkMode ? const Color(0xFF75D1FF) : const Color(0xFF8B5E3C);
+  Color get _onSurface => _isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF332A21);
+  Color get _onSurfaceVariant => _isDarkMode ? const Color(0xFFE2BFB0) : const Color(0xFF9AA3B8);
+  Color get _outlineVariant => _isDarkMode ? const Color(0xFF594136) : const Color(0xFFCCCCCC);
+  Color get _green => const Color(0xFF66BB6A);
+  Color get _errorColor => _isDarkMode ? const Color(0xFFFFB4AB) : const Color(0xFFFF6E00);
+  Color get _orange => const Color(0xFFFF6E00);
+
   /// Cible du retour depuis [AddConcepteurPage] (6 = hub conception).
   int _concepteurEmbeddedReturnPage = 6;
   Map<String, dynamic>? _pendingConcepteurEdit;
@@ -52,7 +71,21 @@ class _DashboardPageState extends State<DashboardPage> {
         return;
       }
       await _mvc.loadGlobalStats();
+      _startNotifPolling();
     });
+  }
+
+  void _startNotifPolling() {
+    _notifTimer?.cancel();
+    _pollUnreadCount();
+    _notifTimer = Timer.periodic(const Duration(seconds: 30), (_) => _pollUnreadCount());
+  }
+
+  Future<void> _pollUnreadCount() async {
+    try {
+      final count = await ApiService.getUnreadMessageCount();
+      if (mounted) setState(() => _unreadCount = count);
+    } catch (_) {}
   }
 
   void _onMvcUpdate() {
@@ -61,6 +94,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   void dispose() {
+    _notifTimer?.cancel();
     _mvc.removeListener(_onMvcUpdate);
     _mvc.dispose();
     super.dispose();
@@ -96,6 +130,8 @@ class _DashboardPageState extends State<DashboardPage> {
     setState(() => _currentPage = page);
   }
 
+  void _openDetail(String id, String name, {String? clientId, String? location}) {}
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
@@ -104,11 +140,13 @@ class _DashboardPageState extends State<DashboardPage> {
     return Scaffold(
       bottomNavigationBar: isDesktop ? null : _buildMobileBottomNav(),
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF0B1020), Color(0xFF141D34), Color(0xFF1A1730)],
+            colors: _isDarkMode
+                ? const [Color(0xFF0B1020), Color(0xFF141D34), Color(0xFF1A1730)]
+                : const [Color(0xFFF5EDE0), Color(0xFFEDE3D3), Color(0xFFE5D9C5)],
           ),
         ),
         child: Column(
@@ -118,29 +156,11 @@ class _DashboardPageState extends State<DashboardPage> {
               child: Stack(
                 children: [
                   Positioned.fill(
-                    child: _currentPage == 1
-                      ? _EmbeddedAddClientView(onBack: () => _goTo(2))
-                      : _currentPage == 2
-                          ? EmbeddedClientListView(
-                              onAddClient: () => _goTo(1),
-                            )
-                          : _currentPage == 3
-                              ? const AdminMachinesHubPage()
-                              : _currentPage == 5
-                                      ? AddTechnicianPage(
-                                          key: ValueKey(
-                                            'technician-${_pendingTechnicianEdit?['technicianId'] ?? _pendingTechnicianEdit?['id'] ?? 'new'}',
-                                          ),
-                                          initialData: _pendingTechnicianEdit,
-                                          onBack: () {
-                                            setState(() => _pendingTechnicianEdit = null);
-                                            _goTo(0);
-                                          },
-                                        )
-                                      : _currentPage == 6
+                    child: _currentPage == 6
                                           ? ConceptionListPage(
                                               key: ValueKey('conception-tab-$_conceptionInitialTab'),
                                               initialTabIndex: _conceptionInitialTab,
+                                              isDarkMode: _isDarkMode,
                                               onAddConception: () => _goTo(8),
                                               onAddConcepteur: () {
                                                 setState(() {
@@ -157,38 +177,53 @@ class _DashboardPageState extends State<DashboardPage> {
                                                 _goTo(10);
                                               },
                                             )
-                                          : _currentPage == 8
-                                              ? AddConceptionPage(onEmbeddedBack: () => _goTo(6))
-                                              : _currentPage == 10
-                                                  ? AddConcepteurPage(
-                                                      key: ValueKey(
-                                                        'concepteur-${_pendingConcepteurEdit?['id'] ?? 'create'}',
-                                                      ),
-                                                      initialData: _pendingConcepteurEdit,
-                                                      onEmbeddedBack: () {
-                                                        final back = _concepteurEmbeddedReturnPage;
-                                                        setState(() => _pendingConcepteurEdit = null);
-                                                        _goTo(back);
-                                                      },
+                                          : _currentPage == 2
+                                              ? EmbeddedClientListView(
+                                                  onAddClient: () => _goTo(1),
+                                                  isDarkMode: _isDarkMode,
+                                                )
+                                              : _currentPage == 1
+                                                  ? _EmbeddedAddClientView(
+                                                      onBack: () => _goTo(2),
+                                                      isDarkMode: _isDarkMode,
                                                     )
-                                                  : _currentPage == 11
-                                                      ? AddMaintenanceAgentPage(
-                                                          key: ValueKey(
-                                                            'maint-${_pendingMaintenanceEdit?['maintenanceAgentId'] ?? _pendingMaintenanceEdit?['id'] ?? 'create'}',
-                                                          ),
-                                                          initialData: _pendingMaintenanceEdit,
-                                                          onEmbeddedBack: () {
-                                                            setState(() => _pendingMaintenanceEdit = null);
-                                                            _goTo(0);
-                                                          },
+                                                  : _currentPage == 3
+                                                      ? AdminMachinesHubPage(
+                                                          isDarkMode: _isDarkMode,
                                                         )
-                                                      : _currentPage == 12
-                                                          ? const MaintenanceModulePage()
-                                                          : _currentPage == 14
-                                                              ? const AllMissionsHistoryPage()
-                                                              : _currentPage == 7
-                                                                  ? const MessageEquipeView(embedded: true)
-                                                                  : RefreshIndicator(
+                                                      : _currentPage == 8
+                                                          ? AddConceptionPage(onEmbeddedBack: () => _goTo(6))
+                                                          : _currentPage == 10
+                                                              ? AddConcepteurPage(
+                                                                  key: ValueKey(
+                                                                    'concepteur-${_pendingConcepteurEdit?['id'] ?? 'create'}',
+                                                                  ),
+                                                                  initialData: _pendingConcepteurEdit,
+                                                                  isDarkMode: _isDarkMode,
+                                                                  onEmbeddedBack: () {
+                                                                    final back = _concepteurEmbeddedReturnPage;
+                                                                    setState(() => _pendingConcepteurEdit = null);
+                                                                    _goTo(back);
+                                                                  },
+                                                                )
+                                                              : _currentPage == 11
+                                                                  ? AddMaintenanceAgentPage(
+                                                                      key: ValueKey(
+                                                                        'maint-${_pendingMaintenanceEdit?['maintenanceAgentId'] ?? _pendingMaintenanceEdit?['id'] ?? 'create'}',
+                                                                      ),
+                                                                      initialData: _pendingMaintenanceEdit,
+                                                                      onEmbeddedBack: () {
+                                                                        setState(() => _pendingMaintenanceEdit = null);
+                                                                        _goTo(0);
+                                                                      },
+                                                                    )
+                                                                  : _currentPage == 12
+                                                                      ? const MaintenanceModulePage()
+                                                                      : _currentPage == 14
+                                                                          ? AllMissionsHistoryPage(isDarkMode: _isDarkMode)
+                                                                          : _currentPage == 7
+                                                                              ? MessageEquipeView(embedded: true, isDarkMode: _isDarkMode)
+                                                                              : RefreshIndicator(
                                                           color: const Color(0xFFFF8F3F),
                                                           onRefresh: _mvc.loadGlobalStats,
                                                           child: SingleChildScrollView(
@@ -253,7 +288,7 @@ class _DashboardPageState extends State<DashboardPage> {
                             onPressed: () => _goTo(1),
                             backgroundColor: const Color(0xFFFF6E00),
                             elevation: 8,
-                            icon: const Icon(Icons.add, color: Colors.white, size: 22),
+                            icon: Icon(Icons.refresh, color: _secondary),
                             label: Text(
                               'Nouveau Client',
                               style: GoogleFonts.inter(
@@ -315,18 +350,30 @@ class _DashboardPageState extends State<DashboardPage> {
             height: 75,
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [
-                  const Color(0xFF15193B).withOpacity(0.85),
-                  const Color(0xFF1C224D).withOpacity(0.75),
-                ],
+                colors: _isDarkMode
+                    ? [
+                        const Color(0xFF15193B).withOpacity(0.85),
+                        const Color(0xFF1C224D).withOpacity(0.75),
+                      ]
+                    : [
+                        const Color(0xFFFFFFFF).withOpacity(0.95),
+                        const Color(0xFFFFF8EE).withOpacity(0.90),
+                      ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white.withOpacity(0.12), width: 1.2),
+              border: Border.all(
+                color: _isDarkMode
+                    ? Colors.white.withOpacity(0.12)
+                    : const Color(0xFFCD7F32).withOpacity(0.35),
+                width: 1.2,
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
+                  color: _isDarkMode
+                      ? Colors.black.withOpacity(0.3)
+                      : const Color(0xFFB87333).withOpacity(0.15),
                   blurRadius: 15,
                   offset: const Offset(0, 4),
                 ),
@@ -343,15 +390,94 @@ class _DashboardPageState extends State<DashboardPage> {
                       currentPage: _currentPage,
                       conceptionInitialTab: _conceptionInitialTab,
                       onNavigate: _goTo,
+                      isDarkMode: _isDarkMode,
                     ),
                   )
                 else
                   const Spacer(),
+                IconButton(
+                  icon: Icon(
+                    _isDarkMode ? Icons.wb_sunny_rounded : Icons.nightlight_round,
+                    color: _isDarkMode ? Colors.amber : const Color(0xFF7A4B29),
+                    size: 22,
+                  ),
+                  tooltip: _isDarkMode ? 'Mode Jour' : 'Mode Nuit',
+                  onPressed: () {
+                    setState(() {
+                      _isDarkMode = !_isDarkMode;
+                    });
+                  },
+                ),
+                const SizedBox(width: 8),
+                _buildNotifBadge(),
+                const SizedBox(width: 4),
                 _buildLogoutButton(),
                 const SizedBox(width: 16),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotifBadge() {
+    return Tooltip(
+      message: 'Nouveaux messages',
+      child: GestureDetector(
+        onTap: () {
+          ApiService.markChatNotificationsAsRead();
+          setState(() {
+            _currentPage = 7; // 7 = Messagerie
+            _unreadCount = 0;
+          });
+        },
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: _isDarkMode
+                    ? Colors.white.withOpacity(0.08)
+                    : const Color(0xFFCD7F32).withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _isDarkMode
+                      ? Colors.white.withOpacity(0.15)
+                      : const Color(0xFFCD7F32).withOpacity(0.4),
+                ),
+              ),
+              child: Icon(
+                Icons.notifications_outlined,
+                color: _isDarkMode ? const Color(0xFFFFB692) : const Color(0xFF8B5E3C),
+                size: 20,
+              ),
+            ),
+            if (_unreadCount > 0)
+              Positioned(
+                top: -4,
+                right: -4,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                    color: Colors.redAccent,
+                    shape: BoxShape.circle,
+                  ),
+                  constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                  child: Text(
+                    _unreadCount > 99 ? '99+' : '$_unreadCount',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -439,6 +565,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   fontSize: 32,
                   fontWeight: FontWeight.w800,
                   letterSpacing: -1.0,
+                  color: tc,
                 ),
               ),
               const SizedBox(height: 4),
@@ -447,7 +574,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 12,
-                  color: const Color(0xFFA98A7C),
+                  color: subTc,
                   fontWeight: FontWeight.w500,
                   letterSpacing: 2.0,
                 ),
@@ -481,7 +608,7 @@ class _DashboardPageState extends State<DashboardPage> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFF191934),
+              color: headerBg,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
@@ -504,7 +631,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1.5,
-                      color: Colors.white,
+                      color: tc,
                     ),
                   ),
                 ),
@@ -528,6 +655,7 @@ class _DashboardPageState extends State<DashboardPage> {
         GestureDetector(
           onTap: () => _goTo(2),
           child: _KPICard(
+              isDarkMode: _isDarkMode,
               icon: Icons.corporate_fare,
               label: 'Flux Actif',
               value: _mvc.state.isLoadingCounts ? '...' : _mvc.state.clientCount.toString(),
@@ -537,6 +665,7 @@ class _DashboardPageState extends State<DashboardPage> {
         GestureDetector(
           onTap: () => _goTo(3), // Navigate to active machines page
           child: _KPICard(
+              isDarkMode: _isDarkMode,
               icon: Icons.precision_manufacturing,
               label: _mvc.state.isLoadingCounts
                   ? '…'
@@ -551,6 +680,7 @@ class _DashboardPageState extends State<DashboardPage> {
             _goTo(6);
           },
           child: _KPICard(
+            isDarkMode: _isDarkMode,
             icon: Icons.engineering_outlined,
             label: 'Conception',
             value: _mvc.state.isLoadingCounts ? '...' : _mvc.state.concepteurCount.toString(),
@@ -560,6 +690,7 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
         ),
         _KPICard(
+            isDarkMode: _isDarkMode,
             icon: Icons.badge,
             label: 'Déployés',
             value: _mvc.state.isLoadingCounts ? '...' : _mvc.state.techCount.toString(),
@@ -599,24 +730,34 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            const Color(0xFF1E2243).withOpacity(0.95),
-            const Color(0xFF131730).withOpacity(0.85),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.4),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+          gradient: LinearGradient(
+            colors: _isDarkMode
+                ? [
+                    const Color(0xFF1E2243).withOpacity(0.95),
+                    const Color(0xFF131730).withOpacity(0.85),
+                  ]
+                : [
+                    const Color(0xFFFFF8F0).withOpacity(0.98),
+                    const Color(0xFFF5E0C3).withOpacity(0.92),
+                  ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-        ],
-      ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _isDarkMode
+                ? Colors.white.withOpacity(0.08)
+                : const Color(0xFFCD7F32).withOpacity(0.3),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 15,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
@@ -625,7 +766,9 @@ class _DashboardPageState extends State<DashboardPage> {
             decoration: BoxDecoration(
               border: Border(
                 bottom: BorderSide(
-                  color: Colors.white.withOpacity(0.08),
+                  color: _isDarkMode
+                      ? Colors.white.withOpacity(0.08)
+                      : const Color(0xFFCD7F32).withOpacity(0.2),
                   width: 1,
                 ),
               ),
@@ -639,6 +782,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 2.0,
+                    color: _isDarkMode ? Colors.white : const Color(0xFF4B3B2A),
                   ),
                 ),
                 Row(
@@ -658,7 +802,9 @@ class _DashboardPageState extends State<DashboardPage> {
                       runningLabel,
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 10,
-                        color: Colors.white.withOpacity(0.7),
+                        color: _isDarkMode
+                            ? Colors.white.withOpacity(0.7)
+                            : const Color(0xFFB87333).withOpacity(0.8),
                       ),
                     ),
                   ],
@@ -689,7 +835,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                     ),
                     if (_mvc.state.isLoadingCounts)
-                      const Center(child: CircularProgressIndicator())
+                      Center(child: CircularProgressIndicator(color: _secondary))
                     else if (_mvc.state.fleetMapMarkers.isEmpty)
                       Center(
                         child: Padding(
@@ -702,7 +848,9 @@ class _DashboardPageState extends State<DashboardPage> {
                             textAlign: TextAlign.center,
                             style: GoogleFonts.inter(
                               fontSize: 13,
-                              color: Colors.white.withOpacity(0.55),
+                              color: _isDarkMode
+                                  ? Colors.white.withOpacity(0.55)
+                                  : const Color(0xFF4B3B2A).withOpacity(0.7),
                             ),
                           ),
                         ),
@@ -724,7 +872,9 @@ class _DashboardPageState extends State<DashboardPage> {
                         textAlign: TextAlign.center,
                         style: GoogleFonts.inter(
                           fontSize: 12,
-                          color: Colors.white.withOpacity(0.35),
+                          color: _isDarkMode
+                              ? Colors.white.withOpacity(0.35)
+                              : const Color(0xFF4B3B2A).withOpacity(0.55),
                         ),
                       ),
                     ),
@@ -795,18 +945,21 @@ class _DashboardPageState extends State<DashboardPage> {
     return Column(
       children: [
         _MetricRow(
+            isDarkMode: _isDarkMode,
             label: 'RISQUE MOYEN DE PANNE',
             value: _mvc.state.isLoadingCounts ? '...' : '${_mvc.state.riskPct} %',
             icon: Icons.check_circle,
             color: _mvc.state.riskPct >= 70 ? const Color(0xFFFFB4AB) : (_mvc.state.riskPct >= 40 ? const Color(0xFFFFB692) : const Color(0xFF66BB6A))),
         const SizedBox(height: 16),
         _MetricRow(
+            isDarkMode: _isDarkMode,
             label: 'MACHINES STABLES',
             value: _mvc.state.isLoadingCounts ? '...' : '${_mvc.state.stablePct} %',
             icon: Icons.monitor_heart_outlined,
             color: _mvc.state.stablePct >= 70 ? const Color(0xFF66BB6A) : (_mvc.state.stablePct >= 40 ? const Color(0xFFFFB692) : const Color(0xFFFFB4AB))),
         const SizedBox(height: 16),
         _MetricRow(
+            isDarkMode: _isDarkMode,
             label: 'MODE DE RISQUE DOMINANT',
             value: _mvc.state.isLoadingCounts
                 ? '...'
@@ -815,18 +968,6 @@ class _DashboardPageState extends State<DashboardPage> {
                     : _mvc.state.riskMode),
             icon: Icons.warning_amber_rounded,
             color: const Color(0xFF75D1FF)),
-        const SizedBox(height: 16),
-        GestureDetector(
-          onTap: () => _goTo(6, conceptionTab: 1),
-          child: _MetricRow(
-            label: 'DOCUMENTATION',
-            value: _mvc.state.isLoadingCounts
-                ? '...'
-                : '${_mvc.state.documentCount} Doc${_mvc.state.documentCount > 1 ? 's' : ''}',
-            icon: Icons.description,
-            color: const Color(0xFFEFB1F9),
-          ),
-        ),
       ],
     );
   }
@@ -842,9 +983,25 @@ class _DashboardPageState extends State<DashboardPage> {
             child: Container(
               height: 74,
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(36),
-                border: Border.all(color: Colors.white.withOpacity(0.12)),
+                color: _isDarkMode
+                    ? const Color(0xFF1E2243).withOpacity(0.9)
+                    : const Color(0xFFFFFFFF).withOpacity(0.95),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _isDarkMode
+                      ? Colors.white.withOpacity(0.08)
+                      : const Color(0xFFCD7F32).withOpacity(0.3),
+                  width: 1.5,
+                ),
+                boxShadow: _isDarkMode
+                    ? null
+                    : [
+                        BoxShadow(
+                          color: const Color(0xFFB87333).withOpacity(0.12),
+                          blurRadius: 12,
+                          offset: const Offset(0, -2),
+                        ),
+                      ],
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -896,11 +1053,13 @@ class _DashboardTopNavMenu extends StatelessWidget {
   final int currentPage;
   final int conceptionInitialTab;
   final void Function(int page, {int conceptionTab}) onNavigate;
+  final bool isDarkMode;
 
   const _DashboardTopNavMenu({
     required this.currentPage,
     required this.conceptionInitialTab,
     required this.onNavigate,
+    required this.isDarkMode,
   });
 
   bool get _onConceptionHub =>
@@ -923,6 +1082,7 @@ class _DashboardTopNavMenu extends StatelessWidget {
             label: 'Vue d\'ensemble',
             active: currentPage == 0,
             onTap: () => onNavigate(0),
+            isDarkMode: isDarkMode,
           ),
           _navDivider(),
           _SidebarMenuTile(
@@ -931,6 +1091,7 @@ class _DashboardTopNavMenu extends StatelessWidget {
             label: 'Machines',
             active: currentPage == 3,
             onTap: () => onNavigate(3),
+            isDarkMode: isDarkMode,
           ),
           _SidebarMenuTile(
             icon: Icons.groups_outlined,
@@ -938,6 +1099,7 @@ class _DashboardTopNavMenu extends StatelessWidget {
             label: 'Clients',
             active: currentPage == 1 || currentPage == 2,
             onTap: () => onNavigate(2),
+            isDarkMode: isDarkMode,
           ),
           _navDivider(),
           _SidebarMenuTile(
@@ -946,6 +1108,7 @@ class _DashboardTopNavMenu extends StatelessWidget {
             label: 'Concepteurs',
             active: _onConceptionHub || currentPage == 10 || currentPage == 5,
             onTap: () => onNavigate(6, conceptionTab: 0),
+            isDarkMode: isDarkMode,
           ),
           if (ApiService.canAddMachineAsConcepteur) ...[
             _navDivider(),
@@ -955,6 +1118,7 @@ class _DashboardTopNavMenu extends StatelessWidget {
               label: 'Nouvelle machine',
               accent: const Color(0xFF75D1FF),
               onTap: () => onNavigate(13),
+              isDarkMode: isDarkMode,
             ),
           ],
           _navDivider(),
@@ -964,6 +1128,7 @@ class _DashboardTopNavMenu extends StatelessWidget {
             label: 'Missions',
             active: currentPage == 14,
             onTap: () => onNavigate(14),
+            isDarkMode: isDarkMode,
           ),
           _navDivider(),
           _SidebarMenuTile(
@@ -972,6 +1137,7 @@ class _DashboardTopNavMenu extends StatelessWidget {
             label: 'Messagerie',
             active: currentPage == 7,
             onTap: () => onNavigate(7),
+            isDarkMode: isDarkMode,
           ),
         ],
       ),
@@ -986,11 +1152,17 @@ class _DashboardTopNavMenu extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Colors.white.withOpacity(0.0),
-              Colors.white.withOpacity(0.12),
-              Colors.white.withOpacity(0.0),
-            ],
+            colors: isDarkMode
+                ? [
+                    Colors.white.withOpacity(0.0),
+                    Colors.white.withOpacity(0.12),
+                    Colors.white.withOpacity(0.0),
+                  ]
+                : [
+                    const Color(0xFFCD7F32).withOpacity(0.0),
+                    const Color(0xFFCD7F32).withOpacity(0.35),
+                    const Color(0xFFCD7F32).withOpacity(0.0),
+                  ],
           ),
         ),
       );
@@ -1001,7 +1173,8 @@ class _DashboardTopNavMenu extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────
 class _EmbeddedAddClientView extends StatefulWidget {
   final VoidCallback onBack;
-  const _EmbeddedAddClientView({required this.onBack});
+  final bool isDarkMode;
+  const _EmbeddedAddClientView({required this.onBack, required this.isDarkMode});
 
   @override
   State<_EmbeddedAddClientView> createState() => _EmbeddedAddClientViewState();
@@ -1016,16 +1189,17 @@ class _EmbeddedAddClientViewState extends State<_EmbeddedAddClientView> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  static const _inputBg = Color(0xFF1A1A35);
-  static const _onSurface = Color(0xFFE2DFFF);
-  static const _onSurfaceVariant = Color(0xFFE2BFB0);
-  static const _outline = Color(0xFF594136);
-  static const _primary = Color(0xFFFFB692);
-  static const _primaryContainer = Color(0xFFFF6E00);
-  static const _secondary = Color(0xFF75D1FF);
-  static const _surface = Color(0xFF191934);
-  static const _surfaceContainer = Color(0xFF1D1D38);
-  static const _surfaceHigh = Color(0xFF272743);
+  bool get _isDarkMode => widget.isDarkMode;
+  Color get _inputBg => _isDarkMode ? Color(0xFF1A1A35) : Color(0xFFFCFAF7);
+  Color get _onSurface => _isDarkMode ? Color(0xFFE2DFFF) : Color(0xFF2D1F0E);
+  Color get _onSurfaceVariant => _isDarkMode ? Color(0xFFE2BFB0) : Color(0xFF594136);
+  Color get _outline => _isDarkMode ? Color(0xFF594136) : Color(0xFFB87333);
+  Color get _primary => _isDarkMode ? Color(0xFFFFB692) : Color(0xFFB87333);
+  Color get _primaryContainer => _isDarkMode ? Color(0xFFFF6E00) : Color(0xFFFFD700);
+  Color get _secondary => _isDarkMode ? Color(0xFF75D1FF) : Color(0xFFB87333);
+  Color get _surface => _isDarkMode ? Color(0xFF191934) : Color(0xFFF8F5EF);
+  Color get _surfaceContainer => _isDarkMode ? Color(0xFF1D1D38) : Color(0xFFF0E5D8);
+  Color get _surfaceHigh => _isDarkMode ? Color(0xFF272743) : Color(0xFFECE4D5);
 
   @override
   void dispose() {
@@ -1206,7 +1380,7 @@ class _EmbeddedAddClientViewState extends State<_EmbeddedAddClientView> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 32, vertical: 16),
                             decoration: BoxDecoration(
-                              gradient: const LinearGradient(
+                              gradient: LinearGradient(
                                 colors: [
                                   _primaryContainer,
                                   _primary
@@ -1588,6 +1762,7 @@ class _SidebarMenuTile extends StatefulWidget {
   final bool active;
   final Color? accent;
   final VoidCallback onTap;
+  final bool isDarkMode;
 
   const _SidebarMenuTile({
     required this.icon,
@@ -1596,6 +1771,7 @@ class _SidebarMenuTile extends StatefulWidget {
     this.active = false,
     this.accent,
     required this.onTap,
+    required this.isDarkMode,
   });
 
   @override
@@ -1638,8 +1814,8 @@ class _SidebarMenuTileState extends State<_SidebarMenuTile> {
                   : _hovered
                       ? LinearGradient(
                           colors: [
-                            Colors.white.withOpacity(0.08),
-                            Colors.white.withOpacity(0.02),
+                            widget.isDarkMode ? Colors.white.withOpacity(0.08) : const Color(0xFFB87333).withOpacity(0.12),
+                            widget.isDarkMode ? Colors.white.withOpacity(0.02) : const Color(0xFFB87333).withOpacity(0.03),
                           ],
                         )
                       : null,
@@ -1647,7 +1823,7 @@ class _SidebarMenuTileState extends State<_SidebarMenuTile> {
                 color: isActive
                     ? highlight.withOpacity(0.5)
                     : _hovered
-                        ? Colors.white.withOpacity(0.15)
+                        ? (widget.isDarkMode ? Colors.white.withOpacity(0.15) : const Color(0xFFCD7F32).withOpacity(0.25))
                         : Colors.transparent,
                 width: 1.5,
               ),
@@ -1687,8 +1863,8 @@ class _SidebarMenuTileState extends State<_SidebarMenuTile> {
                   color: isActive
                       ? highlight
                       : _hovered
-                          ? Colors.white
-                          : const Color(0xFF9AA3B8),
+                          ? (widget.isDarkMode ? Colors.white : const Color(0xFF4B3B2A))
+                          : (widget.isDarkMode ? const Color(0xFF9AA3B8) : const Color(0xFF7A4F2E)),
                   size: 20,
                 ),
                 const SizedBox(width: 10),
@@ -1698,10 +1874,10 @@ class _SidebarMenuTileState extends State<_SidebarMenuTile> {
                     fontSize: 13,
                     fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
                     color: isActive
-                        ? Colors.white
+                        ? (widget.isDarkMode ? Colors.white : const Color(0xFF2D1F0E))
                         : _hovered
-                            ? Colors.white
-                            : const Color(0xFF9AA3B8),
+                            ? (widget.isDarkMode ? Colors.white : const Color(0xFF4B3B2A))
+                            : (widget.isDarkMode ? const Color(0xFF9AA3B8) : const Color(0xFF7A4F2E)),
                     letterSpacing: isActive ? 0.2 : 0,
                   ),
                 ),
@@ -1722,6 +1898,7 @@ class _KPICard extends StatefulWidget {
   final String title;
   final Color color;
   final bool hasIndicator;
+  final bool isDarkMode;
 
   const _KPICard({
     required this.icon,
@@ -1729,6 +1906,7 @@ class _KPICard extends StatefulWidget {
     required this.value,
     required this.title,
     required this.color,
+    required this.isDarkMode,
     this.hasIndicator = false,
   });
 
@@ -1741,6 +1919,14 @@ class _KPICardState extends State<_KPICard> {
 
   @override
   Widget build(BuildContext context) {
+    final darkGrad = [
+      const Color(0xFF1E2243).withOpacity(0.95),
+      const Color(0xFF131730).withOpacity(0.85),
+    ];
+    final lightGrad = [
+      const Color(0xFFFFFFFF),
+      const Color(0xFFFFF8EE),
+    ];
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
@@ -1751,21 +1937,26 @@ class _KPICardState extends State<_KPICard> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [
-              const Color(0xFF1E2243).withOpacity(0.95),
-              const Color(0xFF131730).withOpacity(0.85),
-            ],
+            colors: widget.isDarkMode ? darkGrad : lightGrad,
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: _isHovered ? widget.color.withOpacity(0.6) : (widget.hasIndicator ? const Color(0xFFFF6E00) : widget.color.withOpacity(0.18)),
+            color: _isHovered
+                ? widget.color.withOpacity(0.6)
+                : widget.isDarkMode
+                    ? (widget.hasIndicator ? const Color(0xFFFF6E00) : widget.color.withOpacity(0.18))
+                    : (widget.hasIndicator ? const Color(0xFFFF6E00) : const Color(0xFFCD7F32).withOpacity(0.3)),
             width: 1.5,
           ),
           boxShadow: [
             BoxShadow(
-              color: _isHovered ? widget.color.withOpacity(0.2) : Colors.black.withOpacity(0.3),
+              color: _isHovered
+                  ? widget.color.withOpacity(0.25)
+                  : widget.isDarkMode
+                      ? Colors.black.withOpacity(0.3)
+                      : const Color(0xFFB87333).withOpacity(0.18),
               blurRadius: _isHovered ? 24 : 16,
               offset: const Offset(0, 8),
             ),
@@ -1820,14 +2011,16 @@ class _KPICardState extends State<_KPICard> {
                 style: GoogleFonts.inter(
                   fontSize: 32,
                   fontWeight: FontWeight.w900,
-                  color: Colors.white,
+                  color: widget.isDarkMode ? Colors.white : const Color(0xFF2D1F0E),
                   letterSpacing: -1,
-                  shadows: [
-                    Shadow(
-                      color: widget.color.withOpacity(0.4),
-                      blurRadius: 10,
-                    ),
-                  ],
+                  shadows: widget.isDarkMode
+                      ? [
+                          Shadow(
+                            color: widget.color.withOpacity(0.4),
+                            blurRadius: 10,
+                          ),
+                        ]
+                      : null,
                 ),
               ),
             ),
@@ -1838,7 +2031,9 @@ class _KPICardState extends State<_KPICard> {
               overflow: TextOverflow.ellipsis,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 10,
-                color: const Color(0xFFA98A7C).withOpacity(0.85),
+                color: widget.isDarkMode
+                    ? const Color(0xFFA98A7C).withOpacity(0.85)
+                    : const Color(0xFF7A4F2E),
                 fontWeight: FontWeight.bold,
                 letterSpacing: 1.5,
               ),
@@ -1856,12 +2051,14 @@ class _MetricRow extends StatefulWidget {
   final String value;
   final IconData icon;
   final Color color;
+  final bool isDarkMode;
 
   const _MetricRow({
     required this.label,
     required this.value,
     required this.icon,
     required this.color,
+    required this.isDarkMode,
   });
 
   @override
@@ -1873,6 +2070,14 @@ class _MetricRowState extends State<_MetricRow> {
 
   @override
   Widget build(BuildContext context) {
+    final darkGrad = [
+      const Color(0xFF1E2243).withOpacity(0.95),
+      const Color(0xFF131730).withOpacity(0.85),
+    ];
+    final lightGrad = [
+      const Color(0xFFFFFFFF),
+      const Color(0xFFFFF8EE),
+    ];
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
@@ -1883,10 +2088,7 @@ class _MetricRowState extends State<_MetricRow> {
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [
-              const Color(0xFF1E2243).withOpacity(0.95),
-              const Color(0xFF131730).withOpacity(0.85),
-            ],
+            colors: widget.isDarkMode ? darkGrad : lightGrad,
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -1897,7 +2099,9 @@ class _MetricRowState extends State<_MetricRow> {
           ),
           boxShadow: [
             BoxShadow(
-              color: _isHovered ? widget.color.withOpacity(0.1) : Colors.black.withOpacity(0.2),
+              color: _isHovered
+                  ? widget.color.withOpacity(0.1)
+                  : (widget.isDarkMode ? Colors.black.withOpacity(0.2) : const Color(0xFFB87333).withOpacity(0.08)),
               blurRadius: 16,
               offset: const Offset(0, 4),
             ),
@@ -1915,7 +2119,9 @@ class _MetricRowState extends State<_MetricRow> {
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 10,
-                      color: const Color(0xFFA98A7C),
+                      color: widget.isDarkMode
+                          ? const Color(0xFFA98A7C)
+                          : const Color(0xFF7A4F2E),
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1.5,
                     ),
@@ -1985,13 +2191,13 @@ class _BottomNavItem extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 decoration: active
                     ? BoxDecoration(
-                        color: Colors.white.withOpacity(0.12),
+                        color: const Color(0xFFFF6E00).withOpacity(0.12),
                         borderRadius: BorderRadius.circular(20),
                       )
                     : null,
                 child: Icon(
                   icon,
-                  color: active ? const Color(0xFFFF6E00) : const Color(0xFFE2BFB0).withOpacity(0.6),
+                  color: active ? const Color(0xFFFF6E00) : const Color(0xFF8B7355).withOpacity(0.65),
                   size: 24,
                 ),
               ),
@@ -2003,7 +2209,7 @@ class _BottomNavItem extends StatelessWidget {
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 10,
                   fontWeight: active ? FontWeight.bold : FontWeight.normal,
-                  color: active ? const Color(0xFFFF6E00) : const Color(0xFFE2BFB0).withOpacity(0.6),
+                  color: active ? const Color(0xFFFF6E00) : const Color(0xFF8B7355).withOpacity(0.65),
                 ),
               ),
             ],

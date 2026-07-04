@@ -4,29 +4,33 @@ import 'package:google_fonts/google_fonts.dart';
 import 'services/api_service.dart';
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
-const _kBg       = Color(0xFF0D0E1C);
-const _kCard     = Color(0xFF13152B);
-const _kBorder   = Color(0xFF1E2240);
+// (colors are now resolved dynamically via isDarkMode – see getters below)
 const _kAccent   = Color(0xFFFF6E00);
 const _kBlue     = Color(0xFF75D1FF);
 const _kPurple   = Color(0xFFB388FF);
 const _kGreen    = Color(0xFF4CAF50);
 const _kYellow   = Color(0xFFFFC107);
 const _kRed      = Color(0xFFEF5350);
-const _kText     = Color(0xFFE2DFFF);
-const _kMuted    = Color(0xFFB0AECF);
 
 // ─── Statuts ─────────────────────────────────────────────────────────────────
 const _kAllStatuses = ['TOUS', 'DONE', 'IN_PROGRESS', 'PENDING', 'CANCELLED'];
 
 class AllMissionsHistoryPage extends StatefulWidget {
-  const AllMissionsHistoryPage({super.key});
+  final bool isDarkMode;
+  const AllMissionsHistoryPage({super.key, this.isDarkMode = false});
 
   @override
   State<AllMissionsHistoryPage> createState() => _AllMissionsHistoryPageState();
 }
 
 class _AllMissionsHistoryPageState extends State<AllMissionsHistoryPage> {
+  // ── Theme-aware color getters ──
+  Color get _kBg     => widget.isDarkMode ? const Color(0xFF0D0E1C) : const Color(0xFFFCFAF7);
+  Color get _kCard   => widget.isDarkMode ? const Color(0xFF13152B) : const Color(0xFFFFFFFF);
+  Color get _kBorder => widget.isDarkMode ? const Color(0xFF1E2240) : const Color(0xFFCD7F32).withOpacity(0.25);
+  Color get _kText   => widget.isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF332A21);
+  Color get _kMuted  => widget.isDarkMode ? const Color(0xFFB0AECF) : const Color(0xFF8B5E3C);
+
   late Future<List<Map<String, dynamic>>> _future;
   String _selectedStatus = 'TOUS';
   String _searchQuery = '';
@@ -182,7 +186,7 @@ class _AllMissionsHistoryPageState extends State<AllMissionsHistoryPage> {
           if (Navigator.canPop(context))
             IconButton(
               onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: _kMuted, size: 18),
+              icon: Icon(Icons.arrow_back_ios_new_rounded, color: _kMuted, size: 18),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             ),
@@ -192,7 +196,7 @@ class _AllMissionsHistoryPageState extends State<AllMissionsHistoryPage> {
               color: _kAccent.withOpacity(0.12),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.assignment_rounded, color: _kAccent, size: 22),
+            child: Icon(Icons.assignment_rounded, color: _kAccent, size: 22),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -221,7 +225,7 @@ class _AllMissionsHistoryPageState extends State<AllMissionsHistoryPage> {
           IconButton(
             onPressed: _reload,
             tooltip: 'Actualiser',
-            icon: const Icon(Icons.refresh_rounded, color: _kAccent, size: 20),
+            icon: Icon(Icons.refresh_rounded, color: _kAccent, size: 20),
           ),
         ],
       ),
@@ -250,10 +254,10 @@ class _AllMissionsHistoryPageState extends State<AllMissionsHistoryPage> {
               decoration: InputDecoration(
                 hintText: 'Rechercher mission, machine, technicien, agent...',
                 hintStyle: GoogleFonts.inter(fontSize: 12, color: _kMuted.withOpacity(0.5)),
-                prefixIcon: const Icon(Icons.search_rounded, color: _kMuted, size: 18),
+                prefixIcon: Icon(Icons.search_rounded, color: _kMuted, size: 18),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
-                        icon: const Icon(Icons.close_rounded, size: 16, color: _kMuted),
+                        icon: Icon(Icons.close_rounded, size: 16, color: _kMuted),
                         onPressed: () {
                           _searchCtrl.clear();
                           setState(() => _searchQuery = '');
@@ -321,6 +325,7 @@ class _AllMissionsHistoryPageState extends State<AllMissionsHistoryPage> {
         priorityColor: _priorityColor,
         priorityLabel: _priorityLabel,
         fmtDate:       _fmtDate,
+        isDarkMode:    widget.isDarkMode,
       ),
     );
   }
@@ -333,7 +338,7 @@ class _AllMissionsHistoryPageState extends State<AllMissionsHistoryPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline_rounded, color: _kRed, size: 40),
+            Icon(Icons.error_outline_rounded, color: _kRed, size: 40),
             const SizedBox(height: 12),
             Text(
               'Erreur de chargement',
@@ -395,7 +400,7 @@ class _AllMissionsHistoryPageState extends State<AllMissionsHistoryPage> {
                     _selectedStatus = 'TOUS';
                   });
                 },
-                child: const Text('Effacer les filtres', style: TextStyle(color: _kAccent)),
+                child: Text('Effacer les filtres', style: TextStyle(color: _kAccent)),
               ),
             ],
           ],
@@ -421,6 +426,7 @@ class _MissionCard extends StatefulWidget {
     required this.priorityColor,
     required this.priorityLabel,
     required this.fmtDate,
+    this.isDarkMode = false,
   });
 
   final Map<String, dynamic> mission;
@@ -430,6 +436,7 @@ class _MissionCard extends StatefulWidget {
   final Color Function(String) priorityColor;
   final String Function(String) priorityLabel;
   final String Function(dynamic) fmtDate;
+  final bool isDarkMode;
 
   @override
   State<_MissionCard> createState() => _MissionCardState();
@@ -437,6 +444,12 @@ class _MissionCard extends StatefulWidget {
 
 class _MissionCardState extends State<_MissionCard> {
   bool _expanded = false;
+
+  Color get _kCard   => widget.isDarkMode ? const Color(0xFF13152B) : const Color(0xFFFFFFFF);
+  Color get _kBorder => widget.isDarkMode ? const Color(0xFF1E2240) : const Color(0xFFCD7F32).withOpacity(0.25);
+  Color get _kText   => widget.isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF332A21);
+  Color get _kMuted  => widget.isDarkMode ? const Color(0xFFB0AECF) : const Color(0xFF8B5E3C);
+  Color get _kBg     => widget.isDarkMode ? const Color(0xFF0D0E1C) : const Color(0xFFFCFAF7);
 
   @override
   Widget build(BuildContext context) {
@@ -511,7 +524,7 @@ class _MissionCardState extends State<_MissionCard> {
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            const Icon(Icons.precision_manufacturing_rounded, size: 12, color: _kMuted),
+                            Icon(Icons.precision_manufacturing_rounded, size: 12, color: _kMuted),
                             const SizedBox(width: 4),
                             Flexible(
                               child: Text(
@@ -580,7 +593,7 @@ class _MissionCardState extends State<_MissionCard> {
               child: _expanded
                   ? Container(
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.02),
+                        color: widget.isDarkMode ? Colors.white.withOpacity(0.02) : const Color(0xFFCD7F32).withOpacity(0.04),
                         borderRadius: const BorderRadius.only(
                           bottomLeft: Radius.circular(14),
                           bottomRight: Radius.circular(14),
@@ -602,6 +615,7 @@ class _MissionCardState extends State<_MissionCard> {
                                     label: 'ID Mission',
                                     value: missionId,
                                     valueColor: _kMuted,
+                                    isDarkMode: widget.isDarkMode,
                                   ),
                                 // Description
                                 if (desc.isNotEmpty) ...[
@@ -642,6 +656,7 @@ class _MissionCardState extends State<_MissionCard> {
                                     label: 'Planifiée le',
                                     value: widget.fmtDate(scheduledAt),
                                     valueColor: _kYellow,
+                                    isDarkMode: widget.isDarkMode,
                                   ),
                                 if (completedAt != null) ...[
                                   const SizedBox(height: 6),
@@ -650,6 +665,7 @@ class _MissionCardState extends State<_MissionCard> {
                                     label: 'Terminée le',
                                     value: widget.fmtDate(completedAt),
                                     valueColor: _kGreen,
+                                    isDarkMode: widget.isDarkMode,
                                   ),
                                 ],
                               ],
@@ -730,25 +746,29 @@ class _DetailRow extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
-    this.valueColor = _kText,
+    this.valueColor,
+    this.isDarkMode = false,
   });
   final IconData icon;
   final String label;
   final String value;
-  final Color valueColor;
+  final Color? valueColor;
+  final bool isDarkMode;
 
   @override
   Widget build(BuildContext context) {
+    final mutedColor = isDarkMode ? const Color(0xFFB0AECF) : const Color(0xFF8B5E3C);
+    final textColor = valueColor ?? (isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF332A21));
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 13, color: _kMuted.withOpacity(0.6)),
+        Icon(icon, size: 13, color: mutedColor.withOpacity(0.6)),
         const SizedBox(width: 6),
         Text(
           '$label : ',
           style: GoogleFonts.inter(
             fontSize: 11,
-            color: _kMuted.withOpacity(0.7),
+            color: mutedColor.withOpacity(0.7),
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -757,7 +777,7 @@ class _DetailRow extends StatelessWidget {
             value,
             style: GoogleFonts.inter(
               fontSize: 11,
-              color: valueColor,
+              color: textColor,
               fontWeight: FontWeight.w600,
             ),
           ),

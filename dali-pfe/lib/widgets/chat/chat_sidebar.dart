@@ -10,6 +10,8 @@ class ChatSidebar extends StatelessWidget {
   final bool isSearching;
   final Function(String) onSearchChanged;
   final VoidCallback onClearSearch;
+  final VoidCallback? onNewDiscussion;
+  final bool isDarkMode;
 
   const ChatSidebar({
     super.key,
@@ -20,12 +22,23 @@ class ChatSidebar extends StatelessWidget {
     required this.isSearching,
     required this.onSearchChanged,
     required this.onClearSearch,
+    this.onNewDiscussion,
+    this.isDarkMode = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final theme = ChatTheme.of(context);
+    final _bg = theme.sidebar;
+    final _text = theme.text;
+    final _muted = theme.muted;
+    final _active = theme.activeItem;
+    final _border = Theme.of(context).brightness == Brightness.dark ? Colors.white.withOpacity(0.05) : const Color(0xFFCD7F32).withOpacity(0.2);
+    final _inputBg = theme.inputDecoration.color ?? const Color(0xFFF5F0E8);
+    final _divider = Theme.of(context).brightness == Brightness.dark ? Colors.white10 : const Color(0xFFCD7F32).withOpacity(0.15);
+
     return Container(
-      color: ChatTheme.sidebar,
+      color: _bg,
       child: Column(
         children: [
           // En-tête
@@ -37,22 +50,18 @@ class ChatSidebar extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Messages', style: ChatTheme.titleStyle),
+                    Text('Messages', style: GoogleFonts.inter(color: _text, fontSize: 24, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
-                    Text('${conversations.where((c) => c['isSectionHeader'] != true).length} conversations', style: ChatTheme.subtitleStyle),
+                    Text('${conversations.where((c) => c['isSectionHeader'] != true).length} conversations',
+                        style: GoogleFonts.inter(color: _muted, fontSize: 13, fontWeight: FontWeight.w500)),
                   ],
                 ),
                 Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.edit_square, color: ChatTheme.text, size: 20),
-                      onPressed: () {},
-                      tooltip: 'Nouveau message',
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.settings_outlined, color: ChatTheme.muted, size: 20),
-                      onPressed: () {},
-                      tooltip: 'Paramètres',
+                      icon: Icon(Icons.edit_square, color: _text, size: 20),
+                      onPressed: onNewDiscussion ?? () {},
+                      tooltip: 'Nouvelle discussion',
                     ),
                   ],
                 ),
@@ -65,19 +74,23 @@ class ChatSidebar extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             child: Container(
               height: 40,
-              decoration: ChatTheme.inputDecoration,
+              decoration: BoxDecoration(
+                color: _inputBg,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: _border),
+              ),
               child: TextField(
                 controller: searchController,
                 onChanged: onSearchChanged,
-                style: const TextStyle(color: ChatTheme.text, fontSize: 14),
+                style: TextStyle(color: _text, fontSize: 14),
                 decoration: InputDecoration(
                   hintText: '🔍 Rechercher un contact...',
-                  hintStyle: TextStyle(color: ChatTheme.muted.withOpacity(0.6), fontSize: 13),
+                  hintStyle: TextStyle(color: _muted.withOpacity(0.6), fontSize: 13),
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  suffixIcon: isSearching 
+                  suffixIcon: isSearching
                     ? IconButton(
-                        icon: const Icon(Icons.close, color: ChatTheme.muted, size: 16),
+                        icon: Icon(Icons.close, color: _muted, size: 16),
                         onPressed: onClearSearch,
                       )
                     : null,
@@ -85,24 +98,10 @@ class ChatSidebar extends StatelessWidget {
               ),
             ),
           ),
-          
-          // Chips de filtre (UI uniquement pour l'instant)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _buildFilterChip('Tous', true),
-                  _buildFilterChip('Non lus', false),
-                  _buildFilterChip('Techniciens', false),
-                  _buildFilterChip('Clients', false),
-                ],
-              ),
-            ),
-          ),
 
-          const Divider(color: Colors.white10, height: 1),
+
+
+          Divider(color: _divider, height: 1),
 
           // Liste des contacts
           Expanded(
@@ -115,11 +114,11 @@ class ChatSidebar extends StatelessWidget {
                     padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
                     child: Row(
                       children: [
-                        Icon(_getIconForSection(c['sectionIcon']), size: 14, color: _getColorForSection(c['sectionColor'])),
+                        Icon(_getIconForSection(c['sectionIcon']), size: 14, color: _getColorForSection(context, c['sectionColor'])),
                         const SizedBox(width: 8),
                         Text(
                           (c['sectionLabel'] ?? '').toString().toUpperCase(),
-                          style: GoogleFonts.inter(color: _getColorForSection(c['sectionColor']), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                          style: GoogleFonts.inter(color: _getColorForSection(context, c['sectionColor']), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2),
                         ),
                       ],
                     ),
@@ -137,16 +136,15 @@ class ChatSidebar extends StatelessWidget {
                   onTap: () => onSelectConversation(c['roomId'], c),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    color: active ? ChatTheme.activeItem : Colors.transparent,
+                    color: active ? _active : Colors.transparent,
                     child: Row(
                       children: [
-                        // Avatar avec statut
                         Stack(
                           children: [
                             CircleAvatar(
                               radius: 22,
-                              backgroundColor: ChatTheme.myBubble.withOpacity(0.2),
-                              child: Text(name.isNotEmpty ? name[0].toUpperCase() : 'C', style: const TextStyle(color: ChatTheme.myBubble, fontWeight: FontWeight.bold)),
+                              backgroundColor: theme.myBubble.withOpacity(0.2),
+                              child: Text(name.isNotEmpty ? name[0].toUpperCase() : 'C', style: TextStyle(color: theme.myBubble, fontWeight: FontWeight.bold)),
                             ),
                             Positioned(
                               right: 0,
@@ -155,17 +153,15 @@ class ChatSidebar extends StatelessWidget {
                                 width: 12,
                                 height: 12,
                                 decoration: BoxDecoration(
-                                  color: ChatTheme.online,
+                                  color: theme.online,
                                   shape: BoxShape.circle,
-                                  border: Border.all(color: ChatTheme.sidebar, width: 2),
+                                  border: Border.all(color: _bg, width: 2),
                                 ),
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(width: 12),
-                        
-                        // Infos du contact
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -174,22 +170,32 @@ class ChatSidebar extends StatelessWidget {
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
                                   Expanded(
-                                    child: Text(name, style: ChatTheme.nameStyle, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    child: Text(name, style: GoogleFonts.inter(color: _text, fontSize: 15, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
                                   ),
+                                  if (c['isPinned'] == true)
+                                    Padding(
+                                      padding: const EdgeInsets.only(right: 4),
+                                      child: Icon(Icons.push_pin, color: theme.accent, size: 14),
+                                    ),
+                                  if (c['isMuted'] == true)
+                                    Padding(
+                                      padding: const EdgeInsets.only(right: 4),
+                                      child: Icon(Icons.volume_off, color: _muted, size: 14),
+                                    ),
                                   if (time.isNotEmpty)
-                                    Text(time, style: ChatTheme.timeStyle),
+                                    Text(time, style: GoogleFonts.inter(color: _muted, fontSize: 11)),
                                 ],
                               ),
                               const SizedBox(height: 2),
                               if (role.isNotEmpty)
-                                Text(role, style: GoogleFonts.inter(color: ChatTheme.accent, fontSize: 10, fontWeight: FontWeight.w600)),
+                                Text(role, style: GoogleFonts.inter(color: theme.accent, fontSize: 10, fontWeight: FontWeight.w600)),
                               const SizedBox(height: 4),
                               Row(
                                 children: [
                                   Expanded(
                                     child: Text(
                                       lastText,
-                                      style: GoogleFonts.inter(color: unread > 0 ? ChatTheme.text : ChatTheme.muted, fontSize: 13, fontStyle: unread > 0 ? FontStyle.normal : FontStyle.italic),
+                                      style: GoogleFonts.inter(color: unread > 0 ? _text : _muted, fontSize: 13, fontStyle: unread > 0 ? FontStyle.normal : FontStyle.italic),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -198,7 +204,7 @@ class ChatSidebar extends StatelessWidget {
                                     Container(
                                       margin: const EdgeInsets.only(left: 8),
                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(color: ChatTheme.unread, borderRadius: BorderRadius.circular(10)),
+                                      decoration: BoxDecoration(color: theme.unread, borderRadius: BorderRadius.circular(10)),
                                       child: Text(unread.toString(), style: GoogleFonts.inter(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                                     ),
                                 ],
@@ -218,25 +224,6 @@ class ChatSidebar extends StatelessWidget {
     );
   }
 
-  Widget _buildFilterChip(String label, bool isSelected) {
-    return Container(
-      margin: const EdgeInsets.only(right: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: isSelected ? ChatTheme.myBubble : Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isSelected ? ChatTheme.myBubble : Colors.white.withOpacity(0.1)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: isSelected ? Colors.white : ChatTheme.muted,
-          fontSize: 12,
-          fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-        ),
-      ),
-    );
-  }
 
   IconData _getIconForSection(String? name) {
     switch (name) {
@@ -247,13 +234,14 @@ class ChatSidebar extends StatelessWidget {
     }
   }
 
-  Color _getColorForSection(String? name) {
+  Color _getColorForSection(BuildContext context, String? name) {
+    final theme = ChatTheme.of(context);
     switch (name) {
-      case 'green': return ChatTheme.roleClient;
-      case 'purple': return ChatTheme.roleConcepteur;
-      case 'blue': return ChatTheme.roleTechnicien;
-      case 'orange': return ChatTheme.roleMaintenance;
-      default: return ChatTheme.muted;
+      case 'green': return theme.roleClient;
+      case 'purple': return theme.roleConcepteur;
+      case 'blue': return theme.roleTechnicien;
+      case 'orange': return theme.roleMaintenance;
+      default: return theme.muted;
     }
   }
 

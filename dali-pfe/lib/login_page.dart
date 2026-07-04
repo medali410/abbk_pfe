@@ -168,10 +168,10 @@ class _LoginPageState extends State<LoginPage> {
                             child: Container(
                               padding: const EdgeInsets.all(48.0),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF151525).withOpacity(0.4),
-                                borderRadius: BorderRadius.circular(16),
+                                color: const Color(0xFF0F172A).withOpacity(0.65),
+                                borderRadius: BorderRadius.circular(24),
                                 border: Border.all(
-                                  color: Colors.white.withOpacity(0.08),
+                                  color: Colors.white.withOpacity(0.12),
                                   width: 1,
                                 ),
                               ),
@@ -255,34 +255,21 @@ class _LoginPageState extends State<LoginPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        TextField(
+        _buildTextField(
           controller: _loginEmailController,
-          style: const TextStyle(color: Colors.white),
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(
-            labelText: 'Email',
-            hintText: 'utilisateur@entreprise.fr',
-          ),
-        ),
-        const SizedBox(height: 14),
-        TextField(
-          controller: _loginPasswordController,
-          style: const TextStyle(color: Colors.white),
-          obscureText: _obscurePassword,
-          decoration: InputDecoration(
-            labelText: 'Mot de passe',
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                color: Colors.white54,
-              ),
-              onPressed: () {
-                setState(() => _obscurePassword = !_obscurePassword);
-              },
-            ),
-          ),
+          label: 'EMAIL',
+          icon: Icons.email_outlined,
+          hintText: 'utilisateur@entreprise.fr',
         ),
         const SizedBox(height: 20),
+        _buildTextField(
+          controller: _loginPasswordController,
+          label: 'MOT DE PASSE',
+          icon: Icons.lock_outline,
+          hintText: 'Votre mot de passe',
+          isPassword: true,
+        ),
+        const SizedBox(height: 28),
         ElevatedButton(
           onPressed: _loginSubmitting ? null : () => _submitLogin(context),
           style: ElevatedButton.styleFrom(
@@ -338,14 +325,11 @@ class _LoginPageState extends State<LoginPage> {
           ),
           const SizedBox(height: 14),
         ],
-        Opacity(
-          opacity: _googleOAuthConfigured ? 1 : 0.72,
-          child: _socialConnectPill(
-            context: context,
-            leading: _googleGLogo(),
-            label: label,
-            onTap: () => _authWithGoogle(context),
-          ),
+        _socialConnectPill(
+          context: context,
+          leading: _googleGLogo(),
+          label: label,
+          onTap: () => _authWithGoogle(context),
         ),
       ],
     );
@@ -963,16 +947,23 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Widget _googleGLogo() {
-    return SizedBox(
-      width: 22,
-      height: 22,
+    return Container(
+      width: 24,
+      height: 24,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
       child: Image.network(
         'https://www.google.com/images/branding/googleg/1x/googleg_standard_color_128dp.png',
+        width: 18,
+        height: 18,
         errorBuilder: (_, __, ___) => Text(
           'G',
           style: GoogleFonts.inter(
             fontSize: 16,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w900,
             color: const Color(0xFF4285F4),
           ),
         ),
@@ -1329,19 +1320,19 @@ class _LoginPageState extends State<LoginPage> {
   }) {
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(12),
         child: Container(
           width: double.infinity,
           padding: EdgeInsets.symmetric(
             horizontal: 18,
-            vertical: twoLines ? 12 : 14,
+            vertical: twoLines ? 14 : 16,
           ),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: const Color(0xFFE0E0E0)),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -1401,33 +1392,39 @@ class _LoginPageState extends State<LoginPage> {
             color: const Color(0xFFF4F4F9),
           ),
           decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.white.withOpacity(0.04),
             hintText: hintText,
             hintStyle: TextStyle(
-              color: const Color(0xFFA0A0B0).withOpacity(0.2),
+              color: const Color(0xFFA0A0B0).withOpacity(0.3),
             ),
             prefixIcon: Icon(
               icon,
-              color: const Color(0xFFA0A0B0).withOpacity(0.4),
+              color: const Color(0xFFA0A0B0).withOpacity(0.5),
             ),
             suffixIcon: isPassword
-                ? IconButton(
-                    icon: Icon(
-                      _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                      color: const Color(0xFFA0A0B0).withOpacity(0.4),
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _obscurePassword = !_obscurePassword;
-                      });
-                    },
-                  )
+                    ? TextButton(
+                        onPressed: () {
+                          setState(() => _obscurePassword = !_obscurePassword);
+                        },
+                        child: Text(
+                          _obscurePassword ? 'Voir' : 'Masquer',
+                          style: TextStyle(
+                            color: const Color(0xFFA0A0B0).withOpacity(0.8),
+                            fontSize: 13,
+                          ),
+                        ),
+                      )
                 : null,
-            enabledBorder: UnderlineInputBorder(
-              borderSide: BorderSide(color: const Color(0xFF2E2E3E).withOpacity(0.3)),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
             ),
-            focusedBorder: const UnderlineInputBorder(
-              borderSide: BorderSide(color: Color(0xFFFF6E00)),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFFF6E00)),
             ),
+            contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
           ),
         ),
       ],

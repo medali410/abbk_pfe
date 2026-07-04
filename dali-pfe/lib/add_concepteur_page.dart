@@ -10,7 +10,9 @@ class AddConcepteurPage extends StatefulWidget {
   /// Intégré au dashboard (sans pile de navigation) : retour vers la liste conception.
   final VoidCallback? onEmbeddedBack;
 
-  const AddConcepteurPage({super.key, this.initialData, this.onEmbeddedBack});
+  final bool isDarkMode;
+
+  const AddConcepteurPage({super.key, this.initialData, this.onEmbeddedBack, this.isDarkMode = false});
 
   @override
   State<AddConcepteurPage> createState() => _AddConcepteurPageState();
@@ -18,10 +20,11 @@ class AddConcepteurPage extends StatefulWidget {
 
 
 class _AddConcepteurPageState extends State<AddConcepteurPage> {
-  static const _bg = Color(0xFF10102B);
-  static const _surface = Color(0xFF1D1D38);
-  static const _onSurface = Color(0xFFE2DFFF);
-  static const _onVariant = Color(0xFFE2BFB0);
+  // ── Theme-aware color getters ──
+  Color get _bg        => widget.isDarkMode ? const Color(0xFF10102B) : const Color(0xFFFCFAF7);
+  Color get _surface   => widget.isDarkMode ? const Color(0xFF1D1D38) : const Color(0xFFFFFFFF);
+  Color get _onSurface => widget.isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF332A21);
+  Color get _onVariant => widget.isDarkMode ? const Color(0xFFE2BFB0) : const Color(0xFF8B5E3C);
   static const _primary = Color(0xFFFF6E00);
 
   final _fullName = TextEditingController();
@@ -379,11 +382,11 @@ class _AddConcepteurPageState extends State<AddConcepteurPage> {
             ),
           ),
           if (_loadingProfile)
-            const Positioned(
+            Positioned(
               top: 0,
               left: 0,
               right: 0,
-              child: LinearProgressIndicator(color: _primary, minHeight: 2),
+              child: const LinearProgressIndicator(color: _primary, minHeight: 2),
             ),
         ],
       ),
@@ -420,17 +423,17 @@ class _AddConcepteurPageState extends State<AddConcepteurPage> {
             style: GoogleFonts.inter(color: _onSurface, fontSize: 14, fontWeight: FontWeight.w500),
             decoration: InputDecoration(
               filled: true,
-              fillColor: Colors.white.withOpacity(0.03),
+              fillColor: widget.isDarkMode ? Colors.white.withOpacity(0.03) : _surface,
               prefixIcon: icon != null ? Icon(icon, color: _primary.withOpacity(0.7), size: 20) : null,
               suffixIcon: suffix,
               contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
+                borderSide: BorderSide(color: widget.isDarkMode ? Colors.white.withOpacity(0.1) : const Color(0xFFCD7F32).withOpacity(0.3)),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+                borderSide: BorderSide(color: widget.isDarkMode ? Colors.white.withOpacity(0.08) : const Color(0xFFCD7F32).withOpacity(0.2)),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
@@ -439,7 +442,7 @@ class _AddConcepteurPageState extends State<AddConcepteurPage> {
               hintText: label.toUpperCase(),
               hintStyle: GoogleFonts.spaceGrotesk(
                 fontSize: 10,
-                color: _onVariant.withOpacity(0.2),
+                color: _onVariant.withOpacity(widget.isDarkMode ? 0.2 : 0.4),
                 letterSpacing: 1,
               ),
             ),

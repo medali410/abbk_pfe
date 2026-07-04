@@ -35,8 +35,13 @@ class _Client {
 class EmbeddedClientListView extends StatefulWidget {
   /// Called when user taps "AJOUTER CLIENT" → opens add-client form
   final VoidCallback onAddClient;
+  final bool isDarkMode;
 
-  const EmbeddedClientListView({super.key, required this.onAddClient});
+  const EmbeddedClientListView({
+    super.key,
+    required this.onAddClient,
+    this.isDarkMode = false,
+  });
 
   @override
   State<EmbeddedClientListView> createState() =>
@@ -50,18 +55,18 @@ class _EmbeddedClientListViewState
   static const List<_Client> _clients = [];
 
   // ─── Colors ───────────────────────────────────────────────
-  static const _bg = Color(0xFF10102B);
-  static const _surface = Color(0xFF1D1D38);
-  static const _surfaceLow = Color(0xFF191934);
-  static const _surfaceLowest = Color(0xFF0B0B26);
-  static const _onSurface = Color(0xFFE2DFFF);
-  static const _onSurfaceVariant = Color(0xFFE2BFB0);
-  static const _secondary = Color(0xFF75D1FF);
-  static const _tertiary = Color(0xFFEFB1F9);
-  static const _orange = Color(0xFFFF6E00);
-  static const _green = Color(0xFF66BB6A);
-  static const _red = Color(0xFFFFB4AB);
-  static const _outline = Color(0xFF594136);
+  Color get _bg => widget.isDarkMode ? const Color(0xFF10102B) : const Color(0xFFFCFAF7);
+  Color get _surface => widget.isDarkMode ? const Color(0xFF1D1D38) : const Color(0xFFFFF8F0);
+  Color get _surfaceLow => widget.isDarkMode ? const Color(0xFF191934) : const Color(0xFFF5E0C3);
+  Color get _surfaceLowest => widget.isDarkMode ? const Color(0xFF0B0B26) : const Color(0xFFECE4D5);
+  Color get _onSurface => widget.isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF2D1F0E);
+  Color get _onSurfaceVariant => widget.isDarkMode ? const Color(0xFFE2BFB0) : const Color(0xFF7A4F2E);
+  Color get _secondary => widget.isDarkMode ? const Color(0xFF75D1FF) : const Color(0xFFB87333);
+  Color get _tertiary => widget.isDarkMode ? const Color(0xFFEFB1F9) : const Color(0xFF8B5E3C);
+  Color get _orange => widget.isDarkMode ? const Color(0xFFFF6E00) : const Color(0xFFB86000);
+  Color get _green => const Color(0xFF66BB6A);
+  Color get _red => widget.isDarkMode ? const Color(0xFFFFB4AB) : const Color(0xFFD32F2F);
+  Color get _outline => widget.isDarkMode ? const Color(0xFF594136) : const Color(0xFFCD7F32).withOpacity(0.3);
 
   // ─── Status helpers ────────────────────────────────────────
   Color _statusColor(_Client c) {
@@ -114,8 +119,8 @@ class _EmbeddedClientListViewState
       future: api.ApiService.getClients(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: Padding(
-            padding: EdgeInsets.all(48.0),
+          return Center(child: Padding(
+            padding: const EdgeInsets.all(48.0),
             child: CircularProgressIndicator(color: _secondary),
           ));
         }
@@ -209,9 +214,9 @@ class _EmbeddedClientListViewState
       width: 320,
       height: 48,
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.03),
+        color: widget.isDarkMode ? Colors.white.withOpacity(0.03) : const Color(0xFFFFF8F0),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: widget.isDarkMode ? Colors.white.withOpacity(0.08) : const Color(0xFFCD7F32).withOpacity(0.3)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: TextField(
@@ -222,7 +227,7 @@ class _EmbeddedClientListViewState
               color: _orange.withOpacity(0.7), size: 20),
           hintText: 'Rechercher un client...',
           hintStyle: GoogleFonts.inter(
-            color: _onSurface.withOpacity(0.3),
+            color: _onSurface.withOpacity(0.5),
             fontSize: 13,
           ),
           border: InputBorder.none,
@@ -338,6 +343,7 @@ class _EmbeddedClientListViewState
         healthColor: _healthColor(clients[i].health),
         alertColor: _alertColor(clients[i].alerts),
         onRefresh: () => setState(() {}),
+        isDarkMode: widget.isDarkMode,
       ),
     );
   }
@@ -416,6 +422,7 @@ class _ClientCard extends StatefulWidget {
   final Color healthColor;
   final Color alertColor;
   final VoidCallback onRefresh;
+  final bool isDarkMode;
 
   const _ClientCard({
     required this.client,
@@ -425,6 +432,7 @@ class _ClientCard extends StatefulWidget {
     required this.healthColor,
     required this.alertColor,
     required this.onRefresh,
+    this.isDarkMode = false,
   });
 
   @override
@@ -434,9 +442,9 @@ class _ClientCard extends StatefulWidget {
 class _ClientCardState extends State<_ClientCard> {
   bool _hovering = false;
 
-  static const _secondary = Color(0xFF75D1FF);
-  static const _tertiary = Color(0xFFEFB1F9);
-  static const _orange = Color(0xFFFF6E00);
+  Color get _secondary => widget.isDarkMode ? const Color(0xFF75D1FF) : const Color(0xFFB87333);
+  Color get _tertiary => widget.isDarkMode ? const Color(0xFFEFB1F9) : const Color(0xFF8B5E3C);
+  Color get _orange => widget.isDarkMode ? const Color(0xFFFF6E00) : const Color(0xFFB86000);
 
   @override
   Widget build(BuildContext context) {
@@ -459,20 +467,20 @@ class _ClientCardState extends State<_ClientCard> {
         return await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            backgroundColor: const Color(0xFF1D1D38),
-            title: Text('Supprimer ${c.name}?', style: GoogleFonts.inter(color: Colors.white)),
-            content: const Text(
+            backgroundColor: widget.isDarkMode ? const Color(0xFF1D1D38) : const Color(0xFFFFF8F0),
+            title: Text('Supprimer ${c.name}?', style: GoogleFonts.inter(color: widget.isDarkMode ? Colors.white : const Color(0xFF2D1F0E))),
+            content: Text(
               'Cela supprimera définitivement le client et TOUTES ses machines.',
-              style: TextStyle(color: Colors.white70),
+              style: TextStyle(color: widget.isDarkMode ? Colors.white70 : const Color(0xFF4B3B2A)),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('ANNULER'),
+                child: Text('ANNULER', style: TextStyle(color: widget.isDarkMode ? Colors.white70 : const Color(0xFF7A4F2E))),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('SUPPRIMER', style: TextStyle(color: Color(0xFFFFB4AB))),
+                child: Text('SUPPRIMER', style: TextStyle(color: widget.isDarkMode ? const Color(0xFFFFB4AB) : const Color(0xFFD32F2F))),
               ),
             ],
           ),
@@ -501,6 +509,7 @@ class _ClientCardState extends State<_ClientCard> {
               context: context,
               builder: (context) => AddClientPage(
                 isDialog: true,
+                isDarkMode: widget.isDarkMode,
                 onBack: () {
                   Navigator.pop(context);
                   widget.onRefresh();
@@ -514,16 +523,20 @@ class _ClientCardState extends State<_ClientCard> {
           duration: const Duration(milliseconds: 250),
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: _hovering ? const Color(0xFF24244A) : const Color(0xFF1D1D38),
+            color: _hovering
+                ? (widget.isDarkMode ? const Color(0xFF24244A) : const Color(0xFFFFF1E0))
+                : (widget.isDarkMode ? const Color(0xFF1D1D38) : const Color(0xFFFFF8F0)),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: _hovering ? _secondary.withOpacity(0.3) : Colors.white.withOpacity(0.05),
+              color: _hovering
+                  ? _secondary.withOpacity(0.5)
+                  : (widget.isDarkMode ? Colors.white.withOpacity(0.05) : const Color(0xFFCD7F32).withOpacity(0.2)),
               width: 1.5,
             ),
             boxShadow: [
               if (_hovering)
                 BoxShadow(
-                  color: _secondary.withOpacity(0.1),
+                  color: _secondary.withOpacity(widget.isDarkMode ? 0.1 : 0.15),
                   blurRadius: 20,
                   offset: const Offset(0, 10),
                 ),
@@ -545,7 +558,7 @@ class _ClientCardState extends State<_ClientCard> {
                         ],
                       ),
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      border: Border.all(color: widget.isDarkMode ? Colors.white.withOpacity(0.1) : const Color(0xFFCD7F32).withOpacity(0.25)),
                     ),
                     child: Center(
                       child: Text(
@@ -568,7 +581,7 @@ class _ClientCardState extends State<_ClientCard> {
                           style: GoogleFonts.inter(
                             fontSize: 16,
                             fontWeight: FontWeight.w800,
-                            color: Colors.white,
+                            color: widget.isDarkMode ? Colors.white : const Color(0xFF2D1F0E),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -584,7 +597,7 @@ class _ClientCardState extends State<_ClientCard> {
                                 overflow: TextOverflow.ellipsis,
                                 style: GoogleFonts.inter(
                                   fontSize: 11,
-                                  color: Colors.white.withOpacity(0.5),
+                                  color: widget.isDarkMode ? Colors.white.withOpacity(0.5) : const Color(0xFF7A4F2E),
                                 ),
                               ),
                             ),
@@ -612,7 +625,7 @@ class _ClientCardState extends State<_ClientCard> {
                   ),
                   const SizedBox(width: 8),
                   IconButton(
-                    icon: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white54, size: 16),
+                    icon: Icon(Icons.arrow_forward_ios_rounded, color: widget.isDarkMode ? Colors.white54 : const Color(0xFF7A4F2E), size: 16),
                     onPressed: () {
                       Navigator.push(
                         context,

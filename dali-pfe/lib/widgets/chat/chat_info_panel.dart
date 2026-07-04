@@ -5,19 +5,31 @@ import 'chat_theme.dart';
 class ChatInfoPanel extends StatelessWidget {
   final Map<String, dynamic>? selectedContactDetails;
   final VoidCallback onClose;
+  final VoidCallback onTogglePin;
+  final VoidCallback onBlock;
+  final VoidCallback onClearHistory;
+  final bool isPinned;
+  final bool isBlocked;
 
   const ChatInfoPanel({
     super.key,
     required this.selectedContactDetails,
     required this.onClose,
+    required this.onTogglePin,
+    required this.onBlock,
+    required this.onClearHistory,
+    this.isPinned = false,
+    this.isBlocked = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final theme = ChatTheme.of(context);
+    
     if (selectedContactDetails == null) {
       return Container(
-        color: ChatTheme.panel,
-        child: const Center(child: CircularProgressIndicator(color: ChatTheme.myBubble)),
+        color: theme.panel,
+        child: Center(child: CircularProgressIndicator(color: theme.myBubble)),
       );
     }
 
@@ -25,22 +37,26 @@ class ChatInfoPanel extends StatelessWidget {
     final role = (selectedContactDetails!['specialite'] ?? selectedContactDetails!['roleLabel'] ?? 'Membre de l\'équipe').toString();
     final machines = selectedContactDetails!['machines'] as List? ?? [];
 
+    final borderDivider = Theme.of(context).brightness == Brightness.dark 
+        ? Colors.white.withOpacity(0.05) 
+        : const Color(0xFFCD7F32).withOpacity(0.15);
+
     return Container(
-      color: ChatTheme.panel,
+      color: theme.panel,
       child: Column(
         children: [
           // En-tête du panneau
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Colors.white10, width: 1)),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: borderDivider, width: 1)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Détails du contact', style: GoogleFonts.inter(color: ChatTheme.text, fontSize: 14, fontWeight: FontWeight.bold)),
+                Text('Détails du contact', style: GoogleFonts.inter(color: theme.text, fontSize: 14, fontWeight: FontWeight.bold)),
                 IconButton(
-                  icon: const Icon(Icons.close, color: ChatTheme.muted, size: 20),
+                  icon: Icon(Icons.close, color: theme.muted, size: 20),
                   onPressed: onClose,
                 ),
               ],
@@ -56,63 +72,63 @@ class ChatInfoPanel extends StatelessWidget {
                   // Grand Avatar
                   CircleAvatar(
                     radius: 48,
-                    backgroundColor: ChatTheme.myBubble.withOpacity(0.2),
+                    backgroundColor: theme.myBubble.withOpacity(0.2),
                     child: Text(
                       name.isNotEmpty ? name[0].toUpperCase() : 'C', 
-                      style: const TextStyle(color: ChatTheme.myBubble, fontSize: 32, fontWeight: FontWeight.bold)
+                      style: TextStyle(color: theme.myBubble, fontSize: 32, fontWeight: FontWeight.bold)
                     ),
                   ),
                   const SizedBox(height: 16),
                   
                   // Nom et Rôle
-                  Text(name, style: GoogleFonts.inter(color: ChatTheme.text, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                  Text(name, style: GoogleFonts.inter(color: theme.text, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
                   const SizedBox(height: 8),
-                  Text(role, style: GoogleFonts.inter(color: ChatTheme.accent, fontSize: 14, fontWeight: FontWeight.w500), textAlign: TextAlign.center),
+                  Text(role, style: GoogleFonts.inter(color: theme.accent, fontSize: 14, fontWeight: FontWeight.w500), textAlign: TextAlign.center),
                   const SizedBox(height: 16),
                   
                   // Statut en ligne
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: ChatTheme.online.withOpacity(0.1),
+                      color: theme.online.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: ChatTheme.online.withOpacity(0.3)),
+                      border: Border.all(color: theme.online.withOpacity(0.3)),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(width: 8, height: 8, decoration: const BoxDecoration(color: ChatTheme.online, shape: BoxShape.circle)),
+                        Container(width: 8, height: 8, decoration: BoxDecoration(color: theme.online, shape: BoxShape.circle)),
                         const SizedBox(width: 8),
-                        Text('En ligne', style: GoogleFonts.inter(color: ChatTheme.online, fontSize: 12, fontWeight: FontWeight.bold)),
+                        Text('En ligne', style: GoogleFonts.inter(color: theme.online, fontSize: 12, fontWeight: FontWeight.bold)),
                       ],
                     ),
                   ),
                   
                   const SizedBox(height: 32),
-                  const Divider(color: Colors.white10),
+                  Divider(color: borderDivider),
                   const SizedBox(height: 24),
                   
                   // Machines Associées
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: Text('MACHINES ASSIGNÉES', style: GoogleFonts.spaceGrotesk(color: ChatTheme.muted, fontSize: 11, letterSpacing: 1.2)),
+                    child: Text('MACHINES ASSIGNÉES', style: GoogleFonts.spaceGrotesk(color: theme.muted, fontSize: 11, letterSpacing: 1.2)),
                   ),
                   const SizedBox(height: 16),
                   if (machines.isEmpty)
-                    const Align(
+                    Align(
                       alignment: Alignment.centerLeft,
-                      child: Text('Aucune machine', style: TextStyle(color: ChatTheme.muted, fontSize: 13)),
+                      child: Text('Aucune machine', style: TextStyle(color: theme.muted, fontSize: 13)),
                     )
                   else
                     ...machines.map((m) => Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(12),
-                      decoration: ChatTheme.glassDecoration.copyWith(color: ChatTheme.bg.withOpacity(0.4)),
+                      decoration: theme.glassDecoration.copyWith(color: theme.bg.withOpacity(0.4)),
                       child: Row(
                         children: [
-                          const Icon(Icons.precision_manufacturing, color: ChatTheme.myBubble, size: 20),
+                          Icon(Icons.precision_manufacturing, color: theme.myBubble, size: 20),
                           const SizedBox(width: 12),
-                          Expanded(child: Text(m.toString(), style: GoogleFonts.inter(color: ChatTheme.text, fontSize: 13, fontWeight: FontWeight.w500))),
+                          Expanded(child: Text(m.toString(), style: GoogleFonts.inter(color: theme.text, fontSize: 13, fontWeight: FontWeight.w500))),
                         ],
                       ),
                     )),
@@ -122,13 +138,11 @@ class ChatInfoPanel extends StatelessWidget {
                   // Actions rapides
                   Align(
                     alignment: Alignment.centerLeft,
-                    child: Text('ACTIONS', style: GoogleFonts.spaceGrotesk(color: ChatTheme.muted, fontSize: 11, letterSpacing: 1.2)),
+                    child: Text('ACTIONS', style: GoogleFonts.spaceGrotesk(color: theme.muted, fontSize: 11, letterSpacing: 1.2)),
                   ),
                   const SizedBox(height: 16),
-                  _buildActionButton(Icons.push_pin_outlined, 'Épingler la discussion', Colors.white, () {}),
-                  _buildActionButton(Icons.notifications_off_outlined, 'Mettre en sourdine', Colors.white, () {}),
-                  _buildActionButton(Icons.block_outlined, 'Bloquer le contact', ChatTheme.roleAdmin, () {}),
-                  _buildActionButton(Icons.delete_outline, 'Effacer l\'historique', ChatTheme.roleAdmin, () {}),
+                  _buildActionButton(isPinned ? Icons.push_pin : Icons.push_pin_outlined, isPinned ? 'Désépingler' : 'Épingler la discussion', theme.text, onTogglePin),
+                  _buildActionButton(Icons.delete_outline, 'Effacer l\'historique', theme.roleAdmin, onClearHistory),
                 ],
               ),
             ),

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:google_fonts/google_fonts.dart' hide Config;
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'chat_theme.dart';
 
-class ChatMainArea extends StatelessWidget {
+class ChatMainArea extends StatefulWidget {
   final String activeRoomId;
   final Map<String, dynamic>? selectedContactDetails;
   final List<Map<String, dynamic>> messages;
@@ -20,7 +21,13 @@ class ChatMainArea extends StatelessWidget {
   final VoidCallback onSendMessage;
   final Function(String) onInputChanged;
   final VoidCallback onCloseConversation;
-  final Widget Function(Map<String, dynamic>) buildMessageItem; // On délègue le rendu complexe à la vue principale pour l'instant
+  final VoidCallback? onVideoCall;
+  final VoidCallback? onVoiceCall;
+  final VoidCallback? onSearchMessages;
+  final bool showEmojiPicker;
+  final VoidCallback? onToggleEmojiPicker;
+  final Function(String)? onEmojiSelected;
+  final Widget Function(Map<String, dynamic>) buildMessageItem;
 
   const ChatMainArea({
     super.key,
@@ -42,20 +49,48 @@ class ChatMainArea extends StatelessWidget {
     required this.onInputChanged,
     required this.onCloseConversation,
     required this.buildMessageItem,
+    this.onVideoCall,
+    this.onVoiceCall,
+    this.onSearchMessages,
+    this.showEmojiPicker = false,
+    this.onToggleEmojiPicker,
+    this.onEmojiSelected,
   });
 
   @override
+  State<ChatMainArea> createState() => _ChatMainAreaState();
+}
+
+class _ChatMainAreaState extends State<ChatMainArea> {
+  bool _isSearchingMessages = false;
+  final TextEditingController _msgSearchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _msgSearchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (activeRoomId.isEmpty) {
-      return _buildEmptyState();
+    if (widget.activeRoomId.isEmpty) {
+      return _buildEmptyState(context);
     }
 
-    final name = selectedContactDetails?['name']?.toString() ?? 'Discussion';
-    final role = selectedContactDetails?['roleLabel']?.toString() ?? 'Contact';
+    final name = widget.selectedContactDetails?['name']?.toString() ?? 'Discussion';
+    final role = widget.selectedContactDetails?['roleLabel']?.toString() ?? 'Contact';
     final isDesktop = MediaQuery.of(context).size.width > 900;
 
+    final theme = ChatTheme.of(context);
+
+    // Apply filter if searching
+    final query = _msgSearchController.text.toLowerCase().trim();
+    final displayedMessages = query.isEmpty
+        ? widget.messages
+        : widget.messages.where((m) => (m['text'] ?? '').toString().toLowerCase().contains(query)).toList();
+
     return Container(
-      color: ChatTheme.bg,
+      color: theme.bg,
       child: Column(
         children: [
           // En-tête
@@ -63,41 +98,90 @@ class ChatMainArea extends StatelessWidget {
             height: 70,
             padding: const EdgeInsets.symmetric(horizontal: 20),
             decoration: BoxDecoration(
-              color: ChatTheme.header.withOpacity(0.95),
-              border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
+              color: theme.header.withOpacity(0.95),
+              border: Border(bottom: BorderSide(
+                color: Theme.of(context).brightness == Brightness.dark 
+                    ? Colors.white.withOpacity(0.05) 
+                    : const Color(0xFFCD7F32).withOpacity(0.15),
+              )),
               boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2))],
             ),
-            child: Row(
-              children: [
-                if (!isDesktop) ...[
-                  IconButton(icon: const Icon(Icons.arrow_back, color: ChatTheme.text), onPressed: onCloseConversation),
-                  const SizedBox(width: 8),
-                ],
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: ChatTheme.myBubble.withOpacity(0.2),
-                  child: Text(name.isNotEmpty ? name[0].toUpperCase() : 'C', style: const TextStyle(color: ChatTheme.myBubble, fontWeight: FontWeight.bold)),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
+            child: _isSearchingMessages
+                ? Row(
                     children: [
-                      Text(name, style: ChatTheme.nameStyle),
-                      Text(
-                        remoteIsTyping ? 'est en train d\'écrire...' : 'En ligne',
-                        style: GoogleFonts.inter(color: remoteIsTyping ? ChatTheme.accent : ChatTheme.online, fontSize: 12, fontStyle: remoteIsTyping ? FontStyle.italic : FontStyle.normal),
+                      IconButton(
+                        icon: Icon(Icons.arrow_back, color: theme.text),
+                        onPressed: () {
+                          setState(() {
+                            _isSearchingMessages = false;
+                            _msgSearchController.clear();
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _msgSearchController,
+                          autofocus: true,
+                          style: TextStyle(color: theme.text, fontSize: 15),
+                          onChanged: (val) {
+                            setState(() {});
+                          },
+                          decoration: InputDecoration(
+                            hintText: 'Rechercher des messages...',
+                            hintStyle: TextStyle(color: theme.muted.withOpacity(0.6)),
+                            border: InputBorder.none,
+                          ),
+                        ),
+                      ),
+                      if (_msgSearchController.text.isNotEmpty)
+                        IconButton(
+                          icon: Icon(Icons.close, color: theme.muted),
+                          onPressed: () {
+                            setState(() {
+                              _msgSearchController.clear();
+                            });
+                          },
+                        ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      if (!isDesktop) ...[
+                        IconButton(icon: Icon(Icons.arrow_back, color: theme.text), onPressed: widget.onCloseConversation),
+                        const SizedBox(width: 8),
+                      ],
+                      CircleAvatar(
+                        radius: 20,
+                        backgroundColor: theme.myBubble.withOpacity(0.2),
+                        child: Text(name.isNotEmpty ? name[0].toUpperCase() : 'C', style: TextStyle(color: theme.myBubble, fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(name, style: theme.nameStyle),
+                            Text(
+                              widget.remoteIsTyping ? 'est en train d\'écrire...' : 'En ligne',
+                              style: GoogleFonts.inter(color: widget.remoteIsTyping ? theme.accent : theme.online, fontSize: 12, fontStyle: widget.remoteIsTyping ? FontStyle.italic : FontStyle.normal),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(icon: Icon(Icons.videocam_outlined, color: theme.muted), onPressed: widget.onVideoCall ?? () {}),
+                      IconButton(icon: Icon(Icons.call_outlined, color: theme.muted), onPressed: widget.onVoiceCall ?? () {}),
+                      IconButton(
+                        icon: Icon(Icons.search, color: theme.muted),
+                        onPressed: () {
+                          setState(() {
+                            _isSearchingMessages = true;
+                          });
+                        },
                       ),
                     ],
                   ),
-                ),
-                IconButton(icon: const Icon(Icons.videocam_outlined, color: ChatTheme.muted), onPressed: () {}),
-                IconButton(icon: const Icon(Icons.call_outlined, color: ChatTheme.muted), onPressed: () {}),
-                IconButton(icon: const Icon(Icons.search, color: ChatTheme.muted), onPressed: () {}),
-                IconButton(icon: const Icon(Icons.more_vert, color: ChatTheme.muted), onPressed: () {}),
-              ],
-            ),
           ),
 
           // Zone des messages
@@ -116,30 +200,30 @@ class ChatMainArea extends StatelessWidget {
                   children: [
                     Expanded(
                       child: ListView.builder(
-                        controller: scrollController,
+                        controller: widget.scrollController,
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-                        itemCount: messages.length,
+                        itemCount: displayedMessages.length,
                         itemBuilder: (context, index) {
                           // TODO: Ajouter séparateurs de date intelligents ici
-                          return buildMessageItem(messages[index]);
+                          return widget.buildMessageItem(displayedMessages[index]);
                         },
                       ),
                     ),
                     
-                    if (remoteIsTyping)
+                    if (widget.remoteIsTyping)
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                         child: Align(
                           alignment: Alignment.centerLeft,
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                            decoration: BoxDecoration(color: ChatTheme.otherBubble, borderRadius: BorderRadius.circular(20)),
+                            decoration: BoxDecoration(color: theme.otherBubble, borderRadius: BorderRadius.circular(20)),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: ChatTheme.muted)),
+                                SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: theme.muted)),
                                 const SizedBox(width: 8),
-                                Text('${remoteTypingName.isNotEmpty ? remoteTypingName : "Quelqu'un"} écrit...', style: GoogleFonts.inter(color: ChatTheme.muted, fontSize: 12, fontStyle: FontStyle.italic)),
+                                Text('${widget.remoteTypingName.isNotEmpty ? widget.remoteTypingName : "Quelqu'un"} écrit...', style: GoogleFonts.inter(color: theme.muted, fontSize: 12, fontStyle: FontStyle.italic)),
                               ],
                             ),
                           ),
@@ -155,72 +239,112 @@ class ChatMainArea extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
-              color: ChatTheme.header,
+              color: theme.header,
               border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
             ),
-            child: isRecording
+            child: widget.isRecording
                 ? Row(
                     children: [
                       const Icon(Icons.mic, color: Colors.redAccent),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Text('Enregistrement en cours... $recordingDuration', style: const TextStyle(color: ChatTheme.text, fontSize: 15)),
+                        child: Text('Enregistrement en cours... ${widget.recordingDuration}', style: TextStyle(color: theme.text, fontSize: 15)),
                       ),
-                      IconButton(icon: const Icon(Icons.delete, color: ChatTheme.muted), onPressed: onCancelRecording),
+                      IconButton(icon: Icon(Icons.delete, color: theme.muted), onPressed: widget.onCancelRecording),
                       const SizedBox(width: 8),
                       FloatingActionButton(
                         mini: true,
-                        backgroundColor: ChatTheme.myBubble,
-                        onPressed: onStopRecording,
+                        backgroundColor: theme.myBubble,
+                        onPressed: widget.onStopRecording,
                         child: const Icon(Icons.send, color: Colors.white, size: 20),
                       ),
                     ],
                   )
                 : Row(
                     children: [
-                      IconButton(icon: const Icon(Icons.attach_file, color: ChatTheme.muted), onPressed: onPickFile),
-                      IconButton(icon: const Icon(Icons.emoji_emotions_outlined, color: ChatTheme.muted), onPressed: () {}),
+                      IconButton(icon: Icon(Icons.attach_file, color: theme.muted), onPressed: widget.onPickFile),
+                      IconButton(
+                        icon: Icon(
+                          widget.showEmojiPicker ? Icons.keyboard : Icons.emoji_emotions_outlined,
+                          color: widget.showEmojiPicker ? theme.accent : theme.muted,
+                        ),
+                        onPressed: widget.onToggleEmojiPicker ?? () {},
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Container(
-                          decoration: ChatTheme.inputDecoration,
+                          decoration: theme.inputDecoration,
                           child: TextField(
-                            controller: inputController,
-                            onChanged: onInputChanged,
-                            style: const TextStyle(color: ChatTheme.text),
+                            controller: widget.inputController,
+                            onChanged: widget.onInputChanged,
+                            style: TextStyle(color: theme.text),
                             minLines: 1,
                             maxLines: 5,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               hintText: 'Tapez un message...',
-                              hintStyle: TextStyle(color: ChatTheme.muted),
+                              hintStyle: TextStyle(color: theme.muted),
                               border: InputBorder.none,
-                              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                             ),
                           ),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      if (inputController.text.trim().isEmpty)
-                        IconButton(icon: const Icon(Icons.mic, color: ChatTheme.muted), onPressed: onStartRecording)
+                      if (widget.inputController.text.trim().isEmpty)
+                        IconButton(icon: Icon(Icons.mic, color: theme.muted), onPressed: widget.onStartRecording)
                       else
                         FloatingActionButton(
                           mini: true,
-                          backgroundColor: ChatTheme.myBubble,
+                          backgroundColor: theme.myBubble,
                           elevation: 0,
-                          onPressed: onSendMessage,
+                          onPressed: widget.onSendMessage,
                           child: const Icon(Icons.send, color: Colors.white, size: 20),
                         ),
                     ],
                   ),
           ),
+
+          // Emoji Picker
+          if (widget.showEmojiPicker)
+            SizedBox(
+              height: 280,
+              child: EmojiPicker(
+                onEmojiSelected: (category, emoji) {
+                  widget.onEmojiSelected?.call(emoji.emoji);
+                },
+                config: Config(
+                  height: 280,
+                  checkPlatformCompatibility: true,
+                  emojiViewConfig: EmojiViewConfig(
+                    emojiSizeMax: 28,
+                    backgroundColor: theme.header,
+                    noRecents: Text('Pas d\'emojis récents', style: TextStyle(color: theme.muted, fontSize: 14)),
+                  ),
+                  categoryViewConfig: CategoryViewConfig(
+                    backgroundColor: theme.header,
+                    indicatorColor: theme.myBubble,
+                    iconColorSelected: theme.myBubble,
+                    iconColor: theme.muted,
+                    dividerColor: theme.bg,
+                  ),
+                  searchViewConfig: SearchViewConfig(
+                    backgroundColor: theme.header,
+                    buttonIconColor: theme.muted,
+                    hintText: 'Rechercher un emoji...',
+                  ),
+                  bottomActionBarConfig: const BottomActionBarConfig(enabled: false),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(BuildContext context) {
+    final theme = ChatTheme.of(context);
     return Container(
-      color: ChatTheme.bg,
+      color: theme.bg,
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -229,19 +353,19 @@ class ChatMainArea extends StatelessWidget {
               width: 120,
               height: 120,
               decoration: BoxDecoration(
-                color: ChatTheme.myBubble.withOpacity(0.1),
+                color: theme.myBubble.withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.forum_outlined, size: 60, color: ChatTheme.myBubble),
+              child: Icon(Icons.forum_outlined, size: 60, color: theme.myBubble),
             ),
             const SizedBox(height: 24),
-            Text('Bienvenue dans votre messagerie', style: GoogleFonts.inter(color: ChatTheme.text, fontSize: 24, fontWeight: FontWeight.bold)),
+            Text('Bienvenue dans votre messagerie', style: GoogleFonts.inter(color: theme.text, fontSize: 24, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             SizedBox(
               width: 400,
               child: Text(
                 'Sélectionnez un contact pour commencer une conversation ou utilisez la recherche pour trouver un membre de votre équipe.',
-                style: GoogleFonts.inter(color: ChatTheme.muted, fontSize: 14, height: 1.5),
+                style: GoogleFonts.inter(color: theme.muted, fontSize: 14, height: 1.5),
                 textAlign: TextAlign.center,
               ),
             ),

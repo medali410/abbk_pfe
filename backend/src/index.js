@@ -8,33 +8,33 @@ const http = require('http');
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 
-const authRoutes             = require('./routes/auth');
-const clientsRoutes          = require('./routes/clients');
-const machinesRoutes         = require('./routes/machines');
-const dashboardRoutes        = require('./routes/dashboard');
-const actorsRoutes           = require('./routes/actors');
-const documentsRoutes        = require('./routes/documents');
-const telemetryRoutes        = require('./routes/telemetry');
-const chatRoutes             = require('./routes/chat');
+const authRoutes = require('./routes/auth');
+const clientsRoutes = require('./routes/clients');
+const machinesRoutes = require('./routes/machines');
+const dashboardRoutes = require('./routes/dashboard');
+const actorsRoutes = require('./routes/actors');
+const documentsRoutes = require('./routes/documents');
+const telemetryRoutes = require('./routes/telemetry');
+const chatRoutes = require('./routes/chat');
 const purchaseRequestsRoutes = require('./routes/purchaseRequests');
 
 // [AJOUT] Nouvelles routes dédiées Technicien et Agent de Maintenance
-const techniciansRoutes      = require('./routes/technicians');        // [AJOUT]
+const techniciansRoutes = require('./routes/technicians');        // [AJOUT]
 const maintenanceAgentsRoutes = require('./routes/maintenanceAgents'); // [AJOUT]
-const controlesRoutes        = require('./routes/controles');          // [AJOUT]
+const controlesRoutes = require('./routes/controles');          // [AJOUT]
 const maintenanceOrdersRoutes = require('./routes/maintenanceOrders'); // [AJOUT]
-const consultationRoutes     = require('./routes/consultations');
-const notificationRoutes     = require('./routes/notifications');
-const missionRoutes          = require('./routes/missions');
-const predictionRoutes       = require('./routes/predictions');
+const consultationRoutes = require('./routes/consultations');
+const notificationRoutes = require('./routes/notifications');
+const missionRoutes = require('./routes/missions');
+const predictionRoutes = require('./routes/predictions');
 const diagnosticInterventionRoutes = require('./routes/diagnosticInterventions');
 
-const healthController    = require('./controllers/healthController');
+const healthController = require('./controllers/healthController');
 const telemetryController = require('./controllers/telemetryController');
-const { prisma }          = require('./lib/prisma');
+const { prisma } = require('./lib/prisma');
 
 const PORT = parseInt(String(process.env.PORT || '3001'), 10);
-const app  = express();
+const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: true, credentials: true }, allowEIO3: true });
 
@@ -54,42 +54,42 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.get('/api/health', healthController.check);
 
 app.post('/api/temp-create-concepteur', async (req, res) => {
-  try {
-    const { createUserWithProfile } = require('./lib/auth');
-    const { user, profile } = await createUserWithProfile(
-        'conception',
-        { email: 'sloma4694@gmail.com', nom: 'lemjid', password: 'password123', adresse: 'Tunis' },
-        { location: 'Tunis', specialite: 'Conception', status: 'Actif' }
-    );
-    res.json({ user, profile });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    try {
+        const { createUserWithProfile } = require('./lib/auth');
+        const { user, profile } = await createUserWithProfile(
+            'conception',
+            { email: 'sloma4694@gmail.com', nom: 'lemjid', password: 'password123', adresse: 'Tunis' },
+            { location: 'Tunis', specialite: 'Conception', status: 'Actif' }
+        );
+        res.json({ user, profile });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
-app.use('/api',                          authRoutes);
-app.use('/api/clients',                  clientsRoutes);
-app.use('/api/machines',                 machinesRoutes);
-app.use('/api/machine-instances',        require('./routes/machineInstances')); // [AJOUT]
-app.use('/api/predictions',              predictionRoutes);
-app.use('/api',                          predictionRoutes);
-app.use('/api/dashboard',               dashboardRoutes);
-app.use('/api',                          actorsRoutes);            // garde la compatibilité avec /api/concepteurs
-app.use('/api/conceptions',             documentsRoutes);
-app.use('/api/documents',               documentsRoutes);
-app.use('/api',                          telemetryRoutes);
-app.use('/api/chat',                     chatRoutes);
-app.use('/api/purchase-requests',        purchaseRequestsRoutes);
+app.use('/api', authRoutes);
+app.use('/api/clients', clientsRoutes);
+app.use('/api/machines', machinesRoutes);
+app.use('/api/machine-instances', require('./routes/machineInstances')); // [AJOUT]
+app.use('/api/predictions', predictionRoutes);
+app.use('/api', predictionRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api', actorsRoutes);            // garde la compatibilité avec /api/concepteurs
+app.use('/api/conceptions', documentsRoutes);
+app.use('/api/documents', documentsRoutes);
+app.use('/api', telemetryRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/purchase-requests', purchaseRequestsRoutes);
 
 // [AJOUT] Routes dédiées Technicien et Agent de Maintenance
-app.use('/api/technicians',              techniciansRoutes);        // [AJOUT]
-app.use('/api/maintenance-agents',       maintenanceAgentsRoutes);  // [AJOUT]
-app.use('/api/controles',                controlesRoutes);          // [AJOUT]
-app.use('/api/maintenance-orders',       maintenanceOrdersRoutes);  // [AJOUT]
-app.use('/api/consultations',            consultationRoutes);
-app.use('/api/notifications',            notificationRoutes);
-app.use('/api/missions',                 missionRoutes);
+app.use('/api/technicians', techniciansRoutes);        // [AJOUT]
+app.use('/api/maintenance-agents', maintenanceAgentsRoutes);  // [AJOUT]
+app.use('/api/controles', controlesRoutes);          // [AJOUT]
+app.use('/api/maintenance-orders', maintenanceOrdersRoutes);  // [AJOUT]
+app.use('/api/consultations', consultationRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/missions', missionRoutes);
 app.use('/api/diagnostic-interventions', diagnosticInterventionRoutes);
 
 // ─── Socket.io ────────────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ io.on('connection', (socket) => {
             if (!roomId || (!text && !attachmentUrl)) return;
 
             await prisma.chatRoom.upsert({
-                where:  { roomId },
+                where: { roomId },
                 create: { roomId },
                 update: { updatedAt: new Date() },
             });
@@ -162,7 +162,7 @@ io.on('connection', (socket) => {
                 const participations = await prisma.chatRoomParticipant.findMany({
                     where: { roomId }
                 });
-                
+
                 for (const p of participations) {
                     if (p.userId !== userId) {
                         io.to(`global_user_${p.userId}`).emit('new_chat_notification', {
@@ -216,6 +216,74 @@ io.on('connection', (socket) => {
         io.emit('nouvelle_prediction', data);
     });
 
+    // ─── WebRTC Signaling for Voice/Video Calls ─────────────────────────────
+    socket.on('call_initiate', (data) => {
+        if (data.roomId) {
+            console.log(`📞 Call initiated in room ${data.roomId} by ${data.callerName} (${data.callType})`);
+            socket.to(data.roomId).emit('incoming_call', {
+                roomId: data.roomId,
+                callerId: data.callerId,
+                callerName: data.callerName,
+                callType: data.callType, // 'voice' or 'video'
+            });
+        }
+    });
+
+    socket.on('call_accept', (data) => {
+        if (data.roomId) {
+            console.log(`✅ Call accepted in room ${data.roomId}`);
+            socket.to(data.roomId).emit('call_accepted', {
+                roomId: data.roomId,
+                acceptorName: data.acceptorName,
+            });
+        }
+    });
+
+    socket.on('call_reject', (data) => {
+        if (data.roomId) {
+            console.log(`❌ Call rejected in room ${data.roomId}`);
+            socket.to(data.roomId).emit('call_rejected', {
+                roomId: data.roomId,
+            });
+        }
+    });
+
+    socket.on('call_end', (data) => {
+        if (data.roomId) {
+            console.log(`📴 Call ended in room ${data.roomId}`);
+            socket.to(data.roomId).emit('call_ended', {
+                roomId: data.roomId,
+            });
+        }
+    });
+
+    socket.on('webrtc_offer', (data) => {
+        if (data.roomId && data.sdp) {
+            socket.to(data.roomId).emit('webrtc_offer', {
+                roomId: data.roomId,
+                sdp: data.sdp,
+            });
+        }
+    });
+
+    socket.on('webrtc_answer', (data) => {
+        if (data.roomId && data.sdp) {
+            socket.to(data.roomId).emit('webrtc_answer', {
+                roomId: data.roomId,
+                sdp: data.sdp,
+            });
+        }
+    });
+
+    socket.on('webrtc_ice_candidate', (data) => {
+        if (data.roomId && data.candidate) {
+            socket.to(data.roomId).emit('webrtc_ice_candidate', {
+                roomId: data.roomId,
+                candidate: data.candidate,
+            });
+        }
+    });
+
     socket.on('disconnect', () => {
         console.log('❌ Client déconnecté:', socket.id);
     });
@@ -237,7 +305,7 @@ server.listen(PORT, async () => {
     console.log(`  http://localhost:${PORT}`);
     console.log(`  Health : http://localhost:${PORT}/api/health`);
     console.log(`  Socket : http://localhost:${PORT}`);
-    console.log(`  Base   : ${process.env.DATABASE_URL.split('@')[1] || '(DATABASE_URL)'}`);
+    console.log(`  Base   : ${process.env.DATABASE_URL ? process.env.DATABASE_URL.split('@')[1] || process.env.DATABASE_URL : '(DATABASE_URL non définie)'}`);
     console.log('==================================================');
     console.log('');
 

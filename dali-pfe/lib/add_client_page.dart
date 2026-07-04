@@ -7,8 +7,15 @@ class AddClientPage extends StatefulWidget {
   final Map<String, dynamic>? initialData;
   final VoidCallback? onBack;
   final bool isDialog;
+  final bool isDarkMode;
   
-  const AddClientPage({super.key, this.initialData, this.onBack, this.isDialog = false});
+  const AddClientPage({
+    super.key,
+    this.initialData,
+    this.onBack,
+    this.isDialog = false,
+    this.isDarkMode = false,
+  });
 
   @override
   State<AddClientPage> createState() => _AddClientPageState();
@@ -32,18 +39,18 @@ class _AddClientPageState extends State<AddClientPage> {
   final Set<String> _selectedMaintenanceAgentIds = {};
 
   // Color constants
-  static const _bg = Color(0xFF10102B);
-  static const _surface = Color(0xFF191934);
-  static const _surfaceContainer = Color(0xFF1D1D38);
-  static const _surfaceHigh = Color(0xFF272743);
-  static const _surfaceHighest = Color(0xFF32324E);
-  static const _inputBg = Color(0xFF1A1A35);
-  static const _onSurface = Color(0xFFE2DFFF);
-  static const _onSurfaceVariant = Color(0xFFE2BFB0);
-  static const _outline = Color(0xFF594136);
-  static const _primary = Color(0xFFFFB692);
-  static const _primaryContainer = Color(0xFFFF6E00);
-  static const _secondary = Color(0xFF75D1FF);
+  Color get _bg => widget.isDarkMode ? const Color(0xFF10102B) : const Color(0xFFFCFAF7);
+  Color get _surface => widget.isDarkMode ? const Color(0xFF191934) : const Color(0xFFFFF8F0);
+  Color get _surfaceContainer => widget.isDarkMode ? const Color(0xFF1D1D38) : const Color(0xFFECE4D5);
+  Color get _surfaceHigh => widget.isDarkMode ? const Color(0xFF272743) : const Color(0xFFFFF1E0);
+  Color get _surfaceHighest => widget.isDarkMode ? const Color(0xFF32324E) : const Color(0xFFF5E0C3);
+  Color get _inputBg => widget.isDarkMode ? const Color(0xFF1A1A35) : const Color(0xFFFFF8F0);
+  Color get _onSurface => widget.isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF2D1F0E);
+  Color get _onSurfaceVariant => widget.isDarkMode ? const Color(0xFFE2BFB0) : const Color(0xFF7A4F2E);
+  Color get _outline => widget.isDarkMode ? const Color(0xFF594136) : const Color(0xFFCD7F32).withOpacity(0.3);
+  Color get _primary => const Color(0xFFFFB692);
+  Color get _primaryContainer => const Color(0xFFFF6E00);
+  Color get _secondary => widget.isDarkMode ? const Color(0xFF75D1FF) : const Color(0xFFB87333);
 
   @override
   void initState() {
@@ -151,12 +158,12 @@ class _AddClientPageState extends State<AddClientPage> {
             children: [
               if (widget.isDialog)
                 IconButton(
-                  icon: const Icon(Icons.close, color: _onSurfaceVariant),
+                  icon: Icon(Icons.close, color: _onSurfaceVariant),
                   onPressed: () => Navigator.pop(context),
                 )
               else
                 IconButton(
-                  icon: const Icon(Icons.arrow_back, color: _onSurfaceVariant),
+                  icon: Icon(Icons.arrow_back, color: _onSurfaceVariant),
                   onPressed: widget.onBack ?? () => Navigator.pop(context),
                 ),
               const SizedBox(width: 8),
@@ -243,7 +250,7 @@ class _AddClientPageState extends State<AddClientPage> {
         border: Border.all(color: _outline.withOpacity(0.1)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.4),
+            color: widget.isDarkMode ? Colors.black.withOpacity(0.4) : const Color(0xFFB87333).withOpacity(0.08),
             blurRadius: 40,
             offset: const Offset(0, 8),
           ),
@@ -445,7 +452,7 @@ class _AddClientPageState extends State<AddClientPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
+                gradient: LinearGradient(
                   colors: [_primaryContainer, _primary],
                 ),
                 borderRadius: BorderRadius.circular(8),
