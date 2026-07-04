@@ -1206,24 +1206,36 @@ class _MissionControlPageState extends State<MissionControlPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Icon(isConfirmed ? Icons.engineering : Icons.rocket_launch, color: isConfirmed ? Colors.cyanAccent : Colors.purpleAccent, size: 20),
-              const SizedBox(width: 10),
-              Text(
-                isConfirmed ? 'MISSION_EN_COURS' : 'NOUVELLE_MISSION // STATUT: ENVOYÉE',
-                style: GoogleFonts.orbitron(color: isConfirmed ? Colors.cyanAccent : Colors.purpleAccent, fontSize: 10, fontWeight: FontWeight.bold),
+              Row(
+                children: [
+                  Icon(isConfirmed ? Icons.engineering : Icons.rocket_launch, color: isConfirmed ? Colors.cyanAccent : Colors.purpleAccent, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      isConfirmed ? 'MISSION_EN_COURS' : 'NOUVELLE_MISSION // STATUT: ENVOYÉE',
+                      style: GoogleFonts.orbitron(color: isConfirmed ? Colors.cyanAccent : Colors.purpleAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  if (!isConfirmed && _latestNoteId != null) ...[
+                    const SizedBox(width: 15),
+                    Text(
+                      'ID: ${_latestNoteId!.substring(_latestNoteId!.length > 6 ? _latestNoteId!.length - 6 : 0)}',
+                      style: GoogleFonts.jetBrainsMono(color: Colors.white.withOpacity(0.5), fontSize: 9),
+                    ),
+                  ],
+                ],
               ),
-              if (!isConfirmed && _latestNoteId != null) ...[
-                const SizedBox(width: 15),
-                Text(
-                  'ID: ${_latestNoteId!.substring(_latestNoteId!.length > 6 ? _latestNoteId!.length - 6 : 0)}',
-                  style: GoogleFonts.jetBrainsMono(color: Colors.white.withOpacity(0.5), fontSize: 9),
-                ),
-              ],
-              const Spacer(),
-              // Bouton CONFIRMER
-              ElevatedButton.icon(
+              const SizedBox(height: 12),
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  // Bouton CONFIRMER
+                  ElevatedButton.icon(
                 onPressed: (status == 'SENT' && !_isSendingMission)
                     ? () async {
                         if (_interventionId != null && _latestNoteId != null) {
@@ -1279,7 +1291,6 @@ class _MissionControlPageState extends State<MissionControlPage> {
                   disabledForegroundColor: Colors.white.withOpacity(0.3),
                 ),
               ),
-              const SizedBox(width: 10),
               // Bouton TERMINER
               ElevatedButton.icon(
                 onPressed: (isConfirmed && !_isSendingMission)
@@ -1343,6 +1354,8 @@ class _MissionControlPageState extends State<MissionControlPage> {
               ),
             ],
           ),
+        ],
+      ),
           const SizedBox(height: 10),
           Container(
             width: double.infinity,
@@ -2262,9 +2275,11 @@ class _MissionControlPageState extends State<MissionControlPage> {
           children: [
             const Icon(Icons.rocket_launch_rounded, color: Colors.cyanAccent),
             const SizedBox(width: 10),
-            Text(
-              'NEW_MISSION_PROTOCOL // STATUT: ENVOYÉE',
-              style: GoogleFonts.orbitron(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+            Expanded(
+              child: Text(
+                'NEW_MISSION_PROTOCOL // STATUT: ENVOYÉE',
+                style: GoogleFonts.orbitron(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+              ),
             ),
           ],
         ),

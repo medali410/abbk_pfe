@@ -178,9 +178,11 @@ class _GlobalAlertListenerState extends State<GlobalAlertListener> {
       borderColor: Colors.deepOrange,
       title: "⚠️ DANGER DÉTECTÉ",
       subtitle: "$machineName — $reason — Arrêt automatique déclenché",
-      buttonLabel: "VOIR",
-      duration: 8,
-      onAction: null,
+      buttonLabel: "SIGNER",
+      duration: 60,
+      // Lorsque l'admin clique "SIGNER", la bannière est effacée de l'écran.
+      // La suppression de l'entry est déjà gérée par _showBannerToast avant d'appeler onAction.
+      onAction: () {},
     );
   }
 

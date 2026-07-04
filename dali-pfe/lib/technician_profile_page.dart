@@ -5030,51 +5030,84 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                     }) {
                                       return Container(
                                         width: itemWidth,
-                                        padding: const EdgeInsets.all(16),
+                                        padding: const EdgeInsets.all(14),
                                         decoration: BoxDecoration(
-                                          color: _surfaceContainer,
-                                          borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(color: color.withOpacity(0.15)),
+                                          gradient: LinearGradient(
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                            colors: [_surfaceContainer, color.withOpacity(0.05)],
+                                          ),
+                                          borderRadius: BorderRadius.circular(16),
+                                          border: Border.all(color: color.withOpacity(0.25), width: 1.5),
                                         ),
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
+                                            // Role badge
                                             Row(
                                               children: [
-                                                Icon(icon, color: color, size: 18),
+                                                Container(
+                                                  padding: const EdgeInsets.all(7),
+                                                  decoration: BoxDecoration(
+                                                    color: color.withOpacity(0.15),
+                                                    borderRadius: BorderRadius.circular(8),
+                                                  ),
+                                                  child: Icon(icon, color: color, size: 15),
+                                                ),
                                                 const SizedBox(width: 8),
                                                 Text(
                                                   roleTitle,
                                                   style: GoogleFonts.spaceGrotesk(
                                                     color: color,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.bold,
-                                                    letterSpacing: 0.5,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w800,
+                                                    letterSpacing: 1.2,
                                                   ),
                                                 ),
                                               ],
                                             ),
-                                            const SizedBox(height: 12),
+                                            const SizedBox(height: 10),
+                                            const Divider(color: Colors.white10, height: 1),
+                                            const SizedBox(height: 10),
+                                            // Name
                                             Text(
                                               name,
                                               style: GoogleFonts.inter(
                                                 color: Colors.white,
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w700,
+                                                height: 1.4,
                                               ),
                                             ),
                                             if (detail.isNotEmpty) ...[
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                detail,
-                                                style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 11),
+                                              const SizedBox(height: 5),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                                decoration: BoxDecoration(
+                                                  color: color.withOpacity(0.1),
+                                                  borderRadius: BorderRadius.circular(6),
+                                                ),
+                                                child: Text(
+                                                  detail,
+                                                  style: GoogleFonts.inter(color: color, fontSize: 10, fontWeight: FontWeight.w600),
+                                                ),
                                               ),
                                             ],
                                             if (email.isNotEmpty) ...[
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                email,
-                                                style: GoogleFonts.inter(color: _onSurfaceVariant.withOpacity(0.7), fontSize: 10),
+                                              const SizedBox(height: 6),
+                                              Row(
+                                                children: [
+                                                  Icon(Icons.alternate_email, color: _onSurfaceVariant, size: 10),
+                                                  const SizedBox(width: 4),
+                                                  Expanded(
+                                                    child: Text(
+                                                      email,
+                                                      style: GoogleFonts.inter(color: _onSurfaceVariant.withOpacity(0.75), fontSize: 10),
+                                                      overflow: TextOverflow.ellipsis,
+                                                      maxLines: 3,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
                                             ],
                                           ],
@@ -5245,12 +5278,16 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                         String? stateLabel,
                                       }) {
                                         return Container(
-                                          width: 138,
-                                          padding: const EdgeInsets.all(12),
+                                          width: double.infinity,
+                                          padding: const EdgeInsets.all(13),
                                           decoration: BoxDecoration(
-                                            color: color.withValues(alpha: 0.07),
-                                            borderRadius: BorderRadius.circular(10),
-                                            border: Border.all(color: color.withValues(alpha: 0.3), width: 1.5),
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                              colors: [color.withValues(alpha: 0.12), color.withValues(alpha: 0.04)],
+                                            ),
+                                            borderRadius: BorderRadius.circular(12),
+                                            border: Border.all(color: color.withValues(alpha: 0.35), width: 1.5),
                                           ),
                                           child: Column(
                                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -5260,13 +5297,13 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                                   Container(
                                                     padding: const EdgeInsets.all(5),
                                                     decoration: BoxDecoration(
-                                                      color: color.withValues(alpha: 0.18),
-                                                      borderRadius: BorderRadius.circular(6),
+                                                      color: color.withValues(alpha: 0.15),
+                                                      borderRadius: BorderRadius.circular(7),
                                                     ),
-                                                    child: Icon(icon, size: 13, color: color),
+                                                    child: Icon(icon, color: color, size: 14),
                                                   ),
-                                                  const SizedBox(width: 6),
-                                                  Expanded(
+                                                  const SizedBox(width: 7),
+                                                  Flexible(
                                                     child: Text(
                                                       label,
                                                       style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 10, fontWeight: FontWeight.w600),
@@ -5275,34 +5312,34 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                                   ),
                                                 ],
                                               ),
-                                              const SizedBox(height: 8),
+                                              const SizedBox(height: 10),
                                               Row(
                                                 crossAxisAlignment: CrossAxisAlignment.baseline,
                                                 textBaseline: TextBaseline.alphabetic,
                                                 children: [
-                                                  Text(value, style: GoogleFonts.spaceGrotesk(color: color, fontSize: 18, fontWeight: FontWeight.bold)),
+                                                  Text(value, style: GoogleFonts.spaceGrotesk(color: color, fontSize: 22, fontWeight: FontWeight.bold)),
                                                   const SizedBox(width: 3),
-                                                  Text(unit, style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 9)),
+                                                  Text(unit, style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 10)),
                                                 ],
                                               ),
                                               if (riskPercent != null) ...[
-                                                const SizedBox(height: 6),
+                                                const SizedBox(height: 8),
                                                 ClipRRect(
                                                   borderRadius: BorderRadius.circular(4),
                                                   child: LinearProgressIndicator(
                                                     value: riskPercent / 100.0,
-                                                    backgroundColor: Colors.white.withValues(alpha: 0.06),
+                                                    backgroundColor: Colors.white.withValues(alpha: 0.08),
                                                     valueColor: AlwaysStoppedAnimation<Color>(color),
-                                                    minHeight: 3,
+                                                    minHeight: 4,
                                                   ),
                                                 ),
-                                                const SizedBox(height: 4),
+                                                const SizedBox(height: 5),
                                                 Row(
                                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                                   children: [
                                                     if (stateLabel != null)
                                                       Container(
-                                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                         decoration: BoxDecoration(
                                                           color: color.withValues(alpha: 0.15),
                                                           borderRadius: BorderRadius.circular(4),
@@ -5376,42 +5413,61 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                               ],
                                             ),
                                             const SizedBox(height: 14),
-                                            // ── Sensor tiles ───────────────────────────────
-                                            Wrap(
-                                              spacing: 10,
-                                              runSpacing: 10,
+                                            // ── Sensor tiles 2x2 grid ──────────────────────
+                                            Column(
                                               children: [
-                                                buildSensorTile(
-                                                  icon: Icons.thermostat_outlined,
-                                                  label: 'Température',
-                                                  value: tempVal != null ? tempVal.toStringAsFixed(1) : '--',
-                                                  unit: '°C',
-                                                  color: tempColor,
-                                                  riskPercent: tempRisk,
-                                                  stateLabel: tempState,
+                                                // Row 1: Température + Vibration
+                                                Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: buildSensorTile(
+                                                        icon: Icons.thermostat_outlined,
+                                                        label: 'Température',
+                                                        value: tempVal != null ? tempVal.toStringAsFixed(1) : '--',
+                                                        unit: '°C',
+                                                        color: tempColor,
+                                                        riskPercent: tempRisk,
+                                                        stateLabel: tempState,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 10),
+                                                    Expanded(
+                                                      child: buildSensorTile(
+                                                        icon: Icons.vibration,
+                                                        label: 'Vibration',
+                                                        value: vibVal != null ? vibVal.toStringAsFixed(1) : '--',
+                                                        unit: 'mm/s',
+                                                        color: vibColor,
+                                                        riskPercent: vibRisk,
+                                                        stateLabel: vibState,
+                                                      ),
+                                                    ),
+                                                  ],
                                                 ),
-                                                buildSensorTile(
-                                                  icon: Icons.vibration,
-                                                  label: 'Vibration',
-                                                  value: vibVal != null ? vibVal.toStringAsFixed(1) : '--',
-                                                  unit: 'mm/s',
-                                                  color: vibColor,
-                                                  riskPercent: vibRisk,
-                                                  stateLabel: vibState,
-                                                ),
-                                                buildSensorTile(
-                                                  icon: Icons.speed,
-                                                  label: 'Vitesse',
-                                                  value: rpmVal != null ? rpmVal.toStringAsFixed(0) : '--',
-                                                  unit: 'tr/min',
-                                                  color: const Color(0xFFB39DDB),
-                                                ),
-                                                buildSensorTile(
-                                                  icon: Icons.compress,
-                                                  label: 'Pression',
-                                                  value: pressVal != null ? pressVal.toStringAsFixed(1) : '--',
-                                                  unit: 'bar',
-                                                  color: const Color(0xFF4DD0E1),
+                                                const SizedBox(height: 10),
+                                                // Row 2: Vitesse + Pression
+                                                Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: buildSensorTile(
+                                                        icon: Icons.speed,
+                                                        label: 'Vitesse',
+                                                        value: rpmVal != null ? rpmVal.toStringAsFixed(0) : '--',
+                                                        unit: 'tr/min',
+                                                        color: const Color(0xFFB39DDB),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 10),
+                                                    Expanded(
+                                                      child: buildSensorTile(
+                                                        icon: Icons.compress,
+                                                        label: 'Pression',
+                                                        value: pressVal != null ? pressVal.toStringAsFixed(1) : '--',
+                                                        unit: 'bar',
+                                                        color: const Color(0xFF4DD0E1),
+                                                      ),
+                                                    ),
+                                                  ],
                                                 ),
                                               ],
                                             ),

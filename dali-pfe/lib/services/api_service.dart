@@ -2012,6 +2012,18 @@ class ApiService {
     return <Map<String, dynamic>>[];
   }
 
+  static Future<List<Map<String, dynamic>>> getMaintenanceAgentContacts() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/chat/contacts/maintenance'),
+      headers: await jsonHeadersAuthorized(),
+    );
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    return <Map<String, dynamic>>[];
+  }
+
   static Future<List<Map<String, dynamic>>> searchConcepteurs(String query) async {
     final response = await http.get(
       Uri.parse('$baseUrl/chat/concepteurs/search?query=${Uri.encodeComponent(query)}'),

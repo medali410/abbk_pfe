@@ -30,6 +30,7 @@ class _HomePageState extends State<HomePage> {
   String? _catalogBrandFilter;
   CatalogSortOption? _catalogSort;
   CatalogToolbarPanel _catalogPanel = CatalogToolbarPanel.none;
+  bool _isListView = false;
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _homeSectionKey = GlobalKey();
   final GlobalKey _catalogSectionKey = GlobalKey();
@@ -337,32 +338,69 @@ class _HomePageState extends State<HomePage> {
                                             if (!grouped.containsKey(cName)) grouped[cName] = [];
                                             grouped[cName]!.add(m);
                                           }
-                                          return grouped.entries.map((entry) {
-                                            return Padding(
-                                              padding: const EdgeInsets.only(bottom: 30),
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                                children: [
-                                                  _buildEntrance(
-                                                    delayMs: 105,
-                                                    child: _buildSectionHeader(
-                                                      title: 'Catalogue des systemes',
-                                                      subtitle: '${entry.value.length} machine(s) affichee(s)',
-                                                      largeTitle: 'Concepteur ${entry.key}',
+                                          // Build final list: carousel first, then groups
+                                          final List<Widget> sections = [
+                                            // CAROUSEL NOUVEAUTÉS
+                                            _buildEntrance(
+                                              delayMs: 95,
+                                              child: _buildMachineCarousel(filteredMachines),
+                                            ),
+                                            const SizedBox(height: 28),
+                                            // RESULTS COUNTER
+                                            _buildEntrance(
+                                              delayMs: 100,
+                                              child: Padding(
+                                                padding: const EdgeInsets.only(bottom: 16),
+                                                child: Row(
+                                                  children: [
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(0x22FF6E00),
+                                                        borderRadius: BorderRadius.circular(99),
+                                                        border: Border.all(color: const Color(0x44FF6E00)),
+                                                      ),
+                                                      child: Text(
+                                                        '${filteredMachines.length} résultat(s) trouvé(s)',
+                                                        style: GoogleFonts.inter(color: const Color(0xFFFFB87A), fontSize: 13, fontWeight: FontWeight.w600),
+                                                      ),
                                                     ),
-                                                  ),
-                                                  const SizedBox(height: 14),
-                                                  _buildEntrance(
-                                                    delayMs: 120,
-                                                    child: _buildGrid(
-                                                      entry.value,
-                                                      crossAxisCount: isDesktop ? 3 : (isTablet ? 2 : 1),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ];
+                                          // One section per concepteur
+                                          for (final entry in grouped.entries) {
+                                            sections.add(
+                                              Padding(
+                                                padding: const EdgeInsets.only(bottom: 30),
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                                  children: [
+                                                    _buildEntrance(
+                                                      delayMs: 105,
+                                                      child: _buildConcepteurSectionHeader(
+                                                        concepteurName: entry.key,
+                                                        machineCount: entry.value.length,
+                                                        rating: 4.8,
+                                                        isMobile: isMobile,
+                                                      ),
                                                     ),
-                                                  ),
-                                                ],
+                                                    const SizedBox(height: 18),
+                                                    _buildEntrance(
+                                                      delayMs: 120,
+                                                      child: _buildGrid(
+                                                        entry.value,
+                                                        crossAxisCount: isDesktop ? 4 : (isTablet ? 2 : 1),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
                                             );
-                                          }).toList();
+                                          }
+                                          return sections;
                                         })(),
                                       ),
                                     ),
@@ -1004,6 +1042,13 @@ class _HomePageState extends State<HomePage> {
             fillWidth: true,
           ),
         ),
+        const SizedBox(width: 8),
+        IconButton(
+          onPressed: () => setState(() => _isListView = !_isListView),
+          icon: Icon(_isListView ? Icons.grid_view_rounded : Icons.view_list_rounded),
+          color: const Color(0xFFA7B1C6),
+          iconSize: 20,
+        ),
       ],
     );
 
@@ -1074,6 +1119,16 @@ class _HomePageState extends State<HomePage> {
                           active:
                               _catalogPanel == CatalogToolbarPanel.sort ||
                               _catalogSort != null,
+                        ),
+                        const SizedBox(width: 8),
+                        Container(width: 1, height: 24, color: const Color(0x33FFFFFF)),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          onPressed: () => setState(() => _isListView = !_isListView),
+                          icon: Icon(_isListView ? Icons.grid_view_rounded : Icons.view_list_rounded),
+                          color: const Color(0xFFA7B1C6),
+                          iconSize: 20,
+                          tooltip: _isListView ? 'Vue Grille' : 'Vue Liste',
                         ),
                       ],
                     ),
@@ -1184,6 +1239,99 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildConcepteurSectionHeader({
+    required String concepteurName,
+    required int machineCount,
+    required double rating,
+    required bool isMobile,
+  }) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 20, vertical: isMobile ? 12 : 16),
+      decoration: BoxDecoration(
+        color: const Color(0x33121A30),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0x33FFFFFF)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: isMobile ? 20 : 26,
+            backgroundColor: const Color(0xFF1D88E5).withOpacity(0.2),
+            child: Text(
+              concepteurName.isNotEmpty ? concepteurName[0].toUpperCase() : 'C',
+              style: GoogleFonts.inter(fontSize: isMobile ? 16 : 20, fontWeight: FontWeight.bold, color: const Color(0xFF64B5F6)),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        concepteurName.toUpperCase(),
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: isMobile ? 16 : 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Icon(Icons.verified, color: Color(0xFF64B5F6), size: 18),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.precision_manufacturing_rounded, size: 14, color: Color(0xFFA7B1C6)),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$machineCount machine(s)',
+                          style: GoogleFonts.inter(color: const Color(0xFFA7B1C6), fontSize: 13),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.star_rounded, size: 16, color: Color(0xFFFFB87A)),
+                        const SizedBox(width: 4),
+                        Text(
+                          rating.toStringAsFixed(1),
+                          style: GoogleFonts.inter(color: const Color(0xFFFFB87A), fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (!isMobile)
+            OutlinedButton(
+              onPressed: () {}, // Profile redirection can be implemented later
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Color(0x66FFFFFF)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+              child: Text('Voir profil', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+            ),
+        ],
+      ),
+    );
+  }
+
   bool get _hasCatalogFilters =>
       catalogFilterValueIsActive(_catalogStatusFilter) ||
       catalogFilterValueIsActive(_catalogBrandFilter);
@@ -1262,6 +1410,111 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildMachineCarousel(List<Map<String, dynamic>> machines) {
+    if (machines.isEmpty) return const SizedBox.shrink();
+    // Show up to 6 featured machines
+    final featured = machines.take(6).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section header row
+        Row(
+          children: [
+            Container(
+              width: 4,
+              height: 20,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF6E00),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Machines en vedette',
+              style: GoogleFonts.inter(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0x33FF6E00),
+                borderRadius: BorderRadius.circular(99),
+                border: Border.all(color: const Color(0x66FF6E00)),
+              ),
+              child: Text(
+                'Nouveautés',
+                style: GoogleFonts.inter(
+                  color: const Color(0xFFFFB87A),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          height: 200,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: featured.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 14),
+            itemBuilder: (context, i) {
+              final m = featured[i];
+              final name = catalogMachineDisplayName(m);
+              final priceLabel = catalogMachinePriceLabel(m);
+              final status = _normalizeStatus(
+                (m['status'] ?? m['etat'] ?? 'disponible').toString(),
+              );
+              String imageUrl = ((m['imageUrl'] ?? m['image'] ?? m['photo'] ?? '')).toString().trim();
+              // Resolve relative paths like /uploads/xxx.jpg
+              if (imageUrl.isNotEmpty && imageUrl.startsWith('/')) {
+                final base = ApiService.baseUrl.replaceAll(RegExp(r'/api$'), '');
+                imageUrl = '$base$imageUrl';
+              }
+              final bool isDataImg = imageUrl.startsWith('data:image/');
+              final bool isNetImg = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+
+              return _CarouselMachineCard(
+                name: name,
+                priceLabel: priceLabel,
+                statusColor: _statusColor(status),
+                statusLabel: _statusLabel(status),
+                imageUrl: imageUrl,
+                isDataImage: isDataImg,
+                isNetworkImage: isNetImg,
+                concepteurName: (m['concepteurName'] ?? 'Concepteur').toString(),
+                onTap: () => _runIfAuthenticatedCarousel(context, () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => MachineDetailProPage(machine: m),
+                    ),
+                  );
+                }),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _runIfAuthenticatedCarousel(BuildContext ctx, void Function() action) async {
+    final ok = await ensureClientLoggedIn(ctx, openLogin: () async {
+      final result = await Navigator.push<bool>(
+        ctx,
+        MaterialPageRoute(builder: (_) => const LoginPage(returnToHomeAfterClientLogin: true)),
+      );
+      if (result == true) await _hydrateAuthState();
+    });
+    if (ok && mounted) action();
+  }
+
   Widget _buildError(String error) {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -1338,17 +1591,39 @@ class _HomePageState extends State<HomePage> {
     List<Map<String, dynamic>> machines, {
     required int crossAxisCount,
   }) {
+    if (_isListView) {
+      // List View mode
+      return ListView.separated(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: machines.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (_, i) => SizedBox(
+          height: 140,
+          child: _MachineCard(
+            machine: machines[i],
+            canBuy: _canBuyAsClient,
+            onRequireLogin: () async {
+              final result = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const LoginPage(returnToHomeAfterClientLogin: true),
+                ),
+              );
+              if (result == true) await _hydrateAuthState();
+            },
+          ),
+        ),
+      );
+    }
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Keep cards taller on narrow screens to avoid vertical overflow.
-        final singleColumnRatio =
-            constraints.maxWidth < 360
-                ? 0.64
-                : (constraints.maxWidth < 430 ? 0.70 : 0.76);
+        // New card design is taller – use a better aspect ratio
         final childAspectRatio =
             crossAxisCount == 1
-                ? singleColumnRatio
-                : (crossAxisCount == 2 ? 0.92 : 1.02);
+                ? 0.85
+                : (crossAxisCount == 2 ? 0.78 : (crossAxisCount == 3 ? 0.72 : 0.68));
 
         return GridView.builder(
           itemCount: machines.length,
@@ -1706,12 +1981,44 @@ class _MachineCardState extends State<_MachineCard> {
   String _normalizeMachineImageValue(String value) {
     final trimmed = value.trim();
     if (trimmed.isEmpty) return '';
+    // Already a full URL (http or https)
     if (_looksLikeNetworkImage(trimmed) || _looksLikeDataImage(trimmed)) {
       return trimmed;
+    }
+    // Relative path like /uploads/xxx.jpg → prepend server base URL
+    if (trimmed.startsWith('/')) {
+      final base = ApiService.baseUrl.replaceAll(RegExp(r'/api$'), '');
+      return '$base$trimmed';
     }
     final hasExtension = RegExp(r'\.[a-z0-9]{2,5}$', caseSensitive: false)
         .hasMatch(trimmed);
     return hasExtension ? trimmed : '$trimmed.png';
+  }
+
+  Widget _buildSpecChip(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0x33A7B1C6),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: const Color(0x11FFFFFF)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 10, color: const Color(0xFFD8E0F1)),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: GoogleFonts.inter(
+              color: const Color(0xFFD8E0F1),
+              fontSize: 9,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -1741,155 +2048,290 @@ class _MachineCardState extends State<_MachineCard> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(0),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xE61B2238), Color(0xE6151B2E)],
+              colors: [Color(0xBB1B2238), Color(0x99151B2E)],
             ),
             border: Border.all(
               color:
                   _isHovered
-                      ? const Color(0x66FFB87A)
+                      ? const Color(0x88FFB87A)
                       : const Color(0x3DFFFFFF),
             ),
             boxShadow: [
               BoxShadow(
                 color: const Color(
                   0xFF000000,
-                ).withOpacity(_isHovered ? 0.28 : 0.18),
-                blurRadius: _isHovered ? 24 : 12,
-                offset: Offset(0, _isHovered ? 12 : 6),
+                ).withOpacity(_isHovered ? 0.4 : 0.2),
+                blurRadius: _isHovered ? 30 : 16,
+                offset: Offset(0, _isHovered ? 16 : 8),
               ),
             ],
           ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: AspectRatio(
-                  aspectRatio: 16 / 7.2,
-                  child:
-                      imageUrl.isEmpty
-                          ? _fallbackBanner()
-                          : (_looksLikeDataImage(imageUrl)
-                              ? Image.memory(
-                                  base64Decode(imageUrl.split(',').last),
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) =>
-                                      _fallbackBanner(),
-                                )
-                              : Image.network(
-                                  imageUrl,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) =>
-                                      _fallbackBanner(),
-                                )),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(
+              // HEADER IMAGE
+              Stack(
                 children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: _statusColor(status),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    _statusLabel(status),
-                    style: GoogleFonts.inter(
-                      color: _statusColor(status),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.inter(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                priceLabel,
-                style: GoogleFonts.inter(
-                  color: const Color(0xFFFFBE86),
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const Spacer(),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => _runIfAuthenticated(() {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder:
-                                (context) => MachineDetailProPage(
-                                  machine: machine,
-                                ),
+                  ClipRRect(
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                    child: AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          imageUrl.isEmpty
+                              ? _fallbackBanner()
+                              : (_looksLikeDataImage(imageUrl)
+                                  ? Image.memory(
+                                      base64Decode(imageUrl.split(',').last),
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => _fallbackBanner(),
+                                    )
+                                  : Image.network(
+                                      imageUrl,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => _fallbackBanner(),
+                                    )),
+                          // GRADIENT OVERLAY
+                          Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  const Color(0xFF151B2E).withOpacity(0.9),
+                                ],
+                              ),
+                            ),
                           ),
-                        );
-                      }),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0x557AA7E8)),
-                        foregroundColor: const Color(0xFFD7E7FF),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ).copyWith(
-                        overlayColor: WidgetStateProperty.all(
-                          const Color(0x337AA7E8),
-                        ),
+                        ],
                       ),
-                      child: const Text('Voir detail'),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => _runIfAuthenticated(
-                        () => _buyMachine(context, machineId: machineId),
+                  // TOP RIGHT BADGE (STATUS)
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _statusColor(status).withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(99),
+                        border: Border.all(color: _statusColor(status).withOpacity(0.5)),
                       ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF6E00),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ).copyWith(
-                        overlayColor: WidgetStateProperty.all(
-                          Colors.white.withOpacity(0.12),
-                        ),
-                        shadowColor: WidgetStateProperty.all(
-                          const Color(0xFFFF6E00).withOpacity(0.4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: _statusColor(status),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: _statusColor(status).withOpacity(0.8),
+                                  blurRadius: 4,
+                                  spreadRadius: 1,
+                                )
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _statusLabel(status).toUpperCase(),
+                            style: GoogleFonts.inter(
+                              color: _statusColor(status),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // TOP LEFT (CONCEPTEUR)
+                  Positioned(
+                    top: 10,
+                    left: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.4),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Par ${(machine['concepteurName'] ?? 'Concepteur').toString()}',
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                      child: const Text('Acheter'),
+                    ),
+                  ),
+                  // FAVORITE HEART
+                  Positioned(
+                    bottom: -5,
+                    right: 10,
+                    child: IconButton(
+                      icon: const Icon(Icons.favorite_border_rounded, color: Colors.white70, size: 20),
+                      onPressed: () {}, // Favorite functionality logic
                     ),
                   ),
                 ],
+              ),
+              
+              // CONTENT BODY
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 6, 10, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+
+                      
+                      // TITLE
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          height: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      
+                      // DESCRIPTION (2 lines)
+                      Text(
+                        (machine['description'] ?? 'Machine de haute performance optimisée pour un usage industriel avec capteurs connectés et interface intelligente.').toString(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          color: const Color(0xFFA7B1C6),
+                          fontSize: 11,
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      
+                      // TECH SPECS CHIPS
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          _buildSpecChip(Icons.bolt, (machine['puissance'] ?? '2.5 kW').toString()),
+                          _buildSpecChip(Icons.memory, 'IA: ${(machine['aiType'] ?? 'Avancé').toString()}'),
+                          _buildSpecChip(Icons.inventory, 'Stock: ${machine['stock'] ?? '2'}'),
+                        ],
+                      ),
+                      
+                      const Spacer(),
+                      
+                      // PRICE
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              priceLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(
+                                color: const Color(0xFFFFBE86),
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 2, left: 4),
+                            child: Text(
+                              'TTC',
+                              style: GoogleFonts.inter(
+                                color: const Color(0xFF7A869A),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 12),
+                      
+                      // BUTTONS
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => _runIfAuthenticated(() {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder:
+                                        (context) => MachineDetailProPage(
+                                          machine: machine,
+                                        ),
+                                  ),
+                                );
+                              }),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Color(0x557AA7E8)),
+                                foregroundColor: const Color(0xFFD7E7FF),
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ).copyWith(
+                                overlayColor: WidgetStateProperty.all(
+                                  const Color(0x337AA7E8),
+                                ),
+                              ),
+                              child: Text('👁️', style: GoogleFonts.inter(fontSize: 13)),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => _runIfAuthenticated(
+                                () => _buyMachine(context, machineId: machineId),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFFF6E00),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ).copyWith(
+                                overlayColor: WidgetStateProperty.all(
+                                  Colors.white.withOpacity(0.12),
+                                ),
+                                shadowColor: WidgetStateProperty.all(
+                                  const Color(0xFFFF6E00).withOpacity(0.4),
+                                ),
+                              ),
+                              child: Text('🛒 Acheter', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
@@ -2156,35 +2598,231 @@ class _MachineCardState extends State<_MachineCard> {
       );
     }
   }
+}
 
-  String _normalizeStatus(String raw) {
-    final value = raw.toLowerCase().trim();
-    if (value.contains('maintenance')) return 'maintenance';
-    if (value.contains('indispo') || value.contains('offline')) {
-      return 'indisponible';
+// ─── Shared status helpers (used by both _HomePageState and _MachineCardState) ─
+String _normalizeStatus(String raw) {
+  final value = raw.toLowerCase().trim();
+  if (value.contains('maintenance')) return 'maintenance';
+  if (value.contains('indispo') || value.contains('offline')) {
+    return 'indisponible';
+  }
+  return 'disponible';
+}
+
+Color _statusColor(String status) {
+  switch (status) {
+    case 'maintenance':
+      return const Color(0xFFFFB74D);
+    case 'indisponible':
+      return const Color(0xFFE57373);
+    default:
+      return const Color(0xFF81C784);
+  }
+}
+
+String _statusLabel(String status) {
+  switch (status) {
+    case 'maintenance':
+      return 'EN MAINTENANCE';
+    case 'indisponible':
+      return 'INDISPONIBLE';
+    default:
+      return 'DISPONIBLE';
+  }
+}
+
+// ─── Carousel Card Widget ─────────────────────────────────────────────────────
+class _CarouselMachineCard extends StatefulWidget {
+  const _CarouselMachineCard({
+    required this.name,
+    required this.priceLabel,
+    required this.statusColor,
+    required this.statusLabel,
+    required this.imageUrl,
+    required this.isDataImage,
+    required this.isNetworkImage,
+    required this.concepteurName,
+    required this.onTap,
+  });
+
+  final String name;
+  final String priceLabel;
+  final Color statusColor;
+  final String statusLabel;
+  final String imageUrl;
+  final bool isDataImage;
+  final bool isNetworkImage;
+  final String concepteurName;
+  final VoidCallback onTap;
+
+  @override
+  State<_CarouselMachineCard> createState() => _CarouselMachineCardState();
+}
+
+class _CarouselMachineCardState extends State<_CarouselMachineCard> {
+  bool _isHovered = false;
+
+  Widget _buildImage() {
+    if (widget.imageUrl.isEmpty) return _fallbackImg();
+    if (widget.isDataImage) {
+      try {
+        return Image.memory(
+          base64Decode(widget.imageUrl.split(',').last),
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _fallbackImg(),
+        );
+      } catch (_) {
+        return _fallbackImg();
+      }
     }
-    return 'disponible';
+    // Network image or resolved relative path
+    if (widget.isNetworkImage || widget.imageUrl.isNotEmpty) {
+      return Image.network(
+        widget.imageUrl,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _fallbackImg(),
+      );
+    }
+    return _fallbackImg();
   }
 
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'maintenance':
-        return const Color(0xFFFFB74D);
-      case 'indisponible':
-        return const Color(0xFFE57373);
-      default:
-        return const Color(0xFF81C784);
-    }
+  Widget _fallbackImg() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF1D2A4A), Color(0xFF161E35)],
+        ),
+      ),
+      child: const Center(
+        child: Icon(Icons.precision_manufacturing_rounded, color: Color(0xFF3D5080), size: 36),
+      ),
+    );
   }
 
-  String _statusLabel(String status) {
-    switch (status) {
-      case 'maintenance':
-        return 'EN MAINTENANCE';
-      case 'indisponible':
-        return 'INDISPONIBLE';
-      default:
-        return 'DISPONIBLE';
-    }
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _isHovered ? 1.03 : 1.0,
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            width: 260,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xCC1B2238), Color(0xAA151B2E)],
+              ),
+              border: Border.all(
+                color: _isHovered ? const Color(0x88FFB87A) : const Color(0x3DFFFFFF),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(_isHovered ? 0.45 : 0.2),
+                  blurRadius: _isHovered ? 24 : 10,
+                  offset: Offset(0, _isHovered ? 12 : 4),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                // Left image panel
+                ClipRRect(
+                  borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
+                  child: SizedBox(
+                    width: 100,
+                    height: double.infinity,
+                    child: _buildImage(),
+                  ),
+                ),
+                // Right content panel
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Status badge
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: widget.statusColor.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: widget.statusColor.withOpacity(0.4)),
+                              ),
+                              child: Text(
+                                widget.statusLabel,
+                                style: GoogleFonts.inter(
+                                  color: widget.statusColor,
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            // Name
+                            Text(
+                              widget.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                height: 1.2,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              'Par ${widget.concepteurName}',
+                              style: GoogleFonts.inter(
+                                color: const Color(0xFF7A869A),
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                widget.priceLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.inter(
+                                  color: const Color(0xFFFFBE86),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

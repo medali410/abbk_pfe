@@ -3,6 +3,7 @@ const TechnicianModel = require('../models/technicianModel');
 const { serializeTechnician, serializeTechnicianDashboard } = require('../views/technicianView');
 const { createUserWithProfile, hashPassword, getAuthUserId } = require('../lib/auth');
 const { prisma } = require('../lib/prisma');
+const { sendWelcomeEmail } = require('../services/emailService');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -96,7 +97,22 @@ async function createTechnician(req, res) {
             },
         );
         createdUserId = user.id;
+
+        // ✉️ Envoyer l'e-mail de bienvenue (non bloquant : si l'email échoue, le compte est quand même créé)
+        try {
+            await sendWelcomeEmail({
+                to: email,
+                name: user.nom || `${firstName} ${lastName}`.trim() || email,
+                password, // mot de passe en clair (avant hachage)
+                role: 'Technicien',
+            });
+            console.log(`✉️  E-mail de bienvenue envoyé à ${email}`);
+        } catch (mailErr) {
+            console.warn(`⚠️  Impossible d'envoyer l'e-mail de bienvenue à ${email}:`, mailErr.message);
+        }
+
         return res.status(201).json(serializeTechnician(user, profile));
+
     } catch (err) {
         if (createdUserId) {
             try { await prisma.user.delete({ where: { id: createdUserId } }); } catch (_) {}

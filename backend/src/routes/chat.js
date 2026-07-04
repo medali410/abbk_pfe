@@ -19,6 +19,7 @@ router.get('/concepteurs/search', chatController.searchConcepteurs);
 router.get('/contacts/concepteur', requireAuth, chatController.getConcepteurContacts);
 router.get('/contacts/technician', requireAuth, chatController.getTechnicianContacts);
 router.get('/contacts/client', requireAuth, chatController.getClientContacts);
+router.get('/contacts/maintenance', requireAuth, chatController.getMaintenanceAgentContacts);
 
 // Room participants
 router.get('/room/:roomId/participants', chatController.getRoomParticipants);

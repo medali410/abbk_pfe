@@ -7196,11 +7196,13 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        int crossAxisCount = 3;
-        if (constraints.maxWidth < 600) {
+        int crossAxisCount = 4;
+        if (constraints.maxWidth < 650) {
           crossAxisCount = 1;
-        } else if (constraints.maxWidth < 1000) {
+        } else if (constraints.maxWidth < 950) {
           crossAxisCount = 2;
+        } else if (constraints.maxWidth < 1300) {
+          crossAxisCount = 3;
         }
 
         return GridView.builder(
@@ -7208,7 +7210,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
-            childAspectRatio: 0.58,
+            childAspectRatio: 0.80,
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
           ),
@@ -8500,18 +8502,20 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     final machines = _filteredMachines;
     return LayoutBuilder(
       builder: (context, constraints) {
-        int crossAxisCount = 3;
-        if (constraints.maxWidth < 600)
+        int crossAxisCount = 4;
+        if (constraints.maxWidth < 650)
           crossAxisCount = 1;
-        else if (constraints.maxWidth < 1000)
+        else if (constraints.maxWidth < 950)
           crossAxisCount = 2;
+        else if (constraints.maxWidth < 1300)
+          crossAxisCount = 3;
 
         return GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
-            childAspectRatio: 0.58,
+            childAspectRatio: 0.80,
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
           ),
@@ -8559,7 +8563,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             children: [
               _buildMachineImageWidget(
                 imageUrl,
-                height: 154,
+                height: 110,
                 width: double.infinity,
                 fit: BoxFit.cover,
               ),
@@ -8624,7 +8628,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.spaceGrotesk(
-                      fontSize: 21,
+                      fontSize: 16,
                       fontWeight: FontWeight.w700,
                       color: textColor,
                       height: 1.0,
@@ -8943,7 +8947,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     Text(
                       ref.toUpperCase(),
                       style: GoogleFonts.inter(
-                        fontSize: 10,
+                        fontSize: 12,
                         fontWeight: FontWeight.bold,
                         color: primaryColor,
                         letterSpacing: 0.5,
@@ -8958,7 +8962,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.spaceGrotesk(
-                    fontSize: 18,
+                    fontSize: 20,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
@@ -9000,7 +9004,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                               Text(
                                 'Temps de marche',
                                 style: GoogleFonts.inter(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: mutedTextColor,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -9031,7 +9035,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                               Text(
                                 enMarche ? 'EN MARCHE' : 'ARRÊTÉE',
                                 style: GoogleFonts.inter(
-                                  fontSize: 10,
+                                  fontSize: 11,
                                   fontWeight: FontWeight.bold,
                                   color: enMarche ? successColor : alertColor,
                                 ),
@@ -9044,7 +9048,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                       Text(
                         '${h}h ${min}min',
                         style: GoogleFonts.spaceGrotesk(
-                          fontSize: 18,
+                          fontSize: 20,
                           fontWeight: FontWeight.bold,
                           color: textColor,
                         ),
@@ -9223,19 +9227,19 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           Text(
             label,
             style: GoogleFonts.inter(
-              fontSize: 8,
+              fontSize: 10,
               fontWeight: FontWeight.bold,
               color: mutedTextColor,
               letterSpacing: 0.5,
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           Text(
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: GoogleFonts.inter(
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
@@ -9708,21 +9712,22 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
           children: [
             // HEADER
             Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 16),
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
                       color: primaryColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(
                       Icons.precision_manufacturing,
                       color: primaryColor,
+                      size: 20,
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -9733,20 +9738,25 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                               : 'DÉTAILS DE LA MACHINE',
                           style: GoogleFonts.spaceGrotesk(
                             color: primaryColor,
-                            fontSize: 12,
+                            fontSize: 10,
                             fontWeight: FontWeight.bold,
-                            letterSpacing: 2,
+                            letterSpacing: 1.5,
                           ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
+                        const SizedBox(height: 2),
                         Text(
                           _nameCtrl.text.isEmpty
                               ? 'Nouvelle Machine'
                               : _nameCtrl.text,
                           style: GoogleFonts.spaceGrotesk(
                             color: Colors.white,
-                            fontSize: 24,
+                            fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
@@ -9906,6 +9916,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                         children: [
                           DropdownButtonFormField<String>(
                             value: ['L', 'M', 'H'].contains(_aiType) ? _aiType : 'M',
+                            isExpanded: true,
                             dropdownColor: const Color(0xFF1A1D2E),
                             style: const TextStyle(color: Colors.white),
                             decoration: InputDecoration(
@@ -9924,9 +9935,9 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                               fillColor: Colors.white.withOpacity(0.05),
                             ),
                             items: const [
-                              DropdownMenuItem(value: 'L', child: Text('Type L (Petite < 15kW)')),
-                              DropdownMenuItem(value: 'M', child: Text('Type M (Moyenne 15-75kW)')),
-                              DropdownMenuItem(value: 'H', child: Text('Type H (Grosse > 75kW)')),
+                              DropdownMenuItem(value: 'L', child: Text('Type L (Petite < 15kW)', overflow: TextOverflow.ellipsis)),
+                              DropdownMenuItem(value: 'M', child: Text('Type M (Moyenne 15-75kW)', overflow: TextOverflow.ellipsis)),
+                              DropdownMenuItem(value: 'H', child: Text('Type H (Grosse > 75kW)', overflow: TextOverflow.ellipsis)),
                             ],
                             onChanged: (v) {
                               if (v != null) setState(() => _aiType = v);
@@ -10046,80 +10057,71 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
 
             // FOOTER
             Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   if (!_editMode)
                     ElevatedButton.icon(
-                      icon: const Icon(Icons.view_in_ar),
-                      label: const Text('VOIR EN 3D'),
+                      icon: const Icon(Icons.view_in_ar, size: 18),
+                      label: const Text('VOIR EN 3D', style: TextStyle(fontSize: 12)),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.orangeAccent,
                         foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                       ),
                       onPressed: () {
                         Navigator.pop(context);
-                        // Trigger 3D View from parent
                       },
-                    ),
-                  const Spacer(),
+                    )
+                  else
+                    const SizedBox.shrink(),
+
                   if (!_editMode)
                     OutlinedButton.icon(
-                      icon: const Icon(Icons.edit_outlined),
-                      label: const Text('MODIFIER'),
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      label: const Text('MODIFIER', style: TextStyle(fontSize: 12)),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: primaryColor,
                         side: const BorderSide(color: primaryColor),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 12,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       ),
                       onPressed: () => setState(() => _editMode = true),
                     )
-                  else ...[
-                    TextButton(
-                      onPressed:
-                          () => setState(() {
-                            _editMode = false;
-                            if (id.isEmpty) Navigator.pop(context);
-                          }),
-                      child: const Text(
-                        'ANNULER',
-                        style: TextStyle(color: mutedTextColor),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: primaryColor,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 32,
-                          vertical: 12,
+                  else
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () => setState(() {
+                                _editMode = false;
+                                if (id.isEmpty) Navigator.pop(context);
+                              }),
+                              child: const Text('ANNULER', style: TextStyle(color: mutedTextColor, fontSize: 13)),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: primaryColor,
+                                foregroundColor: Colors.black,
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              ),
+                              onPressed: _saving ? null : _save,
+                              child: _saving
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                                    )
+                                  : const Text('ENREGISTRER', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            ),
+                          ],
                         ),
                       ),
-                      onPressed: _saving ? null : _save,
-                      child:
-                          _saving
-                              ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.black,
-                                ),
-                              )
-                              : const Text(
-                                'ENREGISTRER',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
                     ),
-                  ],
                 ],
               ),
             ),

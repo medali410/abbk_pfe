@@ -12,6 +12,11 @@ import 'package:path/path.dart' as path;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../services/api_service.dart';
 import 'voice_player_widget.dart';
+import 'chat/chat_theme.dart';
+import 'chat/chat_layout.dart';
+import 'chat/chat_sidebar.dart';
+import 'chat/chat_main_area.dart';
+import 'chat/chat_info_panel.dart';
 
 class MessageEquipeView extends StatefulWidget {
   final String? technicianId;
@@ -66,6 +71,10 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
   late String _clientId;
   bool _isTyping = false;
   bool _isLocating = false;
+  bool _remoteIsTyping = false;
+  String _remoteTypingName = '';
+  Timer? _typingDebounceTimer;
+  Timer? _typingTimer;
   
   // Voice Recording State
   bool _isRecording = false;
@@ -132,7 +141,8 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
         }
     }
 
-    if (_senderRole != 'client' && _senderRole != 'technician' && _senderRole != 'conception') {
+    if (_senderRole != 'client' && _senderRole != 'technician' &&
+        _senderRole != 'conception' && _senderRole != 'maintenance') {
       _senderRole = 'technician';
     }
 
@@ -154,6 +164,8 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     _audioRecorder.dispose();
     _recordingTimer?.cancel();
     _pollingTimer?.cancel();
+    _typingDebounceTimer?.cancel();
+    _typingTimer?.cancel();
     super.dispose();
   }
 
@@ -240,7 +252,16 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
         final senderVal = (m['senderName'] ?? '').toString();
         _updateConversationLastMessage(rId, textVal, timeVal, senderVal);
 
-        if (rId != _activeRoomId) return;
+        if (rId != _activeRoomId) {
+          // Increment unread count if it's not the active room
+          final idx = _conversations.indexWhere((c) => c['roomId'] == rId);
+          if (idx >= 0 && mounted) {
+            setState(() {
+              _conversations[idx]['unreadCount'] = (_conversations[idx]['unreadCount'] ?? 0) + 1;
+            });
+          }
+          return;
+        }
         final fromMe = senderVal == _senderName &&
             (m['from'] ?? '').toString() == _senderRole;
         if (fromMe) return;
@@ -271,6 +292,34 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
         if (roomId == _activeRoomId && mounted) {
           _closeConversation();
         }
+      } catch (_) {}
+    });
+
+    _socket!.on('typing', (raw) {
+      try {
+        final data = raw is String ? jsonDecode(raw) : raw;
+        if (data is! Map) return;
+        final roomId = (data['roomId'] ?? '').toString();
+        if (roomId != _activeRoomId) return;
+        if (!mounted) return;
+        setState(() {
+          _remoteIsTyping = true;
+          _remoteTypingName = (data['senderName'] ?? '').toString();
+        });
+        _typingTimer?.cancel();
+        _typingTimer = Timer(const Duration(seconds: 3), () {
+          if (mounted) setState(() => _remoteIsTyping = false);
+        });
+      } catch (_) {}
+    });
+
+    _socket!.on('stop_typing', (raw) {
+      try {
+        final data = raw is String ? jsonDecode(raw) : raw;
+        if (data is! Map) return;
+        final roomId = (data['roomId'] ?? '').toString();
+        if (roomId != _activeRoomId) return;
+        if (mounted) setState(() => _remoteIsTyping = false);
       } catch (_) {}
     });
 
@@ -403,6 +452,17 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
             final techs = contacts.where((c) => c['role'] == 'technician').toList();
             final agents = contacts.where((c) => c['role'] == 'maintenance').toList();
             final clients = contacts.where((c) => c['role'] == 'client').toList();
+            final concepteurs = contacts.where((c) => c['role'] == 'conception').toList();
+
+            if (concepteurs.isNotEmpty) {
+              list.add({'roomId': '__section_concepteurs__', 'isSectionHeader': true, 'sectionLabel': 'CONCEPTEURS', 'sectionIcon': 'engineering', 'sectionColor': 'orange'});
+              for (final c in concepteurs) {
+                list.add({
+                  'roomId': 'chat_conception_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
+                  'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
+                });
+              }
+            }
 
             if (clients.isNotEmpty) {
               list.add({'roomId': '__section_clients__', 'isSectionHeader': true, 'sectionLabel': 'CLIENTS', 'sectionIcon': 'groups', 'sectionColor': 'green'});
@@ -468,7 +528,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
           try {
             final contacts = await ApiService.getTechnicianContacts();
             
-            final concepteurs = contacts.where((c) => c['role'] == 'concepteur').toList();
+            final concepteurs = contacts.where((c) => c['role'] == 'conception').toList();
             final agents = contacts.where((c) => c['role'] == 'maintenance').toList();
             final clients = contacts.where((c) => c['role'] == 'client').toList();
 
@@ -507,6 +567,102 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
           if (mounted) setState(() {});
           return;
         }
+      } 
+      
+      if (_senderRole == 'maintenance') {
+
+        // ── Agent de maintenance : charger ses contacts (par machine) ──
+        String myAgentId = '';
+        try {
+          final workspace = await ApiService.getMaintenanceWorkspace();
+          final agent = workspace['agent'] as Map<String, dynamic>?;
+          myAgentId = (agent?['maintenanceAgentId'] ?? agent?['id'] ?? '').toString();
+        } catch (_) {}
+
+        final list = <Map<String, dynamic>>[];
+        final adminRoomId = myAgentId.isNotEmpty
+            ? 'chat_maintenance_${myAgentId}_admin'
+            : 'chat_maintenance_admin';
+        list.add({
+          'roomId': adminRoomId,
+          'name': 'Admin',
+          'lastText': 'Discuter avec l\'administrateur',
+          'lastAt': DateTime.now().toIso8601String(),
+          'senderName': 'Admin',
+          'roleLabel': 'Admin',
+          'role': 'admin',
+        });
+
+        try {
+          final contacts = await ApiService.getMaintenanceAgentContacts();
+
+          final concepteurs = contacts.where((c) => c['role'] == 'conception').toList();
+          final techs = contacts.where((c) => c['role'] == 'technician').toList();
+          final clients = contacts.where((c) => c['role'] == 'client').toList();
+
+          if (concepteurs.isNotEmpty) {
+            list.add({'roomId': '__section_concep__', 'isSectionHeader': true, 'sectionLabel': 'CONCEPTEURS', 'sectionIcon': 'engineering', 'sectionColor': 'purple'});
+            for (final c in concepteurs) {
+              final agentId = myAgentId.isNotEmpty ? myAgentId : 'agent';
+              list.add({
+                'roomId': 'chat_direct_maint_${agentId}_${c['id']}',
+                'name': c['name'], 'subId': c['id'].toString(),
+                'roleLabel': c['roleLabel'],
+                'lastText': 'Ouvrir la discussion',
+                'lastAt': DateTime.now().toIso8601String(),
+                'senderName': '', 'role': 'conception',
+              });
+            }
+          }
+
+          if (techs.isNotEmpty) {
+            list.add({'roomId': '__section_tech__', 'isSectionHeader': true, 'sectionLabel': 'TECHNICIENS', 'sectionIcon': 'build', 'sectionColor': 'blue'});
+            for (final c in techs) {
+              final agentId = myAgentId.isNotEmpty ? myAgentId : 'agent';
+              list.add({
+                'roomId': 'chat_direct_maint_${agentId}_${c['id']}',
+                'name': c['name'], 'subId': c['id'].toString(),
+                'roleLabel': c['roleLabel'],
+                'lastText': 'Ouvrir la discussion',
+                'lastAt': DateTime.now().toIso8601String(),
+                'senderName': '', 'role': 'technician',
+              });
+            }
+          }
+
+          if (clients.isNotEmpty) {
+            list.add({'roomId': '__section_clients__', 'isSectionHeader': true, 'sectionLabel': 'CLIENTS', 'sectionIcon': 'groups', 'sectionColor': 'green'});
+            for (final c in clients) {
+              final agentId = myAgentId.isNotEmpty ? myAgentId : 'agent';
+              list.add({
+                'roomId': 'chat_direct_maint_${agentId}_${c['id']}',
+                'name': c['name'], 'subId': c['id'].toString(),
+                'roleLabel': c['roleLabel'],
+                'lastText': 'Ouvrir la discussion',
+                'lastAt': DateTime.now().toIso8601String(),
+                'senderName': '', 'role': 'client',
+              });
+            }
+          }
+        } catch (_) {}
+
+        _conversations = list;
+        if (mounted) setState(() {});
+
+        // Load last message preview
+        for (final conv in _conversations) {
+          if (conv['isSectionHeader'] == true) continue;
+          try {
+            final msgs = await ApiService.getChatMessages(conv['roomId'], limit: 1);
+            if (msgs.isNotEmpty) {
+              conv['lastText'] = msgs.first['text'] ?? '';
+              conv['lastAt'] = msgs.first['createdAt'] ?? '';
+              conv['senderName'] = msgs.first['senderName'] ?? '';
+            }
+          } catch (_) {}
+        }
+        if (mounted) setState(() {});
+        return;
       }
       
       // Load last message and resolve names for ALL roles
@@ -543,6 +699,13 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     _activeRoomId = room;
     MessageEquipeView.currentActiveRoomId = room;
     _socket?.emit('join_chat_room', {'roomId': room});
+
+    // Reset unread count for this room
+    if (mounted) {
+      setState(() {
+        c['unreadCount'] = 0;
+      });
+    }
 
     _selectedDesignerDetails = c;
 
@@ -730,7 +893,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
 
   void _startPolling() {
     _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(const Duration(milliseconds: 800), (timer) {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       if (_activeRoomId.isNotEmpty) {
         _pollMessages();
       }
@@ -1166,636 +1329,147 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     final showSidebar = isDesktop || _activeRoomId.isEmpty;
     final showChat = isDesktop || _activeRoomId.isNotEmpty;
 
-    final sidebarContent = Container(
-      width: isDesktop ? 320 : null,
-      decoration: BoxDecoration(
-        color: _low,
-        border: Border(right: BorderSide(color: Colors.white.withOpacity(0.05), width: 1)),
+    final body = ChatLayout(
+      showSidebarOnMobile: showSidebar,
+      sidebar: ChatSidebar(
+        conversations: _conversations,
+        activeRoomId: _activeRoomId,
+        searchController: _searchController,
+        isSearching: _isSearching,
+        onSearchChanged: (val) {
+          setState(() {
+            _isSearching = val.isNotEmpty;
+          });
+          // TODO: Implémenter la logique de recherche
+        },
+        onClearSearch: () {
+          _searchController.clear();
+          setState(() {
+            _isSearching = false;
+          });
+        },
+        onSelectConversation: (roomId, details) {
+          _switchConversation(details);
+        },
       ),
-      child: Column(
-            children: [
-              const SizedBox(height: 24),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('MESSAGERIE',
-                        style: GoogleFonts.spaceGrotesk(
-                          color: _accent,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 2,
-                        )),
-                    const SizedBox(height: 16),
-                    Container(
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.04),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white.withOpacity(0.08)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: _accent.withOpacity(0.05),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: TextField(
-                        controller: _searchController,
-                        onChanged: _doSearch,
-                        style: GoogleFonts.inter(color: _text, fontSize: 13, fontWeight: FontWeight.w500),
-                        decoration: InputDecoration(
-                          hintText: 'Rechercher un contact...',
-                          hintStyle: GoogleFonts.inter(color: _muted.withOpacity(0.3), fontSize: 13),
-                          icon: Icon(Icons.search_rounded, color: _accent, size: 22),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                      ),
-                    ),
-                  ],
+      mainArea: showChat ? ChatMainArea(
+        activeRoomId: _activeRoomId,
+        selectedContactDetails: _selectedDesignerDetails,
+        messages: _messages,
+        scrollController: _messagesScroll,
+        currentUserId: _currentUserId,
+        remoteIsTyping: _remoteIsTyping,
+        remoteTypingName: _remoteTypingName,
+        inputController: _input,
+        isRecording: _isRecording,
+        recordingDuration: '${(_recordingDurationSeconds / 60).floor()}:${(_recordingDurationSeconds % 60).toString().padLeft(2, '0')}',
+        onPickFile: () => _pickAndUploadFile(isImage: false),
+        onStartRecording: _startVoiceRecording,
+        onStopRecording: _stopVoiceRecording,
+        onCancelRecording: _cancelVoiceRecording,
+        onSendMessage: _send,
+        onInputChanged: (v) {
+          final isTypingNow = v.trim().isNotEmpty;
+          if (isTypingNow != _isTyping) {
+            setState(() => _isTyping = isTypingNow);
+          }
+          if (isTypingNow) {
+            _socket?.emit('typing', {'roomId': _activeRoomId, 'senderName': _senderName});
+            _typingDebounceTimer?.cancel();
+            _typingDebounceTimer = Timer(const Duration(seconds: 2), () {
+              _socket?.emit('stop_typing', {'roomId': _activeRoomId});
+            });
+          } else {
+            _socket?.emit('stop_typing', {'roomId': _activeRoomId});
+            _typingDebounceTimer?.cancel();
+          }
+        },
+        onCloseConversation: _closeConversation,
+        buildMessageItem: (m) {
+          final senderId = (m['senderId'] ?? m['sender_id'] ?? 0) as int;
+          final mine = senderId == _currentUserId;
+          final text = (m['text'] ?? '').toString();
+
+          return Align(
+            alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+            child: Container(
+              constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: mine ? ChatTheme.myBubble : ChatTheme.otherBubble,
+                borderRadius: BorderRadius.circular(16).copyWith(
+                  bottomRight: mine ? const Radius.circular(0) : const Radius.circular(16),
+                  bottomLeft: !mine ? const Radius.circular(0) : const Radius.circular(16),
                 ),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2)),
+                ],
               ),
-              const SizedBox(height: 12),
-              const Divider(color: Colors.white10),
-              Expanded(
-                child: _isSearching 
-                  ? const Center(child: CircularProgressIndicator(color: _primary, strokeWidth: 2))
-                  : _searchController.text.isNotEmpty && _searchResults.isEmpty
-                    ? Center(child: Text('Aucun résultat', style: GoogleFonts.inter(color: _muted, fontSize: 12)))
-                    : _searchController.text.isNotEmpty
-                      ? ListView.builder(
-                          itemCount: _searchResults.length,
-                          itemBuilder: (context, i) {
-                            final d = _searchResults[i];
-                            return InkWell(
-                              onTap: () => _startChatWith(d),
-                              child: Container(
-                                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: _high.withOpacity(0.5),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: _muted.withOpacity(0.08)),
-                                ),
-                                child: Text(d['name'] ?? 'Concepteur',
-                                    style: GoogleFonts.inter(color: _text, fontWeight: FontWeight.bold, fontSize: 13)),
-                              ),
-                            );
-                          },
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          itemCount: _conversations.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 2),
-                          itemBuilder: (context, i) {
-                            final c = _conversations[i];
-                            final room = (c['roomId'] ?? '').toString();
-                            final active = room == _activeRoomId;
-                            
-                            if (c['isSectionHeader'] == true) {
-                              return Padding(
-                                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-                                child: Text(
-                                  (c['sectionLabel'] ?? '').toString(),
-                                  style: GoogleFonts.spaceGrotesk(
-                                    color: _muted.withOpacity(0.5),
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 1.2,
-                                  ),
-                                ),
-                              );
-                            }
-
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                              child: Stack(
-                                children: [
-                                  Material(
-                                    color: active ? _accent.withOpacity(0.08) : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(16),
-                                    child: InkWell(
-                                      onTap: () => _switchConversation(c),
-                                      borderRadius: BorderRadius.circular(16),
-                                      hoverColor: Colors.white.withOpacity(0.04),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                                        decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(16),
-                                          border: Border.all(
-                                            color: active ? _accent.withOpacity(0.3) : Colors.transparent,
-                                            width: 1,
-                                          ),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            Stack(
-                                              children: [
-                                                 _avatar(
-                                                  name: _resolveDesignerName(c),
-                                                  size: 46,
-                                                ),
-                                                Positioned(
-                                                  right: 0,
-                                                  bottom: 0,
-                                                  child: Container(
-                                                    width: 12,
-                                                    height: 12,
-                                                    decoration: BoxDecoration(
-                                                      color: const Color(0xFF22C55E),
-                                                      shape: BoxShape.circle,
-                                                      border: Border.all(color: _low, width: 2),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(width: 16),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  Row(
-                                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                    children: [
-                                                      Expanded(
-                                                        child: Text(
-                                                          _resolveDesignerName(c),
-                                                          style: GoogleFonts.inter(
-                                                            color: active ? Colors.white : _text,
-                                                            fontWeight: active ? FontWeight.w800 : FontWeight.w700,
-                                                            fontSize: 14.5,
-                                                          ),
-                                                          overflow: TextOverflow.ellipsis,
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      Text(_fmtTime(c['lastAt']),
-                                                          style: GoogleFonts.inter(
-                                                            color: active ? _accent : _muted.withOpacity(0.5),
-                                                            fontSize: 11,
-                                                            fontWeight: active ? FontWeight.w700 : FontWeight.w500
-                                                          )),
-                                                    ],
-                                                  ),
-                                                  const SizedBox(height: 6),
-                                                  Row(
-                                                    children: [
-                                                      Container(
-                                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                                                        decoration: BoxDecoration(
-                                                          color: _getRoleColor(c['roleLabel'] ?? '').withOpacity(0.15),
-                                                          borderRadius: BorderRadius.circular(4),
-                                                          border: Border.all(color: _getRoleColor(c['roleLabel'] ?? '').withOpacity(0.3)),
-                                                        ),
-                                                        child: Row(
-                                                          mainAxisSize: MainAxisSize.min,
-                                                          children: [
-                                                            Container(
-                                                              width: 5,
-                                                              height: 5,
-                                                              decoration: BoxDecoration(
-                                                                color: _getRoleColor(c['roleLabel'] ?? ''),
-                                                                shape: BoxShape.circle,
-                                                              ),
-                                                            ),
-                                                            const SizedBox(width: 4),
-                                                            Text(
-                                                              _formatRoleBadge(c['roleLabel'] ?? ''),
-                                                              style: GoogleFonts.spaceGrotesk(
-                                                                color: _getRoleColor(c['roleLabel'] ?? ''),
-                                                                fontSize: 9,
-                                                                fontWeight: FontWeight.w700,
-                                                                letterSpacing: 0.5,
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      Expanded(
-                                                        child: Text(
-                                                          (c['lastText'] ?? 'Ouvrir la discussion').toString(),
-                                                          style: GoogleFonts.inter(
-                                                            color: active ? Colors.white.withOpacity(0.9) : _muted.withOpacity(0.8),
-                                                            fontSize: 12.5,
-                                                            fontWeight: active ? FontWeight.w500 : FontWeight.normal
-                                                          ),
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow.ellipsis,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  if (active)
-                                    Positioned(
-                                      left: 0,
-                                      top: 16,
-                                      bottom: 16,
-                                      child: Container(
-                                        width: 3,
-                                        decoration: BoxDecoration(
-                                          color: _accent,
-                                          borderRadius: BorderRadius.circular(4),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: _accent.withOpacity(0.6),
-                                              blurRadius: 4,
-                                              spreadRadius: 1,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            );
-                          },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!mine && m['senderName'] != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(m['senderName'].toString(), style: GoogleFonts.inter(color: ChatTheme.accent, fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                    
+                  if (m['attachmentUrl'] != null && m['attachmentUrl'].toString().isNotEmpty) ...[
+                    if (m['attachmentType'] == 'image')
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          '${ApiService.baseUrl.replaceAll('/api', '')}${m['attachmentUrl']}',
+                          width: 200,
+                          fit: BoxFit.cover,
                         ),
-              ),
-            ],
-          ),
-    );
-
-    final body = Row(
-      children: [
-        if (showSidebar)
-          isDesktop ? sidebarContent : Expanded(child: sidebarContent),
-        
-        if (showChat)
-          Expanded(
-            child: Column(
-            children: [
-              if (_activeRoomId.isNotEmpty)
-                Container(
-                  height: 60,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  decoration: const BoxDecoration(
-                    color: _header,
-                    border: Border(left: BorderSide(color: Colors.white10, width: 0.5)),
-                  ),
-                  child: Row(
-                    children: [
-                      if (!isDesktop) ...[
-                        IconButton(
-                          onPressed: _closeConversation,
-                          icon: const Icon(Icons.arrow_back, color: Colors.white),
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      _avatar(name: _selectedDesignerDetails?['name']?.toString() ?? 'C', size: 40),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
+                      )
+                    else if (m['attachmentType'] == 'document')
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8), border: Border.all(color: ChatTheme.muted.withOpacity(0.3))),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
-                              _selectedDesignerDetails?['name'] ?? 'Discussion',
-                              style: GoogleFonts.inter(color: _text, fontSize: 15, fontWeight: FontWeight.w600),
-                            ),
-                            Text('en ligne', style: GoogleFonts.inter(color: _accent, fontSize: 11)),
+                            const Icon(Icons.insert_drive_file, color: Colors.white70, size: 24),
+                            const SizedBox(width: 8),
+                            Text('Document joint', style: GoogleFonts.inter(color: Colors.white70, fontSize: 12)),
                           ],
                         ),
-                      ),
-                      IconButton(
-                        onPressed: _closeConversation,
-                        icon: const Icon(Icons.close, color: _muted, size: 20),
-                      ),
-                    ],
-                  ),
-                ),
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: _bg,
-                    image: DecorationImage(
-                      image: const NetworkImage('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png'),
-                      repeat: ImageRepeat.repeat,
-                      opacity: 0.06,
-                      colorFilter: ColorFilter.mode(_bg.withOpacity(0.9), BlendMode.dstATop),
-                    ),
-                  ),
-                  child: ListView.builder(
-                    controller: _messagesScroll,
-                    padding: const EdgeInsets.all(20),
-                    itemCount: _messages.length,
-                    itemBuilder: (context, i) {
-                      final m = _messages[i];
-                      final sender = (m['senderName'] ?? 'User').toString();
-                      final text = (m['text'] ?? '').toString();
-                      final fromRole = (m['from'] ?? '').toString().toLowerCase();
-
-                      final userRole = ApiService.savedUserRole?.toLowerCase();
-                      final isConcepteur = userRole == 'concepteur' || (userRole == 'conception' && !ApiService.isSuperAdmin);
-
-                      final bool mine = sender.trim().toLowerCase() == _senderName.trim().toLowerCase();
-
-                      final displaySender = isConcepteur ? 'Admin' : sender;
-                      final critical = text.toLowerCase().contains('alerte critique');
-
-                      return Align(
-                        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-                        child: GestureDetector(
-                          onLongPress: mine && m['id'] != null ? () => _deleteMessage(m['id']) : null,
-                          child: Container(
-                            constraints: const BoxConstraints(maxWidth: 540),
-                            margin: const EdgeInsets.symmetric(vertical: 6),
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                            decoration: BoxDecoration(
-                              color: mine ? _myBubble : _otherBubble,
-                              borderRadius: BorderRadius.circular(8),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.12),
-                                  blurRadius: 1,
-                                  offset: const Offset(0, 1),
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (!mine) ...[
-                                  Text(displaySender, style: GoogleFonts.inter(color: _accent, fontSize: 10, fontWeight: FontWeight.bold)),
-                                  const SizedBox(height: 2),
-                                ],
-                                
-                                if (m['attachmentUrl'] != null && m['attachmentUrl'].toString().isNotEmpty) ...[
-                                  const SizedBox(height: 5),
-                                  if (m['attachmentType'] == 'image')
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Image.network(
-                                        '${ApiService.baseUrl.replaceAll('/api', '')}${m['attachmentUrl']}',
-                                        width: 200,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    )
-                                  else if (m['attachmentType'] == 'document')
-                                    Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black12,
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(color: _muted.withOpacity(0.3)),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.insert_drive_file, color: Colors.white70, size: 24),
-                                          const SizedBox(width: 8),
-                                          Text('Document joint', style: GoogleFonts.inter(color: Colors.white70, fontSize: 12)),
-                                        ],
-                                      ),
-                                    )
-                                  else if (m['attachmentType'] == 'audio')
-                                    VoicePlayerWidget(
-                                      url: '${ApiService.baseUrl.replaceAll('/api', '')}${m['attachmentUrl']}',
-                                      color: mine ? Colors.white : _primary,
-                                    ),
-                                  const SizedBox(height: 5),
-                                ],
-
-                                Wrap(
-                                  alignment: WrapAlignment.end,
-                                  crossAxisAlignment: WrapCrossAlignment.end,
-                                  spacing: 8,
-                                  runSpacing: 4,
-                                  children: [
-                                    Text(text, style: GoogleFonts.inter(color: _text, fontSize: 13.5)),
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(_fmtTime(m['createdAt'] ?? m['at']), style: GoogleFonts.inter(color: _muted, fontSize: 9)),
-                                        if (mine) ...[
-                                          const SizedBox(width: 3),
-                                          Icon(Icons.done_all, color: Colors.cyanAccent.withOpacity(0.6), size: 12),
-                                        ],
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-
-                    },
-                  ),
-                ),
-              ),
-              if (_activeRoomId.isNotEmpty)
-                Container(
-                  color: _header,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  child: _isRecording 
-                    ? Row(
-                        children: [
-                          IconButton(
-                            onPressed: _cancelVoiceRecording,
-                            icon: const Icon(Icons.delete_outline, color: _error, size: 26),
-                            tooltip: 'Supprimer l\'enregistrement',
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                              decoration: BoxDecoration(
-                                color: _highest,
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(color: _primary.withOpacity(0.3)),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.mic, color: _primary, size: 18),
-                                  const SizedBox(width: 12),
-                                  Text(
-                                    '${(_recordingDurationSeconds ~/ 60).toString().padLeft(2, '0')}:${(_recordingDurationSeconds % 60).toString().padLeft(2, '0')}',
-                                    style: GoogleFonts.spaceGrotesk(color: _text, fontWeight: FontWeight.bold, fontSize: 16),
-                                  ),
-                                  const Spacer(),
-                                  Text('Enregistrement...', style: GoogleFonts.inter(color: _muted, fontSize: 13, fontStyle: FontStyle.italic)),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            decoration: const BoxDecoration(
-                              color: _primary,
-                              shape: BoxShape.circle,
-                            ),
-                            child: IconButton(
-                              onPressed: _stopVoiceRecording,
-                              icon: const Icon(Icons.send, color: Colors.white, size: 22),
-                              tooltip: 'Envoyer le message vocal',
-                            ),
-                          ),
-                        ],
                       )
-                    : Row(
-                        children: [
-                          IconButton(
-                            onPressed: () {}, // TODO: Emoji picker
-                            icon: const Icon(Icons.emoji_emotions_outlined, color: _muted, size: 24),
-                            tooltip: 'Emoji',
-                          ),
-                          IconButton(
-                            onPressed: () => _pickAndUploadFile(isImage: false),
-                            icon: const Icon(Icons.attach_file, color: _muted, size: 24),
-                            tooltip: 'Joindre un fichier',
-                          ),
-                          IconButton(
-                            onPressed: () => _pickAndUploadFile(isImage: true),
-                            icon: const Icon(Icons.camera_alt_outlined, color: _muted, size: 24),
-                            tooltip: 'Prendre une photo',
-                          ),
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              decoration: BoxDecoration(
-                                color: _highest,
-                                borderRadius: BorderRadius.circular(24),
-                              ),
-                              child: TextField(
-                                controller: _input,
-                                onChanged: (v) => setState(() => _isTyping = v.trim().isNotEmpty),
-                                style: GoogleFonts.inter(color: _text, fontSize: 15),
-                                decoration: const InputDecoration(
-                                  hintText: 'Écrire un message...',
-                                  hintStyle: TextStyle(color: _muted),
-                                  border: InputBorder.none,
-                                ),
-                                maxLines: 5,
-                                minLines: 1,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            decoration: BoxDecoration(
-                              color: _isTyping ? Colors.blueAccent : _primary,
-                              shape: BoxShape.circle,
-                            ),
-                            child: IconButton(
-                              onPressed: _isTyping ? _send : null,
-                              icon: const Icon(Icons.send, color: Colors.white, size: 22),
-                              tooltip: 'Envoyer',
-                            ),
-                          ),
-                        ],
+                    else if (m['attachmentType'] == 'audio')
+                      VoicePlayerWidget(
+                        url: '${ApiService.baseUrl.replaceAll('/api', '')}${m['attachmentUrl']}',
+                        color: mine ? Colors.white : ChatTheme.myBubble,
                       ),
-                ),
-            ],
-          ),
-        ),
-        
-        // Right Sidebar (Designer Info)
-        if (isDesktop && _activeRoomId.isNotEmpty) Container(
-          width: 300,
-          color: _low,
-          padding: const EdgeInsets.all(24),
-          child: _selectedDesignerDetails == null 
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 20),
-                    Text('INFORMATIONS CONTACT',
-                        style: GoogleFonts.spaceGrotesk(color: _muted, fontSize: 11, letterSpacing: 1.2)),
-                    const SizedBox(height: 20),
-                    const Center(child: CircularProgressIndicator(color: _primary)),
+                    const SizedBox(height: 5),
                   ],
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 20),
-                    Text('INFORMATIONS CONTACT',
-                        style: GoogleFonts.spaceGrotesk(color: _muted, fontSize: 11, letterSpacing: 1.2)),
-                    const SizedBox(height: 32),
-                    Center(
-                      child: CircleAvatar(
-                        radius: 40,
-                        backgroundColor: _primary.withOpacity(0.2),
-                        child: Text(_selectedDesignerDetails!['name']?[0]?.toUpperCase() ?? 'C', 
-                           style: const TextStyle(color: _primary, fontSize: 24, fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Center(
-                      child: Text(_selectedDesignerDetails!['name'] ?? 'Concepteur',
-                          style: GoogleFonts.inter(color: _text, fontSize: 18, fontWeight: FontWeight.bold)),
-                    ),
-                    if (_selectedDesignerDetails!['specialite'] != null && _selectedDesignerDetails!['specialite'].toString().isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Center(
-                        child: Text(_selectedDesignerDetails!['specialite'],
-                            style: GoogleFonts.inter(color: _secondary, fontSize: 14)),
-                      ),
+
+                  if (text.isNotEmpty)
+                    Text(text, style: ChatTheme.messageStyle),
+                  
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(_fmtTime(m['createdAt'] ?? m['at']), style: ChatTheme.timeStyle.copyWith(fontSize: 10)),
+                      if (mine) ...[
+                        const SizedBox(width: 4),
+                        const Icon(Icons.done_all, color: Colors.blueAccent, size: 14),
+                      ],
                     ],
-                    const SizedBox(height: 40),
-                    Text('MACHINES ASSIGNÉES',
-                        style: GoogleFonts.spaceGrotesk(color: _muted, fontSize: 11, letterSpacing: 1.2)),
-                    const SizedBox(height: 16),
-                    if ((_selectedDesignerDetails!['machines'] as List? ?? []).isEmpty)
-                       Text('Aucune machine', style: GoogleFonts.inter(color: _muted, fontSize: 13))
-                    else
-                       ...(_selectedDesignerDetails!['machines'] as List).map((m) => Container(
-                         margin: const EdgeInsets.only(bottom: 8),
-                         padding: const EdgeInsets.all(12),
-                         decoration: BoxDecoration(
-                           color: _highest.withOpacity(0.4),
-                           borderRadius: BorderRadius.circular(8),
-                           border: Border.all(color: _muted.withOpacity(0.1)),
-                         ),
-                         child: Row(
-                           children: [
-                             const Icon(Icons.precision_manufacturing, color: _primary, size: 16),
-                             const SizedBox(width: 12),
-                             Expanded(child: Text(m.toString(), style: GoogleFonts.inter(color: _text, fontSize: 13))),
-                           ],
-                         ),
-                       )),
-                    const SizedBox(height: 40),
-                    Text('ACTIONS',
-                        style: GoogleFonts.spaceGrotesk(color: _muted, fontSize: 11, letterSpacing: 1.2)),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _deleteConversation,
-                        icon: const Icon(Icons.delete_sweep_outlined, color: Colors.white, size: 18),
-                        label: Text('Effacer la discussion', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.redAccent.withOpacity(0.12),
-                          foregroundColor: Colors.redAccent,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(color: Colors.redAccent.withOpacity(0.3)),
-                          ),
-                          elevation: 0,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-        ),
-      ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ) : const SizedBox.shrink(),
+      infoPanel: _activeRoomId.isNotEmpty ? ChatInfoPanel(
+        selectedContactDetails: _selectedDesignerDetails,
+        onClose: () {},
+      ) : null,
     );
 
     if (widget.embedded) return SizedBox.expand(child: body);

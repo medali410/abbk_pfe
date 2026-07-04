@@ -977,7 +977,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                           Icon(Icons.mail_outline_rounded, color: _onSurfaceVariant.withOpacity(0.7), size: 14),
                           const SizedBox(width: 6),
                           Text(
-                            _currentClientEmail.isEmpty ? 'Email non renseignÃ©' : _currentClientEmail,
+                            _currentClientEmail.isEmpty ? 'Email non renseigné' : _currentClientEmail,
                             style: GoogleFonts.inter(
                               fontSize: 13,
                               color: _onSurfaceVariant,
@@ -1034,9 +1034,9 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                       children: [
                         Expanded(child: _buildStatCard('Total Machines', totalMachines.toString(), Icons.precision_manufacturing_rounded, _secondary)),
                         const SizedBox(width: 16),
-                        Expanded(child: _buildStatCard('Total Techniciens', _isLoadingStats ? '..' : _techCount.toString(), Icons.groups_rounded, const Color(0xFFA88DFF))),
+                        Expanded(child: _buildStatCard('Total Techniciens', _isLoadingStats ? '..' : _techCount.toString(), Icons.groups_rounded, const Color(0xFFA88DFF)),),
                         const SizedBox(width: 16),
-                        Expanded(child: _buildStatCard('En Maintenance', maintenanceCount.toString(), Icons.build_circle_rounded, const Color(0xFFF15C6D))),
+                        Expanded(child: _buildStatCard('En Maintenance', maintenanceCount.toString(), Icons.build_circle_rounded, const Color(0xFFF15C6D)),),
                       ],
                     )
                   : Column(
@@ -1114,7 +1114,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               final machines = snapshot.data ?? const <Map<String, dynamic>>[];
               if (machines.isEmpty) {
                 return Text(
-                  'Aucune machine assignÃ©e Ã  ce client.',
+                  'Aucune machine assignée à ce client.',
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     color: _onSurfaceVariant,
@@ -1126,23 +1126,23 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                   final name = _clientMachineName(m);
                   final id = _clientMachineId(m);
                   final status = (m['state'] ?? m['status'] ?? 'Actif').toString();
-                  final brand = (m['brand'] ?? m['marque'] ?? 'â€”').toString();
-                  final model = (m['model'] ?? m['name'] ?? 'â€”').toString();
-                  final type = (m['type'] ?? m['category'] ?? 'â€”').toString();
-                  final location = (m['location'] ?? m['site'] ?? 'â€”').toString();
-                  final serial = (m['serialNumber'] ?? m['serial'] ?? m['sn'] ?? 'â€”')
+                  final brand = (m['brand'] ?? m['marque'] ?? '—').toString();
+                  final model = (m['model'] ?? m['name'] ?? '—').toString();
+                  final type = (m['type'] ?? m['category'] ?? '—').toString();
+                  final location = (m['location'] ?? m['site'] ?? '—').toString();
+                  final serial = (m['serialNumber'] ?? m['serial'] ?? m['sn'] ?? '—')
                       .toString();
                   final maintBy =
-                      (m['maintenanceControlBy'] ?? m['maintainedBy'] ?? 'â€”')
+                      (m['maintenanceControlBy'] ?? m['maintainedBy'] ?? '—')
                           .toString();
                   final maintActive = m['maintenanceControlActive'] == true
                       ? 'Oui'
                       : 'Non';
-                  final temp = (m['temperature'] ?? m['temp'] ?? 'â€”').toString();
+                  final temp = (m['temperature'] ?? m['temp'] ?? '—').toString();
                   final vibration =
-                      (m['vibration'] ?? m['vibrationLevel'] ?? 'â€”').toString();
+                      (m['vibration'] ?? m['vibrationLevel'] ?? '—').toString();
                   final pressure =
-                      (m['pressure'] ?? m['pressureLevel'] ?? 'â€”').toString();
+                      (m['pressure'] ?? m['pressureLevel'] ?? '—').toString();
                   final imageUrl = (m['imageUrl'] ?? m['image'] ?? m['photo'] ?? '')
                       .toString()
                       .trim();
@@ -1270,7 +1270,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             ),
           ),
           TextSpan(
-            text: value.isEmpty ? 'â€”' : value,
+            text: value.isEmpty ? '—' : value,
             style: GoogleFonts.inter(
               fontSize: 10,
               color: _onSurface,
@@ -1316,7 +1316,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               final techs = snapshot.data ?? const <Map<String, dynamic>>[];
               if (techs.isEmpty) {
                 return Text(
-                  'Aucun technicien assignÃ© Ã  ce client.',
+                  'Aucun technicien assigné à ce client.',
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     color: _onSurfaceVariant,
@@ -1449,7 +1449,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       children: [
         _buildSubpageHeader(
           title: 'Mes Machines',
-          subtitle: '$name Â· $mid',
+          subtitle: '$name · $mid',
           onBack: () => setState(() => _machineSelectedMachine = null),
         ),
         const SizedBox(height: 20),
@@ -1491,7 +1491,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           return _buildNoMachineAssignedCard(
             title: 'Analyse IA indisponible',
             message:
-                "Aucune machine n'est assignÃ©e Ã  votre client pour le moment. Contactez l'administrateur pour activer l'analyse IA.",
+                "Aucune machine n'est assignée à votre client pour le moment. Contactez l'administrateur pour activer l'analyse IA.",
           );
         }
 
@@ -1524,40 +1524,49 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             Row(
               children: [
                 Expanded(
+                  flex: 1,
                   child: _buildSubpageHeader(
                     title: 'Analyse IA',
                     subtitle: '$mname • $mid',
                     onBack: () {},
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    color: _surfaceContainerHigh,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: _outlineVariant.withOpacity(0.3)),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: mid,
-                      dropdownColor: _surfaceContainerHigh,
-                      style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.w600),
-                      icon: const Icon(Icons.arrow_drop_down, color: _secondary),
-                      items: machines.map((m) {
-                        final id = _clientMachineId(m);
-                        final name = _clientMachineName(m);
-                        return DropdownMenuItem(
-                          value: id,
-                          child: Text('$name • $id'),
-                        );
-                      }).toList(),
-                      onChanged: (val) {
-                        if (val != null) {
-                          setState(() {
-                            _iaSelectedMachine = machines.firstWhere((m) => _clientMachineId(m) == val);
-                          });
-                        }
-                      },
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 1,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: _surfaceContainerHigh,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: _outlineVariant.withOpacity(0.3)),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: mid,
+                        dropdownColor: _surfaceContainerHigh,
+                        style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.w600),
+                        icon: const Icon(Icons.arrow_drop_down, color: _secondary),
+                        items: machines.map((m) {
+                          final id = _clientMachineId(m);
+                          final name = _clientMachineName(m);
+                          return DropdownMenuItem(
+                            value: id,
+                            child: Text(
+                              '$name • $id',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() {
+                              _iaSelectedMachine = machines.firstWhere((m) => _clientMachineId(m) == val);
+                            });
+                          }
+                        },
+                      ),
                     ),
                   ),
                 ),
@@ -1637,42 +1646,31 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _buildClientCatalogSectionHeader(
-                        title: 'CATALOGUE DES SYSTEMES',
+                        title: 'CATALOGUE DES SYSTÈMES',
                         subtitle: 'Concepteur ${entry.key}',
                         isDesktop: isDesktop,
-                        trailing: Text(
-                          '${entry.value.length} machine(s) affichee(s)',
-                          style: GoogleFonts.inter(
-                            color: _onSurfaceVariant.withOpacity(0.9),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
+                        trailing: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFF6E00).withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: const Color(0xFFFF6E00).withOpacity(0.3)),
+                          ),
+                          child: Text(
+                            '${entry.value.length} machine(s)',
+                            style: GoogleFonts.inter(
+                              color: const Color(0xFFFF6E00),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.3,
+                            ),
                           ),
                         ),
                       ),
                       const SizedBox(height: 14),
-                      GridView.builder(
-                        itemCount: entry.value.length,
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: crossAxisCount,
-                          crossAxisSpacing: 14,
-                          mainAxisSpacing: 14,
-                          childAspectRatio: crossAxisCount == 1 ? 0.92 : 1.02,
-                        ),
-                        itemBuilder: (context, i) {
-                          final machine = entry.value[i];
-                          final machineId = (machine['machineId'] ?? machine['_id'] ?? machine['id'] ?? '').toString();
-                          return _ClientPublicMachineCard(
-                            machine: machine,
-                            onRequireLogin: _openCatalogClientLogin,
-                            onBuy: () => _buyMachineFromClientHome(
-                              context,
-                              machineId: machineId,
-                              machine: machine,
-                            ),
-                          );
-                        },
+                      _buildConcepteurMachineGrid(
+                        machines: entry.value,
+                        context: context,
                       ),
                     ],
                   ),
@@ -1686,7 +1684,24 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
+  Widget _buildConcepteurMachineGrid({
+    required List<Map<String, dynamic>> machines,
+    required BuildContext context,
+  }) {
+    return _ConcepteurMachineGrid(
+      machines: machines,
+      onRequireLogin: _openCatalogClientLogin,
+      onBuy: (machineId, machine) => _buyMachineFromClientHome(
+        context,
+        machineId: machineId,
+        machine: machine,
+      ),
+    );
+  }
+
+
   Widget _buildClientCatalogHero({required int total, required bool isDesktop}) {
+
     final heroHeight = isDesktop ? 280.0 : 250.0;
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
@@ -1783,7 +1798,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     if (catalogFilterValueIsActive(_publicCatalogBrandFilter)) {
       parts.add(_publicCatalogBrandFilter!);
     }
-    return parts.join(' Â· ');
+    return parts.join(' · ');
   }
 
   void _togglePublicCatalogFilterPanel() {
@@ -2410,7 +2425,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       children: [
         _buildSubpageHeader(
           title: title,
-          subtitle: '$name Â· $mid',
+          subtitle: '$name · $mid',
           onBack: onBack,
         ),
         const SizedBox(height: 24),
@@ -2426,7 +2441,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Fiche Ã©quipement',
+                'Fiche équipement',
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 11,
                   fontWeight: FontWeight.w800,
@@ -2437,13 +2452,13 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               const SizedBox(height: 12),
               _docInfoRow('Identifiant', mid),
               _docInfoRow('Nom', name),
-              _docInfoRow('Type moteur', (m['motorType'] ?? 'â€”').toString()),
-              _docInfoRow('Statut', (m['status'] ?? 'â€”').toString()),
-              _docInfoRow('Emplacement', (m['location'] ?? 'â€”').toString()),
-              _docInfoRow('Puissance', (m['power'] ?? 'â€”').toString()),
-              _docInfoRow('Tension', (m['voltage'] ?? 'â€”').toString()),
-              _docInfoRow('Vitesse', (m['speed'] ?? 'â€”').toString()),
-              _docInfoRow('Installation', (m['installDate'] ?? 'â€”').toString()),
+              _docInfoRow('Type moteur', (m['motorType'] ?? '—').toString()),
+              _docInfoRow('Statut', (m['status'] ?? '—').toString()),
+              _docInfoRow('Emplacement', (m['location'] ?? '—').toString()),
+              _docInfoRow('Puissance', (m['power'] ?? '—').toString()),
+              _docInfoRow('Tension', (m['voltage'] ?? '—').toString()),
+              _docInfoRow('Vitesse', (m['speed'] ?? '—').toString()),
+              _docInfoRow('Installation', (m['installDate'] ?? '—').toString()),
             ],
           ),
         ),
@@ -2607,7 +2622,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             final rows = snap.data ?? const <Map<String, dynamic>>[];
             if (rows.isEmpty) {
               return Text(
-                'Aucune panne terminÃ©e archivÃ©e pour cette machine.',
+                'Aucune panne terminée archivée pour cette machine.',
                 style: GoogleFonts.inter(color: _onSurfaceVariant),
               );
             }
@@ -3046,7 +3061,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  'DÃ©mo : ajoutez des URLs de fichiers cÃ´tÃ© API pour activer le tÃ©lÃ©chargement.',
+                  'Démo : ajoutez des URLs de fichiers côté API pour activer le téléchargement.',
                   style: GoogleFonts.inter(),
                 ),
               ),
@@ -3070,7 +3085,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• SIDEBAR â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ————————————————————————— SIDEBAR ————————————————————————— 
   Widget _buildSidebar() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -3232,7 +3247,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• TOP BAR â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ————————————————————————— TOP BAR ————————————————————————— 
   Widget _buildTopBar(bool isDesktop) {
     return Container(
       height: 64,
@@ -3263,7 +3278,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 OutlinedButton.icon(
                   onPressed: _logoutClient,
                   icon: const Icon(Icons.logout, size: 16),
-                  label: const Text('DÃ©connexion'),
+                  label: const Text('Déconnexion'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _error,
                     side: BorderSide(color: _error.withOpacity(0.45)),
@@ -3450,7 +3465,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       if (!mounted) return;
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Photo de profil mise Ã  jour.')),
+        const SnackBar(content: Text('Photo de profil mise à jour.')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -3526,7 +3541,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     if (!mounted) return;
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Background profil mis Ã  jour.')),
+      const SnackBar(content: Text('Background profil mis à jour.')),
     );
   }
 
@@ -3645,8 +3660,8 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('DÃ©connexion'),
-        content: const Text('Voulez-vous vraiment vous dÃ©connecter ?'),
+        title: const Text('Déconnexion'),
+        content: const Text('Voulez-vous vraiment vous déconnecter ?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -3654,7 +3669,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Se dÃ©connecter'),
+            child: const Text('Se déconnecter'),
           ),
         ],
       ),
@@ -3703,7 +3718,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'ParamÃ¨tres du profil',
+                    'Paramètres du profil',
                     style: GoogleFonts.inter(
                       color: _onSurface,
                       fontWeight: FontWeight.w700,
@@ -3847,12 +3862,12 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       if (!mounted) return;
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profil mis Ã  jour.')),
+        const SnackBar(content: Text('Profil mis à jour.')),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Mise Ã  jour impossible: $e')),
+        SnackBar(content: Text('Mise à jour impossible: $e')),
       );
     }
   }
@@ -3865,12 +3880,12 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     final alerts = (widget.clientData?['alerts'] ?? 0).toString();
     final rows = _clientNotifications.isNotEmpty ? _clientNotifications : <Map<String, String>>[
       {
-        'title': 'SantÃ© du site',
-        'body': 'Le site est opÃ©rationnel. Alertes actives: $alerts.',
+        'title': 'Santé du site',
+        'body': 'Le site est opérationnel. Alertes actives: $alerts.',
       },
       {
         'title': 'Machines',
-        'body': 'Ouvrez "Mes Machines" pour voir les derniÃ¨res mises Ã  jour.',
+        'body': 'Ouvrez "Mes Machines" pour voir les dernières mises à jour.',
       },
     ];
 
@@ -4016,7 +4031,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• AI PREDICTIVE HEADER â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ——————————————————————— AI PREDICTIVE HEADER ——————————————————————— 
   Widget _buildAIHeader() {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -4077,7 +4092,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Score de SantÃ© Global (IA)',
+                            'Score de Santé Global (IA)',
                             style: GoogleFonts.inter(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -4085,7 +4100,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                             ),
                           ),
                           Text(
-                            'BasÃ© sur 1.2M de points de donnÃ©es/heure',
+                            'Basé sur 1.2M de points de données/heure',
                             style: GoogleFonts.spaceGrotesk(
                                 fontSize: 11, color: _onSurfaceVariant),
                           ),
@@ -4107,7 +4122,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                     ),
                   ),
                   Text(
-                    'OPTIMISÃ‰',
+                    'OPTIMISÉ',
                     style: GoogleFonts.spaceGrotesk(
                         fontSize: 9,
                         color: _onSurfaceVariant,
@@ -4129,7 +4144,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                     children: [
                       TextSpan(
                         text:
-                            'Le site de ${widget.clientData?['location'] ?? 'Tunis'} prÃ©sente une stabilitÃ© supÃ©rieure Ã  la moyenne rÃ©gionale. Risque d\'arrÃªt critique : ',
+                            'Le site de ${widget.clientData?['location'] ?? 'Tunis'} présente une stabilité supérieure à la moyenne régionale. Risque d\'arrêt critique : ',
                       ),
                       TextSpan(
                         text: 'Faible (${widget.clientData?['alerts'] ?? 0} Alertes)',
@@ -4174,7 +4189,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               const Icon(Icons.event_repeat, color: _primaryLight, size: 16),
               const SizedBox(width: 8),
               Text(
-                'MAINTENANCE PRÃ‰DICTIVE',
+                'MAINTENANCE PRÉDICTIVE',
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 9,
                   color: _onSurfaceVariant,
@@ -4204,7 +4219,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Remplacement du roulement (PR-001) suggÃ©rÃ© dans 15 jours.',
+                  'Remplacement du roulement (PR-001) suggéré dans 15 jours.',
                   style: GoogleFonts.inter(fontSize: 13, color: _onSurface),
                 ),
               ],
@@ -4237,7 +4252,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• KPI ROW â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ——————————————————————— KPI ROW ——————————————————————— 
   Widget _buildKPIRow(bool isDesktop) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -4258,11 +4273,11 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                     _primary, const Color(0xFF161626));
               }
             ),
-            _kpiCard(Icons.groups, 'Techniciens ConnectÃ©s', _isLoadingStats ? '..' : _techCount.toString().padLeft(2, '0'), _secondary,
+            _kpiCard(Icons.groups, 'Techniciens Connectés', _isLoadingStats ? '..' : _techCount.toString().padLeft(2, '0'), _secondary,
                 const Color(0xFF161626)),
             _kpiCard(Icons.warning, 'Alertes Actives', '01', _error,
                 const Color(0xFF161626)),
-            _kpiCard(Icons.check_circle, 'DisponibilitÃ© Site', '100%', _green,
+            _kpiCard(Icons.check_circle, 'Disponibilité Site', '100%', _green,
                 const Color(0xFF161626)),
           ],
         );
@@ -4329,7 +4344,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               const Icon(Icons.developer_board_rounded, color: _primary),
               const SizedBox(width: 10),
               Text(
-                'Cartes ESP32 ConnectÃ©es',
+                'Cartes ESP32 Connectées',
                 style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.bold),
               ),
             ],
@@ -4343,7 +4358,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                   child: connectedCardIds.isEmpty
                       ? Center(
                           child: Text(
-                            'Aucune carte ESP32 active dÃ©tectÃ©e rÃ©cemment.\n(En attente de rÃ©ception de messages via le Socket)',
+                            'Aucune carte ESP32 active détectée récemment.\n(En attente de réception de messages via le Socket)',
                             textAlign: TextAlign.center,
                             style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 13),
                           ),
@@ -4363,7 +4378,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                                 ),
                               ),
                               subtitle: Text(
-                                'ActivitÃ© : il y a ${DateTime.now().difference(_lastTelemetryTime[cardId]!).inSeconds}s',
+                                'Activité : il y a ${DateTime.now().difference(_lastTelemetryTime[cardId]!).inSeconds}s',
                                 style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 11),
                               ),
                               trailing: ElevatedButton.icon(
@@ -4400,7 +4415,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          _socket.connected ? 'CONNECTÃ‰' : 'DÃ‰CONNECTÃ‰',
+                          _socket.connected ? 'CONNECTÉ' : 'DÉCONNECTÉ',
                           style: GoogleFonts.spaceGrotesk(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
@@ -4432,11 +4447,11 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     );
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• MACHINE LIST â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ————————————————————————— MACHINE LIST ————————————————————————— 
 
 
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• MACHINE LIST SECTION â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // ——————————————————————— MACHINE LIST SECTION ——————————————————————— 
   Widget _buildMachineListSection(bool isDesktop) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -4451,7 +4466,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Ã‰TAT DE LA FLOTTE',
+                  'ÉTAT DE LA FLOTTE',
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 9,
                     fontWeight: FontWeight.w900,
@@ -4461,7 +4476,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Machines ConnectÃ©es',
+                  'Machines Connectées',
                   style: GoogleFonts.inter(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -4477,7 +4492,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 ElevatedButton.icon(
                   onPressed: _showConnectedCardsDialog,
                   icon: const Icon(Icons.developer_board_rounded, size: 16),
-                  label: const Text('Cartes ConnectÃ©es'),
+                  label: const Text('Cartes Connectées'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _primary,
                     foregroundColor: Colors.white,
@@ -4610,7 +4625,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  'Erreur chargement Ã©quipe: ${snapshot.error}',
+                  'Erreur chargement équipe: ${snapshot.error}',
                   style: const TextStyle(color: _error),
                 ),
               );
@@ -4627,7 +4642,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                   border: Border.all(color: _outlineVariant.withOpacity(0.2)),
                 ),
                 child: Text(
-                  'Aucun technicien assignÃ© Ã  ce client pour le moment.',
+                  'Aucun technicien assigné à ce client pour le moment.',
                   style: GoogleFonts.inter(fontSize: 14, color: _onSurfaceVariant),
                 ),
               );
@@ -4799,13 +4814,6 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                                 color: _primary,
                                 onTap: () => _openMessageEquipeDialog(member),
                               ),
-                              const SizedBox(width: 8),
-                              _compactActionBtn(
-                                icon: Icons.call_outlined,
-                                label: 'Appel',
-                                color: _green,
-                                onTap: () => _startCall(member),
-                              ),
                             ],
                           ),
                         ],
@@ -4824,7 +4832,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 const SizedBox(height: 10),
                 if (technicians.isEmpty)
                   Text(
-                    'Aucun technicien assigne.',
+                    'Aucun technicien assigné.',
                     style: GoogleFonts.inter(fontSize: 12, color: _onSurfaceVariant),
                   )
                 else
@@ -4840,7 +4848,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 const SizedBox(height: 10),
                 if (maintenanceMen.isEmpty)
                   Text(
-                    'Aucun maintenance man assigne.',
+                    'Aucun maintenance man assigné.',
                     style: GoogleFonts.inter(fontSize: 12, color: _onSurfaceVariant),
                   )
                 else
@@ -4952,7 +4960,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  'EnvoyÃ©e au Concepteur pour validation.',
+                                  'Envoyée au Concepteur pour validation.',
                                   style: GoogleFonts.spaceGrotesk(
                                     color: _onSurfaceVariant,
                                     fontSize: 11,
@@ -4982,7 +4990,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                           Expanded(
                             child: _buildRequestField(
                               controller: firstNameCtrl,
-                              label: 'PrÃ©nom *',
+                              label: 'Prénom *',
                               hint: 'Ex: Morad',
                             ),
                           ),
@@ -5001,7 +5009,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                           Expanded(
                             child: _buildRequestField(
                               controller: phoneCtrl,
-                              label: 'TÃ©lÃ©phone (optionnel)',
+                              label: 'Téléphone (optionnel)',
                               hint: '+216 ...',
                               keyboardType: TextInputType.phone,
                             ),
@@ -5020,7 +5028,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                       _buildRequestField(
                         controller: descriptionCtrl,
                         label: 'Description technique (optionnel)',
-                        hint: 'CompÃ©tences attendues, besoin urgent...',
+                        hint: 'Compétences attendues, besoin urgent...',
                         minLines: 2,
                         maxLines: 4,
                       ),
@@ -5028,7 +5036,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                       Row(
                         children: [
                           Text(
-                            'Machines concernÃ©es',
+                            'Machines concernées',
                             style: GoogleFonts.inter(
                               color: _onSurface,
                               fontSize: 12,
@@ -5043,7 +5051,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
-                              '${selectedMachineIds.length} sÃ©lectionnÃ©e(s)',
+                              '${selectedMachineIds.length} sélectionnée(s)',
                               style: GoogleFonts.spaceGrotesk(
                                 color: _primary,
                                 fontSize: 10,
@@ -5065,7 +5073,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                             ? Padding(
                                 padding: const EdgeInsets.all(14),
                                 child: Text(
-                                  'Aucune machine n\'est encore associÃ©e Ã  votre compte.',
+                                  'Aucune machine n\'est encore associée à votre compte.',
                                   style: GoogleFonts.inter(
                                     color: _onSurfaceVariant,
                                     fontSize: 12,
@@ -5125,8 +5133,11 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                               ),
                       ),
                       const SizedBox(height: 18),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
                           TextButton(
                             onPressed: () => Navigator.of(ctx).pop(false),
@@ -5138,7 +5149,6 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
                           ElevatedButton.icon(
                             onPressed: () {
                               final ln = lastNameCtrl.text.trim();
@@ -5397,7 +5407,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 ),
                 child: Column(
                   children: [
-                    // â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // ——— Header ————————————————————————————————————————
                     Container(
                       padding: const EdgeInsets.fromLTRB(18, 16, 12, 16),
                       decoration: BoxDecoration(
@@ -5500,7 +5510,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                                     ),
                                     const SizedBox(width: 5),
                                     Text(
-                                      'En ligne Â· $techSpeciality',
+                                      'En ligne · $techSpeciality',
                                       style: GoogleFonts.inter(
                                         color: _onSurfaceVariant,
                                         fontSize: 11.5,
@@ -5537,7 +5547,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                       ),
                     ),
 
-                    // â”€â”€ Messages area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // ——— Messages area —————————————————————————————————
                     Expanded(
                       child: messages.isEmpty
                           ? Center(
@@ -5559,7 +5569,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                                   ),
                                   const SizedBox(height: 14),
                                   Text(
-                                    'DÃ©marrez la conversation',
+                                    'Démarrez la conversation',
                                     style: GoogleFonts.spaceGrotesk(
                                       color: _onSurface.withOpacity(0.7),
                                       fontSize: 14,
@@ -5568,7 +5578,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Envoyez un message Ã  $techName',
+                                    'Envoyez un message à $techName',
                                     style: GoogleFonts.inter(
                                       color: _onSurfaceVariant,
                                       fontSize: 12,
@@ -5743,7 +5753,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                             ),
                     ),
 
-                    // â”€â”€ Input area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // ——— Input area ————————————————————————————————————
                     Container(
                       padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
                       decoration: BoxDecoration(
@@ -5795,7 +5805,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                                   fontSize: 13.5,
                                 ),
                                 decoration: InputDecoration(
-                                  hintText: 'Ã‰crire un message...',
+                                  hintText: 'Écrire un message...',
                                   hintStyle: GoogleFonts.inter(
                                     color: _onSurfaceVariant.withOpacity(0.45),
                                     fontSize: 13.5,
@@ -5900,7 +5910,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       'callerName': widget.clientName ?? 'Client',
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Demande d\'appel envoyÃ©e Ã  ${(technician['name'] ?? 'Technicien')}')),
+      SnackBar(content: Text('Demande d\'appel envoyée à ${(technician['name'] ?? 'Technicien')}')),
     );
   }
 
@@ -6044,9 +6054,9 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           const SizedBox(height: 24),
           Text('BIENVENUE', style: GoogleFonts.spaceGrotesk(fontSize: 10, fontWeight: FontWeight.bold, color: _secondary, letterSpacing: 2)),
           const SizedBox(height: 8),
-          Text('Aucune machine n\'est encore assignÃ©e.', style: GoogleFonts.inter(fontSize: 16, color: _onSurface, fontWeight: FontWeight.w600)),
+          Text('Aucune machine n\'est encore assignée.', style: GoogleFonts.inter(fontSize: 16, color: _onSurface, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          Text('Le Super Admin doit enregistrer vos Ã©quipements pour activer la surveillance.', style: GoogleFonts.inter(fontSize: 13, color: _onSurfaceVariant), textAlign: TextAlign.center),
+          Text('Le Super Admin doit enregistrer vos équipements pour activer la surveillance.', style: GoogleFonts.inter(fontSize: 13, color: _onSurfaceVariant), textAlign: TextAlign.center),
         ],
       ),
     );
@@ -6204,6 +6214,19 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                             style: GoogleFonts.spaceGrotesk(fontSize: 10, fontWeight: FontWeight.w600, color: _secondary),
                           ),
                         ),
+                        if (m['ipAddress'] != null && m['ipAddress'].toString().isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: _green.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: _green.withOpacity(0.3)),
+                            ),
+                            child: SelectableText(
+                              m['ipAddress'],
+                              style: GoogleFonts.spaceGrotesk(fontSize: 10, fontWeight: FontWeight.w600, color: _green),
+                            ),
+                          ),
                         Text(
                           m['motorType'] ?? m['type'] ?? 'Standard',
                           style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onSurfaceVariant),
@@ -6234,9 +6257,8 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               Builder(
                 builder: (context) {
                   final lastTelTime = _lastTelemetryTime[machineRealtimeId];
-                  final hasValues = _realtimeVibrations.containsKey(machineRealtimeId) || _realtimeTemps.containsKey(machineRealtimeId);
-                  final isOnline = hasValues || (lastTelTime != null &&
-                      DateTime.now().difference(lastTelTime).inSeconds < 10);
+                  final isOnline = lastTelTime != null &&
+                      DateTime.now().difference(lastTelTime).inSeconds < 15;
                   return _actionBtn(
                     Icons.wifi_rounded,
                     isOnline ? _green : _error,
@@ -6271,7 +6293,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Maintenance en contrÃ´le${controlBy.isNotEmpty ? ' Â· $controlBy' : ''}',
+                      'Maintenance en contrôle${controlBy.isNotEmpty ? ' · $controlBy' : ''}',
                       style: GoogleFonts.inter(
                         color: _onSurface,
                         fontWeight: FontWeight.w600,
@@ -6311,9 +6333,11 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             children: [
               Icon(isOnline ? Icons.wifi_rounded : Icons.wifi_lock_rounded, color: isOnline ? _green : _primary),
               const SizedBox(width: 10),
-              Text(
-                'Configuration WiFi & ID ESP32',
-                style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.bold),
+              Expanded(
+                child: Text(
+                  'Configuration WiFi & ID ESP32',
+                  style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.bold),
+                ),
               ),
             ],
           ),
@@ -6322,8 +6346,8 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             children: [
               Text(
                 isOnline
-                    ? 'La machine est actuellement connectÃ©e. Vous pouvez mettre Ã  jour son ID et ses paramÃ¨tres WiFi Ã  distance.'
-                    : 'Connectez d\'abord votre appareil au rÃ©seau WiFi "DALI-Config" de l\'ESP32, puis remplissez ce formulaire.',
+                    ? 'La machine est actuellement connectée. Vous pouvez mettre à jour son ID et ses paramètres WiFi à distance.'
+                    : 'Connectez d\'abord votre appareil au réseau WiFi "DALI-Config" de l\'ESP32, puis remplissez ce formulaire.',
                 style: GoogleFonts.inter(color: _onSurfaceVariant, fontSize: 12),
               ),
               const SizedBox(height: 16),
@@ -6339,7 +6363,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               TextField(
                 controller: ssidCtrl,
                 decoration: const InputDecoration(
-                  labelText: 'Nom du RÃ©seau WiFi (SSID) *',
+                  labelText: 'Nom du Réseau WiFi (SSID) *',
                   hintText: 'ex: MaBoxInternet',
                   isDense: true,
                 ),
@@ -6775,6 +6799,11 @@ class _ClientPublicMachineCard extends StatelessWidget {
     if (_looksLikeNetworkImage(trimmed) || _looksLikeDataImage(trimmed)) {
       return trimmed;
     }
+    // Relative path like /uploads/xxx.jpg -> prepend server base URL
+    if (trimmed.startsWith('/')) {
+      final base = ApiService.baseUrl.replaceAll(RegExp(r'/api$'), '');
+      return '$base$trimmed';
+    }
     final hasExtension =
         RegExp(r'\.[a-z0-9]{2,5}$', caseSensitive: false).hasMatch(trimmed);
     return hasExtension ? trimmed : '$trimmed.png';
@@ -6846,134 +6875,197 @@ class _ClientPublicMachineCard extends StatelessWidget {
           .toString(),
     );
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xE61B2238), Color(0xE6151B2E)],
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF1A2340), Color(0xFF0F1526)],
+          ),
         ),
-        border: Border.all(
-          color: const Color(0x3DFFFFFF),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF000000).withOpacity(0.18),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: AspectRatio(
-              aspectRatio: 16 / 7.2,
-              child: imageUrl.isEmpty
-                  ? _fallbackBanner()
-                  : (_looksLikeDataImage(imageUrl)
-                      ? Image.memory(
-                          base64Decode(imageUrl.split(',').last),
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _fallbackBanner(),
-                        )
-                      : Image.network(
-                          imageUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _fallbackBanner(),
-                        )),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: _statusColor(status),
-                  shape: BoxShape.circle,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Image banner with overlay ─────────────────────
+            Stack(
+              children: [
+                SizedBox(
+                  height: 110,
+                  width: double.infinity,
+                  child: imageUrl.isEmpty
+                      ? _fallbackBanner()
+                      : (_looksLikeDataImage(imageUrl)
+                          ? Image.memory(
+                              base64Decode(imageUrl.split(',').last),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _fallbackBanner(),
+                            )
+                          : Image.network(
+                              imageUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _fallbackBanner(),
+                            )),
                 ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                _statusLabel(status),
-                style: GoogleFonts.inter(
-                  color: _statusColor(status),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            name,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.inter(
-              color: Colors.white,
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            priceLabel,
-            style: GoogleFonts.inter(
-              color: const Color(0xFFFFBE86),
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const Spacer(),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => _runIfAuthenticated(context, () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => MachineDetailProPage(machine: machine),
+                // Gradient overlay bottom of image
+                Positioned(
+                  left: 0, right: 0, bottom: 0,
+                  child: Container(
+                    height: 40,
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [Color(0xFF0F1526), Colors.transparent],
                       ),
-                    );
-                  }),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0x557AA7E8)),
-                    foregroundColor: const Color(0xFFD7E7FF),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  child: const Text('Voir detail'),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () => _runIfAuthenticated(context, onBuy),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF6E00),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                // Status badge overlay
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: _statusColor(status).withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: _statusColor(status).withOpacity(0.5)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _statusColor(status).withOpacity(0.2),
+                          blurRadius: 6,
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 5, height: 5,
+                          decoration: BoxDecoration(
+                            color: _statusColor(status),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _statusLabel(status),
+                          style: GoogleFonts.inter(
+                            color: _statusColor(status),
+                            fontSize: 7,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.6,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  child: const Text('Acheter'),
+                ),
+              ],
+            ),
+            // ── Content body ─────────────────────────────────
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        height: 1.25,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      priceLabel,
+                      style: GoogleFonts.inter(
+                        color: const Color(0xFFFF9040),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const Spacer(),
+                    // Buttons
+                    Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => _runIfAuthenticated(context, () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => MachineDetailProPage(machine: machine),
+                                ),
+                              );
+                            }),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 7),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.07),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.white.withOpacity(0.12)),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  'Détails',
+                                  style: GoogleFonts.inter(
+                                    color: const Color(0xFFD7E7FF),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => _runIfAuthenticated(context, onBuy),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 7),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFFFF6E00), Color(0xFFFF9500)],
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFFF6E00).withOpacity(0.3),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Center(
+                                child: Text(
+                                  'Acheter',
+                                  style: GoogleFonts.inter(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -6986,4 +7078,195 @@ class _SensorData {
   final String label;
   final String value;
   const _SensorData(this.label, this.value);
+}
+
+// -----------------------------------------------------------------------------
+// 2-row horizontal machine grid with bidirectional scroll arrows
+// -----------------------------------------------------------------------------
+class _ConcepteurMachineGrid extends StatefulWidget {
+  const _ConcepteurMachineGrid({
+    required this.machines,
+    required this.onBuy,
+    this.onRequireLogin,
+  });
+  final List<Map<String, dynamic>> machines;
+  final Future<void> Function()? onRequireLogin;
+  final void Function(String machineId, Map<String, dynamic> machine) onBuy;
+  @override
+  State<_ConcepteurMachineGrid> createState() => _ConcepteurMachineGridState();
+}
+
+class _ConcepteurMachineGridState extends State<_ConcepteurMachineGrid> {
+  static const double _cardH = 240.0;
+  static const double _cardW = 200.0;
+  static const double _gap   = 12.0;
+  late final ScrollController _ctrl;
+  bool _canLeft  = false;
+  bool _canRight = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = ScrollController();
+    _ctrl.addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onScroll());
+  }
+
+  void _onScroll() {
+    if (!_ctrl.hasClients) return;
+    final pos = _ctrl.position;
+    final nl = pos.pixels > 4;
+    final nr = pos.pixels < pos.maxScrollExtent - 4;
+    if (nl != _canLeft || nr != _canRight) setState(() { _canLeft = nl; _canRight = nr; });
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  void _scrollBy(double d) {
+    _ctrl.animateTo(
+      (_ctrl.offset + d).clamp(0.0, _ctrl.position.maxScrollExtent),
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Widget _scrollEdge({required bool isLeft, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 68,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // ── Full-height gradient fade ──────────────────────────────
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: isLeft ? Alignment.centerRight : Alignment.centerLeft,
+                  end:   isLeft ? Alignment.centerLeft  : Alignment.centerRight,
+                  colors: [
+                    Colors.transparent,
+                    const Color(0xFF060C1A).withOpacity(0.80),
+                  ],
+                ),
+              ),
+            ),
+
+            // ── Full-height glassmorphism strip ──────────────────────
+            Positioned(
+              top: 0, bottom: 0,
+              left: isLeft ? 0 : null,
+              right: isLeft ? null : 0,
+              child: Container(
+                width: 52,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.horizontal(
+                    left: isLeft ? Radius.zero : const Radius.circular(14),
+                    right: isLeft ? const Radius.circular(14) : Radius.zero,
+                  ),
+                  // Frosted glass gradient
+                  gradient: LinearGradient(
+                    begin: isLeft ? Alignment.centerLeft : Alignment.centerRight,
+                    end:   isLeft ? Alignment.centerRight : Alignment.centerLeft,
+                    colors: [
+                      const Color(0xFFFF6E00).withOpacity(0.06),
+                      Colors.white.withOpacity(0.03),
+                    ],
+                  ),
+                  border: Border(
+                    left:  isLeft ? BorderSide.none : BorderSide(color: const Color(0xFFFF6E00).withOpacity(0.22), width: 1),
+                    right: isLeft ? BorderSide(color: const Color(0xFFFF6E00).withOpacity(0.22), width: 1) : BorderSide.none,
+                    top:   BorderSide(color: const Color(0xFFFF6E00).withOpacity(0.10), width: 0.8),
+                    bottom: BorderSide(color: const Color(0xFFFF6E00).withOpacity(0.10), width: 0.8),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFFF6E00).withOpacity(0.14),
+                      blurRadius: 18,
+                      spreadRadius: -2,
+                      offset: isLeft ? const Offset(4, 0) : const Offset(-4, 0),
+                    ),
+                  ],
+                ),
+                // ── Simple double arrow centered vertically ──────────────────
+                child: Center(
+                  child: Icon(
+                    isLeft ? Icons.keyboard_double_arrow_left : Icons.keyboard_double_arrow_right,
+                    color: Colors.white,
+                    size: 32,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    final row1 = <Map<String, dynamic>>[];
+    final row2 = <Map<String, dynamic>>[];
+    for (int i = 0; i < widget.machines.length; i++) {
+      if (i % 2 == 0) row1.add(widget.machines[i]);
+      else row2.add(widget.machines[i]);
+    }
+    final totalH = row2.isEmpty ? _cardH : _cardH * 2 + _gap;
+
+    Widget card(Map<String, dynamic> m) {
+      final mid = (m['machineId'] ?? m['_id'] ?? m['id'] ?? '').toString();
+      return SizedBox(
+        width: _cardW, height: _cardH,
+        child: Container(
+          margin: const EdgeInsets.only(right: _gap),
+          child: _ClientPublicMachineCard(
+            machine: m,
+            onRequireLogin: widget.onRequireLogin,
+            onBuy: () => widget.onBuy(mid, m),
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: totalH,
+      child: Stack(
+        children: [
+          SingleChildScrollView(
+            controller: _ctrl,
+            scrollDirection: Axis.horizontal,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(height: _cardH, child: Row(children: row1.map(card).toList())),
+                if (row2.isNotEmpty) ...[
+                  const SizedBox(height: _gap),
+                  SizedBox(height: _cardH, child: Row(children: row2.map(card).toList())),
+                ],
+              ],
+            ),
+          ),
+          if (_canLeft)
+            Positioned(
+              left: 0, top: 0, bottom: 0,
+              child: _scrollEdge(
+                isLeft: true,
+                onTap: () => _scrollBy(-(_cardW + _gap) * 2),
+              ),
+            ),
+          if (_canRight)
+            Positioned(
+              right: 0, top: 0, bottom: 0,
+              child: _scrollEdge(
+                isLeft: false,
+                onTap: () => _scrollBy((_cardW + _gap) * 2),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }

@@ -71,6 +71,7 @@ app.post('/api/temp-create-concepteur', async (req, res) => {
 app.use('/api',                          authRoutes);
 app.use('/api/clients',                  clientsRoutes);
 app.use('/api/machines',                 machinesRoutes);
+app.use('/api/machine-instances',        require('./routes/machineInstances')); // [AJOUT]
 app.use('/api/predictions',              predictionRoutes);
 app.use('/api',                          predictionRoutes);
 app.use('/api/dashboard',               dashboardRoutes);
@@ -186,6 +187,18 @@ io.on('connection', (socket) => {
     socket.on('delete_message', (data) => {
         if (data.roomId && data.messageId) {
             socket.to(data.roomId).emit('delete_message', data);
+        }
+    });
+
+    socket.on('typing', (data) => {
+        if (data.roomId) {
+            socket.to(data.roomId).emit('typing', { roomId: data.roomId, senderName: data.senderName });
+        }
+    });
+
+    socket.on('stop_typing', (data) => {
+        if (data.roomId) {
+            socket.to(data.roomId).emit('stop_typing', { roomId: data.roomId });
         }
     });
 

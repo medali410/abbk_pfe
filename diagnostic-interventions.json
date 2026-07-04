@@ -329,8 +329,47 @@
         "createdAt": "2026-06-22T21:21:10.234Z",
         "missionConfirmedAt": "2026-06-22T21:21:18.478Z",
         "missionCompletedAt": "2026-06-22T21:21:39.553Z"
+      },
+      {
+        "id": "1782351392071",
+        "content": "[MISSION → lemjid moh]\n\ngjdfhdn",
+        "authorName": "Agent maintenance",
+        "isMission": true,
+        "missionStatus": "COMPLETED",
+        "createdAt": "2026-06-25T01:36:32.072Z",
+        "missionConfirmedAt": "2026-06-25T01:36:53.631Z",
+        "missionCompletedAt": "2026-06-25T01:36:56.051Z"
+      },
+      {
+        "id": "1783104484017",
+        "content": "[MISSION → lemjid moh]\n\ncontrol capteur vibration",
+        "authorName": "Agent maintenance",
+        "isMission": true,
+        "missionStatus": "CONFIRMED",
+        "createdAt": "2026-07-03T18:48:04.017Z",
+        "missionConfirmedAt": "2026-07-03T18:49:01.089Z"
       }
     ],
     "createdAt": "2026-06-21T19:03:08.984Z"
+  },
+  {
+    "id": "1782381111283",
+    "machineId": "MAC-461DB1D6",
+    "technicianId": "TEC-638FD8",
+    "scenarioType": "DEFAULT",
+    "summary": "",
+    "status": "PENDING",
+    "messages": [],
+    "coordinationNotes": [
+      {
+        "id": "1782381111326",
+        "content": "[MISSION → lemjid moh]\n\ncapteur de vebration",
+        "authorName": "Agent maintenance",
+        "isMission": true,
+        "missionStatus": "SENT",
+        "createdAt": "2026-06-25T09:51:51.326Z"
+      }
+    ],
+    "createdAt": "2026-06-25T09:51:51.283Z"
   }
 ]

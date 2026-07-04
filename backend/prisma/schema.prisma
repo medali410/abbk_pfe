@@ -100,13 +100,36 @@ model Machine {
   modele3dId  Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  wifiSsid    String   @default("")
-  wifiPassword String  @default("") // Temporaire PFE
-  modele3d    Modele3d?
-  controles   Controle[]
+  wifiSsid     String   @default("")
+  wifiPassword String   @default("") // Temporaire PFE
+  baseIp       String   @default("192.168.1") // Préfixe IP pour les instances
+  modele3d          Modele3d?
+  controles         Controle[]
   maintenanceOrders MaintenanceOrder[]
-  predictions Prediction[]
+  predictions       Prediction[]
   securityIncidents SecurityIncident[]
+  instances         MachineInstance[]
+}
+
+/// Instance physique unique d'une machine (1 machine physique = 1 MachineInstance)
+model MachineInstance {
+  id           String    @id           // ex: MAC-54326404-001
+  modelId      String                  // référence vers Machine (catalogue)
+  ipAddress    String    @default("")  // ex: 192.168.1.101
+  clientId     String    @default("")  // propriétaire actuel
+  concepteurId String    @default("")  // concepteur fabricant
+  status       String    @default("STOPPED") // RUNNING, STOPPED, STOPPED_DANGER
+  wifiSsid     String    @default("")
+  wifiPassword String    @default("")
+  purchasedAt  DateTime?               // date d'achat par le client
+  activatedAt  DateTime?               // date de mise en service
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  model        Machine   @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@index([modelId])
+  @@index([clientId])
 }
 
 model Modele3d {

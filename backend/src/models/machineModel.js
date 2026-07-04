@@ -42,7 +42,11 @@ async function findById(machineId) {
 async function create(data) {
     const name = String(data.name || '').trim();
     const id = data.id || data._id || nextMachineId();
-    return prisma.machine.create({
+    const stock = data.stock !== undefined ? parseInt(data.stock, 10) : 0;
+    const baseIp = String(data.baseIp || '192.168.1');
+
+    // 1. Créer le modèle de machine (catalogue)
+    const machine = await prisma.machine.create({
         data: {
             id: String(id),
             name,
@@ -57,9 +61,28 @@ async function create(data) {
             isPublic: data.isPublic !== false,
             disponible: data.disponible !== false,
             price: data.price !== undefined ? String(data.price) : '',
-            stock: data.stock !== undefined ? parseInt(data.stock, 10) : 0,
+            stock,
+            baseIp,
         },
     });
+
+    // 2. Générer automatiquement N instances physiques (une par unité de stock)
+    if (stock > 0) {
+        const instances = [];
+        for (let i = 1; i <= stock; i++) {
+            instances.push({
+                id: `${machine.id}-${String(i).padStart(3, '0')}`,   // ex: MAC-54326404-001
+                modelId: machine.id,
+                ipAddress: `${baseIp}.${100 + i}`,                    // ex: 192.168.1.101
+                concepteurId: String(data.concepteurId || ''),
+                status: 'STOPPED',
+            });
+        }
+        await prisma.machineInstance.createMany({ data: instances, skipDuplicates: true });
+        console.log(`🏭 ${stock} instance(s) créée(s) pour le modèle ${machine.id}`);
+    }
+
+    return machine;
 }
 
 async function updateStatus(machineId, status) {

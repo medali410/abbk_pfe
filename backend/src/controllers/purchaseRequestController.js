@@ -201,22 +201,50 @@ async function provisionTeam(req, res) {
     const machine = await prisma.machine.findUnique({
       where: { id: pr.machineId }
     });
+
+    // Lire la quantité demandée (défaut 1 si non précisé)
+    let parsedMeta = {};
+    try { parsedMeta = JSON.parse(pr.metadata || '{}'); } catch(_) {}
+    const quantity = parseInt(req.body.quantity || parsedMeta.quantity || 1, 10);
     
     let updatedMachine = null;
+    let assignedInstances = [];
     if (machine) {
-      const dataToUpdate = { companyId: cid };
-      if (concepteur) {
-        dataToUpdate.concepteurId = String(concepteur.id);
+      // ─── Trouver les instances disponibles (non assignées) ───────────────
+      const availableInstances = await prisma.machineInstance.findMany({
+        where: { modelId: pr.machineId, clientId: '' },
+        orderBy: { id: 'asc' },
+        take: quantity,
+      });
+
+      if (availableInstances.length < quantity) {
+        return res.status(400).json({
+          error: `Stock insuffisant : ${availableInstances.length} instance(s) disponible(s) sur ${quantity} demandée(s).`,
+        });
       }
-      if (machine.stock > 0) {
-        dataToUpdate.stock = machine.stock - 1;
+
+      // ─── Assigner chaque instance au client ──────────────────────────────
+      for (const inst of availableInstances) {
+        const updated = await prisma.machineInstance.update({
+          where: { id: inst.id },
+          data: {
+            clientId: cid,
+            purchasedAt: new Date(),
+          },
+        });
+        assignedInstances.push(updated);
       }
-      
+
+      // ─── Décrémenter le stock du modèle ─────────────────────────────────
+      const dataToUpdate = { stock: { decrement: quantity } };
+      if (concepteur) dataToUpdate.concepteurId = String(concepteur.id);
+
       updatedMachine = await prisma.machine.update({
         where: { id: pr.machineId },
-        data: dataToUpdate
+        data: dataToUpdate,
       });
     }
+
 
     // 4. Mettre à jour les Techniciens et Agents du Concepteur
     // On ajoute la machine à leurs droits
@@ -265,7 +293,16 @@ async function provisionTeam(req, res) {
       success: true,
       client: userClient.client,
       machine: updatedMachine,
+      assignedInstances: assignedInstances.map(inst => ({
+        id: inst.id,
+        ipAddress: inst.ipAddress,
+        mqttTopic: `machines/${inst.id}/telemetry`,
+        clientId: inst.clientId,
+        purchasedAt: inst.purchasedAt,
+      })),
+      instanceCount: assignedInstances.length,
     });
+
   } catch (error) {
     console.error('Erreur provisionTeam:', error);
     res.status(500).json({ error: "Erreur lors du provisionnement" });

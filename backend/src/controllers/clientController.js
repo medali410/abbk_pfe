@@ -77,8 +77,27 @@ async function getById(req, res) {
 async function getMachines(req, res) {
     try {
         const { id } = req.params;
-        const machines = await MachineModel.findManyByCompany(id);
-        return res.json(machines.map(serializeMachine));
+        const instances = await prisma.machineInstance.findMany({
+            where: { clientId: String(id) },
+            include: { model: true },
+            orderBy: { id: 'asc' },
+        });
+        
+        return res.json(instances.map(inst => ({
+            id: inst.id,
+            machineId: inst.id,
+            name: inst.model?.name || 'Machine',
+            modelId: inst.modelId,
+            ipAddress: inst.ipAddress,
+            clientId: inst.clientId,
+            status: inst.status,
+            aiType: inst.model?.aiType || 'M',
+            type: inst.model?.type || '',
+            motorType: inst.model?.motorType || '',
+            imageUrl: inst.model?.imageUrl || '',
+            wifiSsid: inst.wifiSsid,
+            purchasedAt: inst.purchasedAt,
+        })));
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
