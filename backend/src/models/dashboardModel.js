@@ -1,6 +1,13 @@
 const { prisma } = require('../lib/prisma');
 
-const RUNNING_STATUSES = new Set(['RUNNING', 'NORMAL', 'ONLINE', 'ACTIVE']);
+const RUNNING_STATUSES = new Set([
+    // English variants
+    'RUNNING', 'NORMAL', 'ONLINE', 'ACTIVE', 'WORKING', 'IN_WORK', 'IN_SERVICE',
+    'OPERATIONAL', 'ENABLED', 'STARTED',
+    // French variants (stored in DB)
+    'EN_TRAVAIL', 'EN_MARCHE', 'EN_SERVICE', 'EN_PRODUCTION',
+    'EN_FONCTIONNEMENT', 'EN_COURS', 'OPERATIONNEL',
+]);
 const HIGH_RISK_STATUSES = new Set([
     'FAILURE',
     'PANNE',
@@ -32,7 +39,7 @@ function normalizeStatus(status) {
     return String(status || 'STOPPED')
         .trim()
         .toUpperCase()
-        .replace(/\s+/g, '_');
+        .replace(/[-\s]+/g, '_');
 }
 
 function isRunning(status) {
@@ -40,6 +47,10 @@ function isRunning(status) {
 }
 
 function riskPctForMachine(machine) {
+    if (machine.predictions && machine.predictions.length > 0) {
+        const pct = machine.predictions[0].riskPercentage;
+        if (typeof pct === 'number') return pct;
+    }
     const s = normalizeStatus(machine.status);
     if (HIGH_RISK_STATUSES.has(s) || s.includes('FAIL') || s.includes('PANNE')) return 88;
     if (s.includes('WARN') || s.includes('ALERT')) return 62;
@@ -50,25 +61,48 @@ function riskPctForMachine(machine) {
 
 function dominantRiskMode(machines) {
     if (!machines.length) return 'Aucun risque majeur';
-    const counts = { panne: 0, alerte: 0, marche: 0, arret: 0 };
+    const counts = {};
     for (const m of machines) {
-        const s = normalizeStatus(m.status);
-        if (HIGH_RISK_STATUSES.has(s) || s.includes('FAIL') || s.includes('PANNE')) counts.panne += 1;
-        else if (s.includes('WARN') || s.includes('ALERT')) counts.alerte += 1;
-        else if (isRunning(s)) counts.marche += 1;
-        else counts.arret += 1;
+        let label = '';
+        if (m.predictions && m.predictions.length > 0) {
+            label = m.predictions[0].typePanne;
+        }
+        if (!label || label === 'NORMAL' || label === 'NORMAL/RAS') {
+            const s = normalizeStatus(m.status);
+            if (HIGH_RISK_STATUSES.has(s) || s.includes('FAIL') || s.includes('PANNE')) {
+                label = 'Panne / alerte critique';
+            } else if (s.includes('WARN') || s.includes('ALERT')) {
+                label = 'Surveillance renforcée';
+            } else if (isRunning(s)) {
+                label = 'Fonctionnement normal';
+            } else {
+                label = 'Machines à l’arrêt';
+            }
+        }
+        counts[label] = (counts[label] || 0) + 1;
     }
-    const order = [
-        ['panne', 'Panne / alerte critique'],
-        ['alerte', 'Surveillance renforcée'],
-        ['marche', 'Fonctionnement normal'],
-        ['arret', 'Machines à l’arrêt'],
-    ];
-    let best = order[0];
-    for (const row of order) {
-        if (counts[row[0]] > counts[best[0]]) best = row;
+
+    let bestLabel = 'Aucun risque majeur';
+    let maxCount = -1;
+    for (const [lbl, cnt] of Object.entries(counts)) {
+        if (lbl === 'NORMAL' || lbl === 'NORMAL/RAS' || lbl.toLowerCase().includes('aucun')) {
+            continue;
+        }
+        if (cnt > maxCount) {
+            maxCount = cnt;
+            bestLabel = lbl;
+        }
     }
-    return best[1];
+    if (bestLabel === 'Aucun risque majeur') {
+        let maxAll = -1;
+        for (const [lbl, cnt] of Object.entries(counts)) {
+            if (cnt > maxAll) {
+                maxAll = cnt;
+                bestLabel = lbl;
+            }
+        }
+    }
+    return bestLabel;
 }
 
 function parseCoordsFromLocation(location) {
@@ -104,7 +138,15 @@ function mapPositionForLocation(location, index) {
 
 async function loadFleetContext() {
     const [machines, clients] = await Promise.all([
-        prisma.machine.findMany({ orderBy: { updatedAt: 'desc' } }),
+        prisma.machine.findMany({
+            orderBy: { updatedAt: 'desc' },
+            include: {
+                predictions: {
+                    orderBy: { createdAt: 'desc' },
+                    take: 1
+                }
+            }
+        }),
         prisma.client.findMany({ include: { user: true } }),
     ]);
     const clientById = new Map(clients.map((c) => [c.clientId, c]));
@@ -127,7 +169,13 @@ async function getKpis() {
             prisma.machine.count({
                 where: {
                     status: {
-                        in: [...RUNNING_STATUSES, 'running', 'normal', 'Normal'],
+                        in: [
+                            ...RUNNING_STATUSES,
+                            // lowercase variants often stored via mobile/web forms
+                            'running', 'normal', 'Normal', 'online', 'active', 'working',
+                            'en travail', 'en marche', 'en service', 'en production',
+                            'en fonctionnement', 'en cours', 'opérationnel',
+                        ],
                     },
                 },
             }),

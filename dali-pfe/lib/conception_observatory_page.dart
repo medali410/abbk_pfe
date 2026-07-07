@@ -12,6 +12,7 @@ import 'client_detail_page.dart';
 import 'client_position_page.dart';
 import 'machine_detail_ai_page.dart';
 import 'services/api_service.dart';
+import 'services/theme_service.dart';
 import 'utils/panne_display.dart';
 import 'widgets/motor_analytics_panel.dart';
 
@@ -844,6 +845,18 @@ class _ConceptionObservatoryPageState extends State<ConceptionObservatoryPage> w
                 ),
               ),
               IconButton(onPressed: () {}, icon: Icon(Icons.chat_bubble_outline, color: _onVariant.withValues(alpha: 0.85))),
+              IconButton(
+                onPressed: () {
+                  ThemeService().toggleTheme();
+                  setState(() {});
+                },
+                icon: Icon(
+                  ThemeService().isDarkMode ? Icons.wb_sunny_rounded : Icons.nightlight_round,
+                  color: ThemeService().isDarkMode ? Colors.amber : const Color(0xFF7A4B29),
+                  size: 20,
+                ),
+                tooltip: ThemeService().isDarkMode ? 'Mode Jour' : 'Mode Nuit',
+              ),
               Padding(
                 padding: const EdgeInsets.only(left: 4),
                 child: Row(

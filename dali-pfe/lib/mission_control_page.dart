@@ -6,6 +6,7 @@ import 'services/api_service.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'widgets/machine_control_calendar_panel.dart';
 import 'machine_detail_ai_page.dart';
+import 'services/theme_service.dart';
 
 /// Unifie les synonymes de fin de mission pour l’UI (libellés API ou locales).
 String _normalizeMissionStatusString(Object? raw) {
@@ -185,10 +186,24 @@ class _MissionControlPageState extends State<MissionControlPage> {
     }
   }
 
+  bool get _isDarkMode => ThemeService().isDarkMode;
+
+  Color get _bg => _isDarkMode ? const Color(0xFF070B14) : const Color(0xFFFCFAF7);
+  Color get _surface => _isDarkMode ? const Color(0xFF0B0E14) : const Color(0xFFFFF8F0);
+  Color get _surfaceVariant => _isDarkMode ? const Color(0xFF161B22) : const Color(0xFFECE4D5);
+  Color get _onSurface => _isDarkMode ? Colors.white : const Color(0xFF2D1F0E);
+  Color get _onSurfaceVariant => _isDarkMode ? Colors.white70 : const Color(0xFF7A4F2E);
+  Color get _primary => const Color(0xFFFF6E00);
+
   @override
   void initState() {
     super.initState();
+    ThemeService().addListener(_onThemeChanged);
     _initSocket();
+  }
+
+  void _onThemeChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _findActiveIntervention() async {
@@ -209,31 +224,39 @@ class _MissionControlPageState extends State<MissionControlPage> {
       }
 
       if (active.isEmpty) {
-        final midArg = _resolvedMachineId.toUpperCase().trim();
-        final techIdNav = _technicianNavId.toUpperCase().trim();
-        final techName = _techId.toUpperCase().trim();
+        final midArg = _resolvedMachineId.trim();
+        final midArgUp = midArg.toUpperCase();
+        final techIdNav = _technicianNavId.trim();
+        final techIdNavUp = techIdNav.toUpperCase();
+        final techNameUp = _techId.toUpperCase();
+        final agentNameUp = _agentName.toUpperCase();
 
         active = list.lastWhere(
           (i) {
             final isOpen = i['status'] != 'DONE' && i['status'] != 'CANCELLED';
             if (!isOpen) return false;
 
-            final mId = (i['machineId'] ?? '').toString().toUpperCase();
-            final mName = (i['machineName'] ?? '').toString().toUpperCase();
-            final tId = (i['technicianId'] ?? '').toString().toUpperCase();
-            final tName = (i['technicianName'] ?? '').toString().toUpperCase();
+            final mId = (i['machineId'] ?? '').toString().trim();
+            final mIdUp = mId.toUpperCase();
+            final mNameUp = (i['machineName'] ?? '').toString().toUpperCase();
+            final tId = (i['technicianId'] ?? '').toString().trim();
+            final tIdUp = tId.toUpperCase();
+            final tNameUp = (i['technicianName'] ?? '').toString().toUpperCase();
 
-            final matchMachine = (midArg.isNotEmpty && mId == midArg) || (mName.isNotEmpty && mName == midArg);
-            
+            final matchMachine = (midArg.isNotEmpty && mId == midArg) ||
+                (midArgUp.isNotEmpty && mIdUp == midArgUp) ||
+                (mNameUp.isNotEmpty && mNameUp == midArgUp);
+            final matchTech = (techIdNav.isNotEmpty && tId == techIdNav) ||
+                (techIdNavUp.isNotEmpty && tIdUp == techIdNavUp) ||
+                tNameUp == techNameUp ||
+                tNameUp == agentNameUp;
+
             if (_isMaintenanceViewer && techIdNav.isNotEmpty) {
-                // En mode maintenance avec technicien sélectionné, on exige machine ET technicien
-                return matchMachine && (tId == techIdNav || tName == techName);
+              // En mode maintenance avec technicien sélectionné, on exige machine ET technicien
+              return matchMachine && matchTech;
             }
 
-            return mId == _techId ||
-                mName == _techId ||
-                tId == _techId ||
-                matchMachine;
+            return matchMachine || matchTech;
           },
           orElse: () => <String, dynamic>{},
         );
@@ -950,6 +973,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
 
   @override
   void dispose() {
+    ThemeService().removeListener(_onThemeChanged);
     _socket?.disconnect();
     _commandController.dispose();
     _scrollController.dispose();
@@ -962,7 +986,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
     final missionFocus = maintenanceUi && _maintenanceMissionMode;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF070B14),
+      backgroundColor: _bg,
       body: Column(
         children: [
           _buildTopNav(),
@@ -991,8 +1015,8 @@ class _MissionControlPageState extends State<MissionControlPage> {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 16, vertical: isMaint ? 8 : 6),
       decoration: BoxDecoration(
-        color: const Color(0xFF0B0E14),
-        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
+        color: _surface,
+        border: Border(bottom: BorderSide(color: _isDarkMode ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05))),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1002,20 +1026,24 @@ class _MissionControlPageState extends State<MissionControlPage> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white70),
+                icon: Icon(Icons.arrow_back, color: _onSurfaceVariant),
                 tooltip: 'Retour',
                 onPressed: () => Navigator.of(context).pop(),
               ),
-              Tooltip(
-                message: 'Vider le fil (historique local uniquement).',
-                child: IconButton(
-                  icon: const Icon(Icons.layers_clear_rounded, color: Colors.blueGrey),
-                  onPressed: () {
-                    setState(() => _logs.clear());
-                    _scrollToBottom();
-                  },
-                ),
+              IconButton(
+                icon: Icon(_isDarkMode ? Icons.light_mode : Icons.dark_mode, color: _primary),
+                tooltip: 'Theme',
+                onPressed: () => ThemeService().toggleTheme(),
               ),
+              IconButton(
+                icon: Icon(Icons.refresh, color: _primary),
+                tooltip: 'Actualiser',
+                onPressed: () {
+                  _findActiveIntervention();
+                  if (_isMaintenanceViewer) _loadTechnicians();
+                },
+              ),
+
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1026,7 +1054,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
                           ? 'MISSION_CONTROL · $machineLabel'
                           : 'TECH_OS // MISSION_CONTROL // $_agentName',
                       style: GoogleFonts.orbitron(
-                        color: isMaint ? const Color(0xFFFF6E00) : Colors.cyanAccent,
+                        color: isMaint ? _primary : (_isDarkMode ? Colors.cyanAccent : Colors.teal),
                         fontSize: isMaint ? 13 : 15,
                         fontWeight: FontWeight.bold,
                         letterSpacing: isMaint ? 1.2 : 1.8,
@@ -1039,7 +1067,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
                       Text(
                         'Technicien terrain ↔ Maintenance',
                         style: GoogleFonts.spaceGrotesk(
-                          color: Colors.blueGrey,
+                          color: _onSurfaceVariant,
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
                         ),
@@ -1055,7 +1083,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
                     style: GoogleFonts.spaceGrotesk(
                       fontWeight: FontWeight.w700,
                       fontSize: 11,
-                      color: _maintenanceMissionMode ? Colors.black87 : Colors.white,
+                      color: _maintenanceMissionMode ? Colors.black87 : _onSurface,
                     ),
                   ),
                   selected: _maintenanceMissionMode,
@@ -1077,13 +1105,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _buildNavTab('SYSTEM_HUB', false),
-                  _buildNavTab('FLEET_SYNC', true),
-                  _buildNavTab('NETWORK_LOGS', false),
-                  const SizedBox(width: 12),
-                  const Icon(Icons.notifications_none, color: Colors.cyanAccent, size: 20),
-                  const SizedBox(width: 12),
-                  const Icon(Icons.dashboard_customize_outlined, color: Colors.cyanAccent, size: 20),
+                   _buildNavTab('FLEET_SYNC', true),
                 ],
               ),
             ),
@@ -1093,16 +1115,17 @@ class _MissionControlPageState extends State<MissionControlPage> {
   }
 
   Widget _buildNavTab(String label, bool active) {
+    Color activeColor = _isDarkMode ? Colors.cyanAccent : Colors.teal;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 15),
       padding: const EdgeInsets.symmetric(vertical: 20),
       decoration: BoxDecoration(
-        border: active ? const Border(bottom: BorderSide(color: Colors.cyanAccent, width: 2)) : null,
+        border: active ? Border(bottom: BorderSide(color: activeColor, width: 2)) : null,
       ),
       child: Text(
         label,
         style: GoogleFonts.spaceGrotesk(
-          color: active ? Colors.white : Colors.blueGrey,
+          color: active ? (_isDarkMode ? Colors.white : Colors.black87) : Colors.blueGrey,
           fontSize: 12,
           fontWeight: FontWeight.bold,
           letterSpacing: 1,
@@ -1114,9 +1137,9 @@ class _MissionControlPageState extends State<MissionControlPage> {
   Widget _missionReadOnlyBanner({required String title, required String content, required String status}) {
     final st = _normalizeMissionStatusString(status);
     final Color accent = st == 'COMPLETED'
-        ? Colors.greenAccent
+        ? (_isDarkMode ? Colors.greenAccent : Colors.green)
         : st == 'CONFIRMED' || st == 'STARTED'
-            ? Colors.cyanAccent
+            ? (_isDarkMode ? Colors.cyanAccent : Colors.teal)
             : const Color(0xFFFF6E00);
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 20, 20, 10),
@@ -1160,7 +1183,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
           const SizedBox(height: 10),
           Text(
             content,
-            style: GoogleFonts.spaceGrotesk(color: Colors.white.withOpacity(0.92), fontSize: 13, fontWeight: FontWeight.w500),
+            style: GoogleFonts.spaceGrotesk(color: _onSurface.withOpacity(0.92), fontSize: 13, fontWeight: FontWeight.w500),
           ),
           const SizedBox(height: 8),
           Text(
@@ -1191,16 +1214,20 @@ class _MissionControlPageState extends State<MissionControlPage> {
 
     final status = _normalizeMissionStatusString(missionStat ?? rawStatus);
     final isConfirmed = status == 'CONFIRMED' || status == 'STARTED';
+    
+    final Color confirmedColor = _isDarkMode ? Colors.cyanAccent : Colors.teal;
+    final Color unconfirmedColor = _isDarkMode ? Colors.purpleAccent : Colors.deepPurple;
+    final Color currentColor = isConfirmed ? confirmedColor : unconfirmedColor;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 20, 20, 10),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isConfirmed ? Colors.cyanAccent.withOpacity(0.05) : Colors.purpleAccent.withOpacity(0.05),
-        border: Border.all(color: isConfirmed ? Colors.cyanAccent : Colors.purpleAccent, width: 2),
+        color: currentColor.withOpacity(0.05),
+        border: Border.all(color: currentColor, width: 2),
         borderRadius: BorderRadius.circular(4),
         boxShadow: [
-          BoxShadow(color: (isConfirmed ? Colors.cyanAccent : Colors.purpleAccent).withOpacity(0.2), blurRadius: 10),
+          BoxShadow(color: currentColor.withOpacity(0.2), blurRadius: 10),
         ],
       ),
       child: Column(
@@ -1211,19 +1238,19 @@ class _MissionControlPageState extends State<MissionControlPage> {
             children: [
               Row(
                 children: [
-                  Icon(isConfirmed ? Icons.engineering : Icons.rocket_launch, color: isConfirmed ? Colors.cyanAccent : Colors.purpleAccent, size: 20),
+                  Icon(isConfirmed ? Icons.engineering : Icons.rocket_launch, color: currentColor, size: 20),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       isConfirmed ? 'MISSION_EN_COURS' : 'NOUVELLE_MISSION // STATUT: ENVOYÉE',
-                      style: GoogleFonts.orbitron(color: isConfirmed ? Colors.cyanAccent : Colors.purpleAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                      style: GoogleFonts.orbitron(color: currentColor, fontSize: 10, fontWeight: FontWeight.bold),
                     ),
                   ),
                   if (!isConfirmed && _latestNoteId != null) ...[
                     const SizedBox(width: 15),
                     Text(
                       'ID: ${_latestNoteId!.substring(_latestNoteId!.length > 6 ? _latestNoteId!.length - 6 : 0)}',
-                      style: GoogleFonts.jetBrainsMono(color: Colors.white.withOpacity(0.5), fontSize: 9),
+                      style: GoogleFonts.jetBrainsMono(color: _onSurface.withOpacity(0.5), fontSize: 9),
                     ),
                   ],
                 ],
@@ -1277,18 +1304,18 @@ class _MissionControlPageState extends State<MissionControlPage> {
                     : Icon(
                         status == 'SENT' ? Icons.circle_outlined : Icons.check_circle,
                         size: 14,
-                        color: status == 'SENT' ? Colors.black : Colors.greenAccent,
+                        color: status == 'SENT' ? (_isDarkMode ? Colors.black : Colors.white) : (_isDarkMode ? Colors.greenAccent : Colors.white),
                       ),
                 label: Text(
                   _isSendingMission && status == 'SENT' ? '...' : (status == 'SENT' ? 'CONFIRMER' : 'CONFIRMÉ'),
                   style: GoogleFonts.orbitron(fontSize: 10, fontWeight: FontWeight.bold),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: status == 'SENT' ? Colors.cyanAccent : Colors.white.withOpacity(0.05),
-                  foregroundColor: status == 'SENT' ? Colors.black : Colors.white.withOpacity(0.3),
+                  backgroundColor: status == 'SENT' ? currentColor : (_isDarkMode ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05)),
+                  foregroundColor: status == 'SENT' ? (_isDarkMode ? Colors.black : Colors.white) : _onSurface.withOpacity(0.3),
                   padding: const EdgeInsets.symmetric(horizontal: 15),
-                  disabledBackgroundColor: Colors.white.withOpacity(0.05),
-                  disabledForegroundColor: Colors.white.withOpacity(0.3),
+                  disabledBackgroundColor: _isDarkMode ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
+                  disabledForegroundColor: _onSurface.withOpacity(0.3),
                 ),
               ),
               // Bouton TERMINER
@@ -1338,18 +1365,18 @@ class _MissionControlPageState extends State<MissionControlPage> {
                     : Icon(
                         Icons.stop_circle_outlined,
                         size: 14,
-                        color: isConfirmed ? Colors.black : Colors.white.withOpacity(0.2),
+                        color: isConfirmed ? (_isDarkMode ? Colors.black : Colors.white) : (_isDarkMode ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.2)),
                       ),
                 label: Text(
                   _isSendingMission && isConfirmed ? '...' : 'TERMINER',
                   style: GoogleFonts.orbitron(fontSize: 10, fontWeight: FontWeight.bold),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: isConfirmed ? Colors.greenAccent : Colors.white.withOpacity(0.05),
-                  foregroundColor: isConfirmed ? Colors.black : Colors.white.withOpacity(0.2),
+                  backgroundColor: isConfirmed ? (_isDarkMode ? Colors.greenAccent : Colors.green) : (_isDarkMode ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05)),
+                  foregroundColor: isConfirmed ? (_isDarkMode ? Colors.black : Colors.white) : _onSurface.withOpacity(0.2),
                   padding: const EdgeInsets.symmetric(horizontal: 15),
-                  disabledBackgroundColor: Colors.white.withOpacity(0.05),
-                  disabledForegroundColor: Colors.white.withOpacity(0.2),
+                  disabledBackgroundColor: _isDarkMode ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
+                  disabledForegroundColor: _onSurface.withOpacity(0.2),
                 ),
               ),
             ],
@@ -1360,10 +1387,10 @@ class _MissionControlPageState extends State<MissionControlPage> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(10),
-            color: Colors.white.withOpacity(0.05),
+            color: _isDarkMode ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
             child: Text(
               content,
-              style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
+              style: GoogleFonts.spaceGrotesk(color: _onSurface, fontSize: 14, fontWeight: FontWeight.w500),
             ),
           ),
         ],
@@ -1470,7 +1497,7 @@ class _MissionControlPageState extends State<MissionControlPage> {
                 children: [
                   Text(
                     log['text'],
-                    style: GoogleFonts.spaceGrotesk(color: Colors.white.withOpacity(0.9), fontSize: 13),
+                    style: GoogleFonts.spaceGrotesk(color: _onSurface.withOpacity(0.9), fontSize: 13),
                   ),
                   if (_maintShowsAckChip(log)) ...[
                     const SizedBox(height: 15),

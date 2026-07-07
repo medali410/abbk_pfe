@@ -5,6 +5,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import 'services/api_service.dart';
+import 'services/theme_service.dart';
 
 class _HistoryEntry {
   _HistoryEntry({
@@ -59,8 +60,9 @@ class _MaintenanceMissionHistoryContentState extends State<MaintenanceMissionHis
   late Future<List<_MachineData>> _future;
   final Set<String> _expandedMachineKeys = {};
 
-  static const _text = Color(0xFFE2DFFF);
-  static const _muted = Color(0xFFE2BFB0);
+  bool get _isDarkMode => ThemeService().isDarkMode;
+  Color get _text => _isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF1E1E2D);
+  Color get _muted => _isDarkMode ? const Color(0xFFE2BFB0) : const Color(0xFF64748B);
   static const _accent = Color(0xFFFF6E00);
 
   @override
@@ -480,10 +482,12 @@ class _MaintenanceMissionHistoryContentState extends State<MaintenanceMissionHis
                           child: expanded
                               ? Container(
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF131429),
+                                    color: _isDarkMode ? const Color(0xFF131429) : Colors.white,
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
-                                      color: Colors.white.withOpacity(0.07),
+                                      color: _isDarkMode
+                                          ? Colors.white.withOpacity(0.07)
+                                          : Colors.black.withOpacity(0.06),
                                     ),
                                   ),
                                   clipBehavior: Clip.antiAlias,
@@ -494,7 +498,7 @@ class _MaintenanceMissionHistoryContentState extends State<MaintenanceMissionHis
                                       if (mData.telemetryHistory.isNotEmpty) ...[
                                         Container(
                                           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                                          color: Colors.white.withOpacity(0.02),
+                                          color: _isDarkMode ? Colors.white.withOpacity(0.02) : Colors.black.withOpacity(0.02),
                                           child: Row(
                                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                             children: [
@@ -553,7 +557,7 @@ class _MaintenanceMissionHistoryContentState extends State<MaintenanceMissionHis
                                             ),
                                             dataTextStyle: GoogleFonts.inter(
                                               fontSize: 12,
-                                              color: Colors.white70,
+                                              color: _isDarkMode ? Colors.white70 : const Color(0xFF1E1E2D),
                                             ),
                                             columnSpacing: 24,
                                             columns: const [
@@ -592,14 +596,14 @@ class _MaintenanceMissionHistoryContentState extends State<MaintenanceMissionHis
                                         Divider(
                                           height: 1,
                                           thickness: 1,
-                                          color: Colors.white.withOpacity(0.06),
+                                          color: _isDarkMode ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.06),
                                         ),
                                       ],
                                       
                                       // Past Missions
                                       Container(
                                         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                                        color: Colors.white.withOpacity(0.02),
+                                        color: _isDarkMode ? Colors.white.withOpacity(0.02) : Colors.black.withOpacity(0.02),
                                         child: Text(
                                           'HISTORIQUE DES MISSIONS (${mData.missions.length})',
                                           style: GoogleFonts.spaceGrotesk(
@@ -628,7 +632,7 @@ class _MaintenanceMissionHistoryContentState extends State<MaintenanceMissionHis
                                             Divider(
                                               height: 1,
                                               thickness: 1,
-                                              color: Colors.white.withOpacity(0.06),
+                                              color: _isDarkMode ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.06),
                                             ),
                                           _MissionHistoryRow(
                                             entry: mData.missions[mi],

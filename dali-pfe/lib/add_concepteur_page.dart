@@ -36,6 +36,7 @@ class _AddConcepteurPageState extends State<AddConcepteurPage> {
   bool _loadingProfile = false;
   bool _obscure = true;
   bool _obscureConfirm = true;
+  bool _sendCredentialsEmail = true;
 
   bool get _isEdit {
     final id = widget.initialData?['id']?.toString();
@@ -177,6 +178,7 @@ class _AddConcepteurPageState extends State<AddConcepteurPage> {
         result = await ApiService.updateConcepteur(id, body);
       } else {
         body['password'] = password;
+        body['sendEmail'] = _sendCredentialsEmail;
         result = await ApiService.addConcepteur(body);
       }
       if (!context.mounted) return;
@@ -292,12 +294,23 @@ class _AddConcepteurPageState extends State<AddConcepteurPage> {
                     ),
                     if (!_isEdit) ...[
                       const SizedBox(height: 10),
-                      Text(
-                        'Un e-mail avec le mot de passe sera envoyé à l\'adresse indiquée (si SMTP est configuré).',
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          color: _onVariant.withValues(alpha: 0.85),
-                          height: 1.35,
+                      CheckboxListTile(
+                        value: _sendCredentialsEmail,
+                        onChanged: (v) => setState(() => _sendCredentialsEmail = v ?? true),
+                        activeColor: _primary,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          'Envoyer les identifiants par e-mail',
+                          style: GoogleFonts.inter(color: _onSurface, fontSize: 14),
+                        ),
+                        subtitle: Text(
+                          'Un e-mail contenant l\'adresse et le mot de passe sera envoyé au concepteur.',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: _onVariant.withValues(alpha: 0.85),
+                            height: 1.35,
+                          ),
                         ),
                       ),
                     ],

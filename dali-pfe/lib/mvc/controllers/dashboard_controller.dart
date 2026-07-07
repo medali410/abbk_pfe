@@ -106,8 +106,20 @@ class DashboardController extends ChangeNotifier {
   }
 
   bool _isMachineRunning(Map<String, dynamic> m) {
-    final s = (m['status'] ?? '').toString().toUpperCase();
-    return s == 'RUNNING' || s == 'NORMAL';
+    final s = (m['status'] ?? '')
+        .toString()
+        .trim()
+        .toUpperCase()
+        .replaceAll(RegExp(r'[-\s]+'), '_');
+    const runningStatuses = {
+      // English variants
+      'RUNNING', 'NORMAL', 'ONLINE', 'ACTIVE', 'WORKING',
+      'IN_WORK', 'IN_SERVICE', 'OPERATIONAL', 'ENABLED', 'STARTED',
+      // French variants
+      'EN_TRAVAIL', 'EN_MARCHE', 'EN_SERVICE', 'EN_PRODUCTION',
+      'EN_FONCTIONNEMENT', 'EN_COURS', 'OPERATIONNEL',
+    };
+    return runningStatuses.contains(s);
   }
 
   String _extractMachineId(Map<String, dynamic> m) {

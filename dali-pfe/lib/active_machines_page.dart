@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
+ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'machine_detail_ai_page.dart';
 import 'services/api_service.dart';
+import 'services/theme_service.dart';
 
 class ActiveMachinesPage extends StatefulWidget {
   final bool embedded;
@@ -61,18 +62,19 @@ class _MachineListItem {
 }
 
 class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
-  Color get _bg => widget.isDarkMode ? const Color(0xFF10102B) : const Color(0xFFF5E0C3);
-  Color get _surfaceContainerLow => widget.isDarkMode ? const Color(0xFF191934) : const Color(0xFFF5E0C3);
-  Color get _surfaceContainer => widget.isDarkMode ? const Color(0xFF1D1D38) : const Color(0xFFFAEBD7);
-  Color get _surfaceContainerHighest => widget.isDarkMode ? const Color(0xFF32324E) : const Color(0xFFFFE4C4);
-  Color get _primary => widget.isDarkMode ? const Color(0xFFFFB692) : const Color(0xFFB8860B);
-  Color get _secondary => widget.isDarkMode ? const Color(0xFF75D1FF) : const Color(0xFF8B5E3C);
-  Color get _onSurface => widget.isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF332A21);
-  Color get _onSurfaceVariant => widget.isDarkMode ? const Color(0xFFE2BFB0) : const Color(0xFF8B5E3C);
-  Color get _outlineVariant => widget.isDarkMode ? const Color(0xFF594136) : const Color(0xFFB87333);
-  Color get _green => widget.isDarkMode ? const Color(0xFF66BB6A) : const Color(0xFF66BB6A);
-  Color get _errorColor => widget.isDarkMode ? const Color(0xFFFFB4AB) : const Color(0xFFFF6E00);
-  Color get _orange => widget.isDarkMode ? const Color(0xFFFF6E00) : const Color(0xFFFF6E00);
+  bool get _dm => ThemeService().isDarkMode;
+  Color get _bg => _dm ? const Color(0xFF10102B) : const Color(0xFFF5F0E8);
+  Color get _surfaceContainerLow => _dm ? const Color(0xFF191934) : const Color(0xFFF5E0C3);
+  Color get _surfaceContainer => _dm ? const Color(0xFF1D1D38) : const Color(0xFFFAEBD7);
+  Color get _surfaceContainerHighest => _dm ? const Color(0xFF32324E) : const Color(0xFFFFE4C4);
+  Color get _primary => _dm ? const Color(0xFFFFB692) : const Color(0xFFB8860B);
+  Color get _secondary => _dm ? const Color(0xFF75D1FF) : const Color(0xFF8B5E3C);
+  Color get _onSurface => _dm ? const Color(0xFFE2DFFF) : const Color(0xFF332A21);
+  Color get _onSurfaceVariant => _dm ? const Color(0xFFE2BFB0) : const Color(0xFF8B5E3C);
+  Color get _outlineVariant => _dm ? const Color(0xFF594136) : const Color(0xFFB87333);
+  Color get _green => _dm ? const Color(0xFF66BB6A) : const Color(0xFF2E7D32);
+  Color get _errorColor => _dm ? const Color(0xFFFFB4AB) : const Color(0xFFFF6E00);
+  Color get _orange => const Color(0xFFFF6E00);
 
   bool _loading = true;
   String? _loadError;
@@ -86,7 +88,16 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
   @override
   void initState() {
     super.initState();
+    ThemeService().addListener(_onThemeChange);
     _load();
+  }
+
+  void _onThemeChange() => setState(() {});
+
+  @override
+  void dispose() {
+    ThemeService().removeListener(_onThemeChange);
+    super.dispose();
   }
 
   String _clientApiId(Map<String, dynamic> c) {
@@ -843,7 +854,9 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E2243).withOpacity(0.4),
+          color: widget.isDarkMode
+              ? const Color(0xFF1E2243).withOpacity(0.4)
+              : Colors.black.withOpacity(0.04),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: accent.withOpacity(0.18)),
         ),
@@ -966,6 +979,7 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
     required List<String> teamNames,
   }) {
     return _HoverCardWrapper(
+      isDarkMode: widget.isDarkMode,
       hoverBorderColor: progressColorBottom,
       child: Material(
         color: Colors.transparent,
@@ -1258,7 +1272,12 @@ class _ActiveMachinesPageState extends State<ActiveMachinesPage> {
 class _HoverCardWrapper extends StatefulWidget {
   final Widget child;
   final Color hoverBorderColor;
-  const _HoverCardWrapper({required this.child, required this.hoverBorderColor});
+  final bool isDarkMode;
+  const _HoverCardWrapper({
+    required this.child,
+    required this.hoverBorderColor,
+    this.isDarkMode = false,
+  });
 
   @override
   State<_HoverCardWrapper> createState() => _HoverCardWrapperState();
@@ -1278,16 +1297,23 @@ class _HoverCardWrapperState extends State<_HoverCardWrapper> {
         transform: _isHovered ? (Matrix4.identity()..translate(0, -6, 0)) : Matrix4.identity(),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [
-              const Color(0xFFF5E0C3).withOpacity(0.95),
-              const Color(0xFFFAEBD7).withOpacity(0.85),
-            ],
+            colors: widget.isDarkMode
+                ? [
+                    const Color(0xFF1E2243).withOpacity(0.95),
+                    const Color(0xFF131730).withOpacity(0.85),
+                  ]
+                : [
+                    const Color(0xFFF5E0C3).withOpacity(0.95),
+                    const Color(0xFFFAEBD7).withOpacity(0.85),
+                  ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: _isHovered ? widget.hoverBorderColor.withOpacity(0.6) : Colors.white.withOpacity(0.08),
+            color: _isHovered 
+                ? widget.hoverBorderColor.withOpacity(0.6) 
+                : (widget.isDarkMode ? Colors.white.withOpacity(0.08) : const Color(0xFFCD7F32).withOpacity(0.2)),
             width: 1.5,
           ),
           boxShadow: [

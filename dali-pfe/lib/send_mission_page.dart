@@ -5,6 +5,8 @@ import 'services/api_service.dart';
 import 'services/global_notification_service.dart';
 import 'mission_control_page.dart';
 
+import 'services/theme_service.dart';
+
 /// Page dédiée à l'envoi d'une mission depuis l'agent maintenance vers un technicien.
 class SendMissionPage extends StatefulWidget {
   const SendMissionPage({
@@ -48,12 +50,13 @@ class _SendMissionPageState extends State<SendMissionPage>
   bool _isLoadingHistory = true;
   StreamSubscription? _missionUpdateSub;
 
-  static const _bg = Color(0xFF0B0B1E);
-  static const _surface = Color(0xFF131330);
-  static const _surfaceHigh = Color(0xFF1D1D40);
+  bool get _isDark => ThemeService().isDarkMode;
+  Color get _bg => _isDark ? const Color(0xFF0B0B1E) : const Color(0xFFF4F6F8);
+  Color get _surface => _isDark ? const Color(0xFF131330) : const Color(0xFFFFFFFF);
+  Color get _surfaceHigh => _isDark ? const Color(0xFF1D1D40) : const Color(0xFFFFFFFF);
   static const _accent = Color(0xFFFF6E00);
-  static const _textPrimary = Color(0xFFE2DFFF);
-  static const _textMuted = Color(0xFF8884A8);
+  Color get _textPrimary => _isDark ? const Color(0xFFE2DFFF) : const Color(0xFF1E1E2D);
+  Color get _textMuted => _isDark ? const Color(0xFF8884A8) : const Color(0xFF7A7A8C);
 
   @override
   void initState() {
@@ -263,7 +266,7 @@ class _SendMissionPageState extends State<SendMissionPage>
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white70),
+            icon: Icon(Icons.arrow_back, color: _textPrimary),
             onPressed: () => Navigator.of(context).pop(),
           ),
           const SizedBox(width: 4),
@@ -359,13 +362,13 @@ class _SendMissionPageState extends State<SendMissionPage>
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF0F1620),
+        color: _surfaceHigh,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        border: Border.all(color: _textPrimary.withValues(alpha: 0.08)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.precision_manufacturing, color: Colors.cyanAccent, size: 20),
+          Icon(Icons.precision_manufacturing, color: _isDark ? Colors.cyanAccent : Colors.teal, size: 20),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -374,7 +377,7 @@ class _SendMissionPageState extends State<SendMissionPage>
                 Text(
                   widget.machineName,
                   style: GoogleFonts.orbitron(
-                    color: Colors.white,
+                    color: _textPrimary,
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                   ),
@@ -383,7 +386,7 @@ class _SendMissionPageState extends State<SendMissionPage>
                 Text(
                   'ID: ${widget.machineId}',
                   style: GoogleFonts.spaceGrotesk(
-                    color: Colors.blueGrey,
+                    color: _textMuted,
                     fontSize: 10,
                   ),
                 ),
@@ -473,7 +476,7 @@ class _SendMissionPageState extends State<SendMissionPage>
               color: isSelected ? _accent.withValues(alpha: 0.12) : _surfaceHigh,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: isSelected ? _accent.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.06),
+                color: isSelected ? _accent.withValues(alpha: 0.6) : _textPrimary.withValues(alpha: 0.06),
                 width: isSelected ? 1.5 : 1,
               ),
             ),
@@ -481,7 +484,7 @@ class _SendMissionPageState extends State<SendMissionPage>
               children: [
                 CircleAvatar(
                   radius: 20,
-                  backgroundColor: isSelected ? _accent.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.06),
+                  backgroundColor: isSelected ? _accent.withValues(alpha: 0.2) : _textPrimary.withValues(alpha: 0.06),
                   child: Text(
                     name.isNotEmpty ? name[0].toUpperCase() : 'T',
                     style: GoogleFonts.orbitron(
@@ -499,7 +502,7 @@ class _SendMissionPageState extends State<SendMissionPage>
                       Text(
                         name,
                         style: GoogleFonts.spaceGrotesk(
-                          color: isSelected ? _textPrimary : Colors.white70,
+                          color: isSelected ? _textPrimary : _textPrimary.withValues(alpha: 0.8),
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
                         ),
@@ -561,11 +564,11 @@ class _SendMissionPageState extends State<SendMissionPage>
         fillColor: _surfaceHigh,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+          borderSide: BorderSide(color: _textPrimary.withValues(alpha: 0.08)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+          borderSide: BorderSide(color: _textPrimary.withValues(alpha: 0.08)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -620,16 +623,16 @@ class _SendMissionPageState extends State<SendMissionPage>
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: Colors.green.withValues(alpha: 0.12),
+                color: (_isDark ? Colors.green : Colors.teal).withValues(alpha: 0.12),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 56),
+              child: Icon(Icons.check_circle_rounded, color: _isDark ? Colors.greenAccent : Colors.teal, size: 56),
             ),
             const SizedBox(height: 24),
             Text(
               'Mission envoyée !',
               style: GoogleFonts.orbitron(
-                color: Colors.greenAccent,
+                color: _isDark ? Colors.greenAccent : Colors.teal,
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
               ),
@@ -653,7 +656,7 @@ class _SendMissionPageState extends State<SendMissionPage>
               child: ElevatedButton(
                 onPressed: () => Navigator.of(context).pop(),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _surfaceHigh,
+                  backgroundColor: _isDark ? _surfaceHigh : Colors.black87,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -672,7 +675,7 @@ class _SendMissionPageState extends State<SendMissionPage>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 16),
-        Divider(color: Colors.white.withValues(alpha: 0.1), thickness: 1),
+        Divider(color: _textPrimary.withValues(alpha: 0.1), thickness: 1),
         const SizedBox(height: 24),
         _buildSectionLabel('📊 HISTORIQUE ET SUIVI DES MISSIONS'),
         const SizedBox(height: 16),
@@ -743,7 +746,7 @@ class _SendMissionPageState extends State<SendMissionPage>
       decoration: BoxDecoration(
         color: _surfaceHigh,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        border: Border.all(color: _textPrimary.withValues(alpha: 0.05)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -795,7 +798,7 @@ class _SendMissionPageState extends State<SendMissionPage>
             mission['content'] ?? '',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.inter(color: Colors.white70, fontSize: 12),
+            style: GoogleFonts.inter(color: _textPrimary.withValues(alpha: 0.8), fontSize: 12),
           ),
           const SizedBox(height: 10),
           Row(

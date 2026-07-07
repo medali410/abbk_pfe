@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'services/api_service.dart';
 import 'services/danger_alert_service.dart';
+import 'services/theme_service.dart';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Message model
@@ -51,13 +52,14 @@ class _MaintenanceAiChatPageState extends State<MaintenanceAiChatPage> {
   bool _isLoading = false;
   StreamSubscription<DangerAlertEvent>? _dangerSub;
 
-  static const _bg = Color(0xFF0D0D1F);
-  static const _surface = Color(0xFF1A1A2E);
+  bool get _isDarkMode => ThemeService().isDarkMode;
+  Color get _bg => _isDarkMode ? const Color(0xFF0D0D1F) : const Color(0xFFF8FAFC);
+  Color get _surface => _isDarkMode ? const Color(0xFF1A1A2E) : Colors.white;
   static const _accent = Color(0xFFB388FF);
-  static const _text = Color(0xFFE2DFFF);
-  static const _muted = Color(0xFF9E9EC0);
-  static const _userBubble = Color(0xFF2D1B69);
-  static const _aiBubble = Color(0xFF131429);
+  Color get _text => _isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF1E1E2D);
+  Color get _muted => _isDarkMode ? const Color(0xFF9E9EC0) : const Color(0xFF64748B);
+  Color get _userBubble => _isDarkMode ? const Color(0xFF2D1B69) : const Color(0xFFECE9FC);
+  Color get _aiBubble => _isDarkMode ? const Color(0xFF131429) : const Color(0xFFF1F5F9);
 
   @override
   void initState() {
@@ -851,7 +853,7 @@ class _MaintenanceAiChatPageState extends State<MaintenanceAiChatPage> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
           decoration: BoxDecoration(
             color: _surface,
-            border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.06))),
+            border: Border(bottom: BorderSide(color: _isDarkMode ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.06))),
           ),
           child: Row(
             children: [
@@ -956,14 +958,14 @@ class _MaintenanceAiChatPageState extends State<MaintenanceAiChatPage> {
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
           decoration: BoxDecoration(
             color: _surface,
-            border: Border(top: BorderSide(color: Colors.white.withOpacity(0.06))),
+            border: Border(top: BorderSide(color: _isDarkMode ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.06))),
           ),
           child: Row(
             children: [
               Expanded(
                 child: Container(
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0D0D1F),
+                    color: _isDarkMode ? const Color(0xFF0D0D1F) : const Color(0xFFF1F5F9),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(color: _accent.withOpacity(0.3)),
                   ),
@@ -1064,7 +1066,9 @@ class _ChatBubble extends StatelessWidget {
                 border: Border.all(
                   color: isUser
                       ? accent.withOpacity(0.3)
-                      : Colors.white.withOpacity(0.06),
+                      : (ThemeService().isDarkMode
+                          ? Colors.white.withOpacity(0.06)
+                          : Colors.black.withOpacity(0.06)),
                 ),
               ),
               child: message.isLoading

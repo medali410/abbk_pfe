@@ -23,12 +23,15 @@ class LoginPage extends StatefulWidget {
   State<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMixin {
   bool _obscurePassword = true;
   bool _googleInitDone = false;
   final TextEditingController _loginEmailController = TextEditingController();
   final TextEditingController _loginPasswordController = TextEditingController();
   bool _loginSubmitting = false;
+  late AnimationController _animCtrl;
+  late Animation<double> _fadeAnim;
+  late Animation<Offset> _slideAnim;
   final TextEditingController _signupNameController = TextEditingController();
   final TextEditingController _signupEmailController = TextEditingController();
   final TextEditingController _signupPasswordController = TextEditingController();
@@ -42,6 +45,11 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
+    _animCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
+    _fadeAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
+    _slideAnim = Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero)
+        .animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOutCubic));
+    _animCtrl.forward();
     _consumeGoogleOAuthReturn();
     _refreshGoogleOAuthAvailability();
   }
@@ -63,6 +71,7 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
+    _animCtrl.dispose();
     _loginEmailController.dispose();
     _loginPasswordController.dispose();
     _signupNameController.dispose();
@@ -161,47 +170,53 @@ class _LoginPageState extends State<LoginPage> {
                       padding: const EdgeInsets.all(24.0),
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 500),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 32.0, sigmaY: 32.0),
-                            child: Container(
-                              padding: const EdgeInsets.all(48.0),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF0F172A).withOpacity(0.65),
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.12),
-                                  width: 1,
-                                ),
-                              ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  // Title
-                                  Text(
-                                    widget.showSignupTitle
-                                        ? 'INSCRIPTION'
-                                        : 'CONNEXION',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 28,
-                                      fontWeight: FontWeight.w300,
-                                      letterSpacing: 4.0,
+                        child: FadeTransition(
+                          opacity: _fadeAnim,
+                          child: SlideTransition(
+                            position: _slideAnim,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: BackdropFilter(
+                                filter: ImageFilter.blur(sigmaX: 32.0, sigmaY: 32.0),
+                                child: Container(
+                                  padding: const EdgeInsets.all(48.0),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF0F172A).withOpacity(0.65),
+                                    borderRadius: BorderRadius.circular(24),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.12),
+                                      width: 1,
                                     ),
                                   ),
-                                  const SizedBox(height: 12),
-                                  Container(
-                                    height: 1,
-                                    width: 48,
-                                    color: const Color(0xFFFF6E00),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      // Title
+                                      Text(
+                                        widget.showSignupTitle
+                                            ? 'INSCRIPTION'
+                                            : 'CONNEXION',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 28,
+                                          fontWeight: FontWeight.w300,
+                                          letterSpacing: 4.0,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Container(
+                                        height: 1,
+                                        width: 48,
+                                        color: const Color(0xFFFF6E00),
+                                      ),
+                                      const SizedBox(height: 28),
+
+                                      widget.showSignupTitle
+                                          ? _buildClientSocialSection(context)
+                                          : _buildSignInSection(context),
+
+                                    ],
                                   ),
-                                  const SizedBox(height: 28),
-
-                                  widget.showSignupTitle
-                                      ? _buildClientSocialSection(context)
-                                      : _buildSignInSection(context),
-
-                                ],
+                                ),
                               ),
                             ),
                           ),

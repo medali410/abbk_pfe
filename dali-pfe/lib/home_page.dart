@@ -9,6 +9,7 @@ import 'client_dashboard_page.dart';
 import 'login_page.dart';
 import 'machine_detail_pro_page.dart';
 import 'services/api_service.dart';
+import 'services/theme_service.dart';
 import 'utils/catalog_list_utils.dart';
 import 'utils/client_auth_gate.dart';
 import 'widgets/hero_looping_video_background.dart';
@@ -25,7 +26,8 @@ class _HomePageState extends State<HomePage> {
   late Future<List<Map<String, dynamic>>> _machinesFuture;
   bool _animateIn = false;
   bool _canBuyAsClient = false;
-  bool _isDarkMode = true;
+
+  bool get _isDarkMode => ThemeService().isDarkMode;
 
   Color get tc => _isDarkMode ? Colors.white : const Color(0xFF332A21);
   Color get subTc => _isDarkMode ? const Color(0xFFA7B1C6) : const Color(0xFF8A735E);
@@ -643,15 +645,18 @@ class _HomePageState extends State<HomePage> {
     );
 
     final themeToggleBtn = IconButton(
-      onPressed: () => setState(() => _isDarkMode = !_isDarkMode),
+      onPressed: () {
+        ThemeService().toggleTheme();
+        setState(() {});
+      },
       icon: Icon(
-        _isDarkMode ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-        color: _isDarkMode ? const Color(0xFFFFB87A) : const Color(0xFFFF6E00),
+        ThemeService().isDarkMode ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+        color: ThemeService().isDarkMode ? const Color(0xFFFFB87A) : const Color(0xFFFF6E00),
       ),
       iconSize: 20,
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints(),
-      tooltip: _isDarkMode ? 'Mode Jour' : 'Mode Nuit',
+      tooltip: ThemeService().isDarkMode ? 'Mode Jour' : 'Mode Nuit',
     );
 
     final authActions = Row(

@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:video_player/video_player.dart';
 import 'services/api_service.dart';
 import 'services/global_notification_service.dart';
+import 'services/theme_service.dart';
 import 'mission_control_page.dart';
 import 'send_mission_page.dart';
 import 'package:pdf/pdf.dart';
@@ -17,7 +18,6 @@ class AiAnalysisView extends StatefulWidget {
   final String machineId;
   final String machineName;
   final String motorType;
-  /// Si true, le bouton MISSION est masqué (vue client uniquement)
   final bool isClientView;
   final String viewerRole;
 
@@ -60,25 +60,26 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
   String _actualMachineStatus = 'UNKNOWN';
   StreamSubscription? _machineStatusSub;
   StreamSubscription? _dangerAlertSub;
-  StreamSubscription? _telemetryLiveSub; // 📡 socket live
+  StreamSubscription? _telemetryLiveSub; 
   Map<String, dynamic>? _lastDangerInfo;
 
-  // ── Colors from Tailwind config ──
-  static const _bg = Color(0xFF10102B);
-  static const _surfaceContainerLowest = Color(0xFF0B0B26);
-  static const _surfaceContainerLow = Color(0xFF191934);
-  static const _surfaceContainer = Color(0xFF1D1D38);
-  static const _surfaceContainerHigh = Color(0xFF272743);
-  static const _surfaceContainerHighest = Color(0xFF32324E);
+  bool get _isDark => ThemeService().isDarkMode;
+  Color get _bg => _isDark ? const Color(0xFF10102B) : const Color(0xFFF4F6F8);
+  Color get _surfaceContainerLowest => _isDark ? const Color(0xFF0B0B26) : const Color(0xFFE8EBF0);
+  Color get _surfaceContainerLow => _isDark ? const Color(0xFF191934) : Colors.white;
+  Color get _surfaceContainer => _isDark ? const Color(0xFF1D1D38) : const Color(0xFFF0F2F5);
+  Color get _surfaceContainerHigh => _isDark ? const Color(0xFF272743) : const Color(0xFFE4E7ED);
+  Color get _surfaceContainerHighest => _isDark ? const Color(0xFF32324E) : const Color(0xFFD8DCE5);
   static const _primary = Color(0xFFFF6E00);
   static const _primaryLight = Color(0xFFFFB692);
   static const _secondary = Color(0xFF75D1FF);
   static const _error = Color(0xFFFFB4AB);
   static const _errorContainer = Color(0xFF93000A);
   static const _onError = Color(0xFF690005);
-  static const _onSurface = Color(0xFFE2DFFF);
-  static const _onSurfaceVariant = Color(0xFFE2BFB0);
+  Color get _onSurface => _isDark ? const Color(0xFFE2DFFF) : const Color(0xFF1E1E2D);
+  Color get _onSurfaceVariant => _isDark ? const Color(0xFFE2BFB0) : const Color(0xFF7A7A8C);
   static const _green = Color(0xFF66BB6A);
+  Color get _border => _isDark ? Colors.white10 : Colors.black12;
 
   @override
   void initState() {
@@ -92,7 +93,6 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
       if (widget.machineId.isNotEmpty) {
         _fetchMachineStatus();
         _loadTelemetryHistory();
-        // ⏱️ Délai de 3s avant le premier appel IA — la page s'affiche immédiatement
         Future.delayed(const Duration(seconds: 3), () {
           if (mounted && widget.machineId.isNotEmpty) {
             _runLivePrediction();
@@ -100,13 +100,11 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
         });
       }
     });
-    // 🔄 IA prédiction toutes les 30s (moins fréquent, données live via socket)
     _liveRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!mounted || widget.machineId.isEmpty || _predictLoading) return;
       _runLivePrediction();
     });
 
-    // 📡 Écouter les données MQTT en temps réel via socket (0 latence HTTP)
     _telemetryLiveSub = GlobalNotificationService().telemetryLiveStream.listen((data) {
       if (data['machineId'] != widget.machineId) return;
       if (!mounted) return;
@@ -259,7 +257,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
     _liveRefreshTimer?.cancel();
     _machineStatusSub?.cancel();
     _dangerAlertSub?.cancel();
-    _telemetryLiveSub?.cancel(); // 📡 socket live
+    _telemetryLiveSub?.cancel(); 
     super.dispose();
   }
 
@@ -385,9 +383,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
   Widget _buildSensorsGrid() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Toujours 2 colonnes sur mobile, 3 sur grand écran
         final crossAxisCount = constraints.maxWidth > 900 ? 3 : 2;
-        // Ratio plus compact pour afficher 2 cartes côte à côte
         final aspectRatio = constraints.maxWidth > 900 ? 2.0 : 1.55;
         return GridView.count(
           shrinkWrap: true,
@@ -434,7 +430,6 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
   }
 
   Widget _buildRisksGrid() {
-    // Use AI model values if available, fallback to local calculation
     final double heatRisk = (_predictResult?['heat_risk'] is num)
         ? (_predictResult!['heat_risk'] as num).toDouble()
         : (_diagTemperature / 100.0).clamp(0.0, 1.0) * 100;
@@ -489,7 +484,6 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // En-tête : icône + label + badge statut
           Row(
             children: [
               Icon(icon, size: 14, color: statusColor),
@@ -745,7 +739,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
       decoration: BoxDecoration(
         color: _surfaceContainer.withOpacity(0.55),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: _border),
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
@@ -1375,7 +1369,6 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
                   ),
                   const SizedBox(height: 24),
 
-                  // Section 4: Recommandations
                   _buildReportSection(
                     icon: Icons.lightbulb_outline,
                     title: "RECOMMANDATIONS",
@@ -1448,8 +1441,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF3B0000).withOpacity(0.8), // Dark red background
-        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xFF3B0000).withOpacity(0.8), 
         border: Border.all(color: Colors.redAccent, width: 2),
         boxShadow: [
           BoxShadow(
@@ -1468,7 +1460,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
               const SizedBox(width: 16),
               Expanded(
                 child: Text(
-                  '🚨 ARRÊT DANGER ACTIVÉ',
+                  ' ARRÊT DANGER ACTIVÉ',
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -1480,7 +1472,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
             ],
           ),
           const SizedBox(height: 16),
-          Text('⚠️ Machine arrêtée automatiquement', style: GoogleFonts.inter(fontSize: 16, color: Colors.white)),
+          Text(' Machine arrêtée automatiquement', style: GoogleFonts.inter(fontSize: 16, color: Colors.white)),
           const SizedBox(height: 8),
           if (_lastDangerInfo != null) ...[
             Text('Cause : ${_lastDangerInfo!['reason']} (${_lastDangerInfo!['value']})', style: GoogleFonts.inter(fontSize: 16, color: Colors.white70)),
@@ -1495,7 +1487,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
               ElevatedButton.icon(
                 onPressed: _isLoadingState ? null : _resetDanger,
                 icon: _isLoadingState ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.lock_open, size: 20),
-                label: Text('🔓 RÉINITIALISER', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 16)),
+                label: Text(' RÉINITIALISER', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 16)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
                   foregroundColor: Colors.red[900],
@@ -1506,7 +1498,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
               ElevatedButton.icon(
                 onPressed: () => _showDangerReportModal(context),
                 icon: const Icon(Icons.content_paste_search, size: 20),
-                label: Text('📋 VOIR RAPPORT', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 16)),
+                label: Text(' VOIR RAPPORT', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 16)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _surfaceContainerHighest,
                   foregroundColor: Colors.white,
@@ -1532,7 +1524,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
       decoration: BoxDecoration(
         color: _surfaceContainerLow,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: _border),
       ),
       child: Wrap(
         spacing: 16,
@@ -2164,9 +2156,9 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
                   verticalInterval: count > 1 ? (count - 1) / 4 : 1,
                   horizontalInterval: 25,
                   getDrawingHorizontalLine: (_) =>
-                      FlLine(color: Colors.white.withOpacity(0.08), strokeWidth: 1),
+                      FlLine(color: _border, strokeWidth: 1),
                   getDrawingVerticalLine: (_) =>
-                      FlLine(color: Colors.white.withOpacity(0.05), strokeWidth: 1),
+                      FlLine(color: _border, strokeWidth: 1),
                 ),
                 titlesData: FlTitlesData(
                   leftTitles: AxisTitles(
@@ -2836,7 +2828,7 @@ class _AiAnalysisViewState extends State<AiAnalysisView>
               builder: (context, constraints) {
                 return CustomPaint(
                   size: Size(constraints.maxWidth, constraints.maxHeight),
-                  painter: _ChartPainter(),
+                  painter: _ChartPainter(isDark: _isDark),
                 );
               },
             ),
@@ -3342,11 +3334,14 @@ class _GaugePainter extends CustomPainter {
 }
 
 class _ChartPainter extends CustomPainter {
+  final bool isDark;
+  _ChartPainter({required this.isDark});
+
   @override
   void paint(Canvas canvas, Size size) {
     // Draw horizontal grid lines
     final gridPaint = Paint()
-      ..color = Colors.white.withOpacity(0.05)
+      ..color = isDark ? Colors.white10 : Colors.black12
       ..strokeWidth = 1;
 
     for (int i = 0; i <= 4; i++) {

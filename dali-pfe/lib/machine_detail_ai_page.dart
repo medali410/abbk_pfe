@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'services/theme_service.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'kinetic_observatory_page.dart';
 import 'services/api_service.dart';
+import 'services/theme_service.dart';
 import 'utils/panne_display.dart';
 import 'add_technician_page.dart';
 import 'technician_profile_page.dart';
@@ -25,6 +27,7 @@ class MachineDetailAiPage extends StatefulWidget {
   final bool embedded;
   final VoidCallback? onBack;
   final List<Map<String, dynamic>>? machines;
+
   const MachineDetailAiPage({
     super.key,
     required this.machineId,
@@ -65,7 +68,11 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
   double _ultrasonic = 0;
   double _presence = 0;
   double _magnetic = 0;
-  double _infrared = 0;
+  bool get _dark => ThemeService().isDarkMode;
+Color get _primary => _dark ? const Color(0xFFFF6E00) : const Color(0xFFB8860B);
+Color get _onSurface => _dark ? const Color(0xFFE2DFFF) : const Color(0xFF332A21);
+Color get _secondary => _dark ? const Color(0xFF75D1FF) : const Color(0xFF8B5E3C);
+double _infrared = 0;
   int _wifiRssi = 0;
   String _zone = 'Zone inconnue';
   DateTime? _lastMqttPacketAt;
@@ -113,16 +120,18 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
   bool _loadingSidebarMachines = false;
   String? _sidebarMachinesError;
 
-  static const _bg = Color(0xFF0D0E1B);
-  static const _panel = Color(0xFF12131F);
-  static const _panel2 = Color(0xFF161826);
-  static const _panel3 = Color(0xFF1E2030);
   static const _orange = Color(0xFFFF7E21);
   static const _cyan = Color(0xFF75D1FF);
-  static const _text = Color(0xFFE2DFFF);
-  static const _muted = Color(0xFFE2BFB0);
-  static const _green = Color(0xFF66BB6A);
-  static const _red = Color(0xFFFFB4AB);
+
+  bool get _isDark => ThemeService().isDarkMode;
+  Color get _bg => _isDark ? const Color(0xFF0D0E1B) : const Color(0xFFFAF8F5);
+  Color get _panel => _isDark ? const Color(0xFF12131F) : Colors.white;
+  Color get _panel2 => _isDark ? const Color(0xFF161826) : const Color(0xFFFBF8F6);
+  Color get _panel3 => _isDark ? const Color(0xFF1E2030) : const Color(0xFFF3ECE1);
+  Color get _text => _isDark ? const Color(0xFFE2DFFF) : const Color(0xFF111827);
+  Color get _muted => _isDark ? const Color(0xFFE2BFB0) : const Color(0xFF7A4B29);
+  Color get _green => _isDark ? const Color(0xFF66BB6A) : const Color(0xFF2E7D32);
+  Color get _red => _isDark ? const Color(0xFFFFB4AB) : const Color(0xFFB71C1C);
 
   @override
   void initState() {
@@ -554,7 +563,7 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                 decoration: BoxDecoration(
                   color: const Color(0xFF161826),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.redAccent, width: 2),
+                  border: Border.all(color: _dark ? Colors.redAccent : _secondary, width: 2),
                   boxShadow: [
                     BoxShadow(color: Colors.redAccent.withOpacity(0.3), blurRadius: 20, spreadRadius: 5),
                   ],
@@ -1094,7 +1103,11 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
         );
       }
       
-      final Color dynBg = _iaProbPanne >= 70 ? const Color(0xFF2A0A0A) : (_iaProbPanne >= 60 ? const Color(0xFF2A1A0A) : _bg);
+      final Color dynBg = _iaProbPanne >= 70
+          ? (_dark ? const Color(0xFF2A0A0A) : const Color(0xFFFDE8E8))
+          : (_iaProbPanne >= 60
+              ? (_dark ? const Color(0xFF2A1A0A) : const Color(0xFFFDF3E3))
+              : _bg);
       return Scaffold(backgroundColor: dynBg, body: finalBody);
     }
   
@@ -1119,27 +1132,31 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                 child: InkWell(
                   onTap: widget.onBack ?? () => Navigator.of(context).pop(),
                   borderRadius: BorderRadius.circular(6),
-                  hoverColor: Colors.white.withOpacity(0.05),
+                  hoverColor: _text.withOpacity(0.05),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF131824),
-                      border: Border.all(color: Colors.white.withOpacity(0.08)),
+                      color: _isDark ? const Color(0xFF131824) : const Color(0xFFE7DDD0),
+                      border: Border.all(
+                        color: _isDark
+                            ? Colors.white.withOpacity(0.08)
+                            : const Color(0xFFCD7F32).withOpacity(0.35),
+                      ),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.arrow_back_ios_new, color: _orange, size: 12),
+                        Icon(Icons.arrow_back_ios_new, color: _orange, size: 12),
                         const SizedBox(width: 8),
                         Text(
-                          'RETOUR', 
+                          'RETOUR',
                           style: GoogleFonts.spaceGrotesk(
-                            color: Colors.white70, 
-                            fontSize: 11, 
+                            color: _text.withOpacity(_isDark ? 0.7 : 0.8),
+                            fontSize: 11,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 1.2,
-                          )
+                          ),
                         ),
                       ],
                     ),
@@ -1148,28 +1165,126 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
               ),
             ),
           ),
-        Text(
-          'ASSET TERMINAL // $_machineId',
-          style: GoogleFonts.spaceGrotesk(
-            fontSize: 10,
-            color: _orange,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.35,
-          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
+              'ASSET TERMINAL // $_machineId',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 10,
+                color: _orange,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.35,
+              ),
+            ),
+            const SizedBox(width: 10),
+            AnimatedBuilder(
+              animation: _pulseCtrl,
+              builder: (_, __) => Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _socketConnected
+                      ? Colors.greenAccent
+                      : const Color(0xFFFF9800),
+                  boxShadow: [
+                    BoxShadow(
+                      color: (_socketConnected ? Colors.greenAccent : const Color(0xFFFF9800))
+                          .withOpacity(0.3 + 0.5 * _pulseCtrl.value),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              _socketConnected ? 'LIVE' : 'VEILLE',
+              style: GoogleFonts.inter(
+                fontSize: 8,
+                fontWeight: FontWeight.w700,
+                color: _socketConnected ? Colors.greenAccent : const Color(0xFFFF9800),
+                letterSpacing: 0.8,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 6),
-        Text(
-          unitTitle,
-          style: GoogleFonts.spaceGrotesk(
-            fontSize: 22,
-            color: _text,
-            fontWeight: FontWeight.w900,
-            letterSpacing: -0.4,
-          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Text(
+                unitTitle,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 22,
+                  color: _text,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.4,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+              decoration: BoxDecoration(
+                color: _machineStopped
+                    ? _red.withOpacity(0.15)
+                    : _iaProbPanne >= 70
+                        ? const Color(0xFFFF9800).withOpacity(0.15)
+                        : _green.withOpacity(0.13),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: _machineStopped
+                      ? _red.withOpacity(0.5)
+                      : _iaProbPanne >= 70
+                          ? const Color(0xFFFF9800).withOpacity(0.6)
+                          : _green.withOpacity(0.5),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _machineStopped
+                          ? _red
+                          : _iaProbPanne >= 70
+                              ? const Color(0xFFFF9800)
+                              : _green,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _machineStopped
+                        ? 'ARRÊT'
+                        : _iaProbPanne >= 70
+                            ? 'INSTABLE'
+                            : 'OPÉRATIONNEL',
+                    style: GoogleFonts.inter(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.6,
+                      color: _machineStopped
+                          ? _red
+                          : _iaProbPanne >= 70
+                              ? const Color(0xFFFF9800)
+                              : _green,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 4),
         Text(
-          'S/N: $_machineId • STATUS: ${_machineStopped ? 'ARRÊT' : (_iaProbPanne >= 70 ? 'INSTABLE' : 'OPÉRATIONNEL')}',
+          'S/N: $_machineId • ZONE: ${_zone.toUpperCase()}',
           style: GoogleFonts.inter(
             fontSize: 10,
             color: _text.withOpacity(0.45),
@@ -1181,44 +1296,57 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              _topNavItem('VUE D\'ENSEMBLE', 'dashboard'),
-              const SizedBox(width: 16),
-              _topNavItem('HISTORIQUE', 'history'),
-              const SizedBox(width: 16),
-              _topNavItem('ÉQUIPE MACHINE', 'technicians'),
+              _topNavItem('VUE D\'ENSEMBLE', 'dashboard', Icons.dashboard_rounded),
+              const SizedBox(width: 8),
+              _topNavItem('HISTORIQUE', 'history', Icons.show_chart_rounded),
+              const SizedBox(width: 8),
+              _topNavItem('ÉQUIPE MACHINE', 'technicians', Icons.engineering_rounded),
             ],
           ),
         ),
         const SizedBox(height: 12),
-        Divider(height: 1, color: Colors.white.withOpacity(0.07)),
+        Divider(height: 1, color: _text.withOpacity(0.1)),
       ],
     );
   }
 
-  Widget _topNavItem(String label, String tabKey) {
+  Widget _topNavItem(String label, String tabKey, IconData icon) {
     final active = _sideTab == tabKey;
     return InkWell(
       onTap: () => setState(() => _sideTab = tabKey),
-      borderRadius: BorderRadius.circular(4),
+      borderRadius: BorderRadius.circular(20),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: active ? _orange : Colors.transparent,
-              width: 2,
-            ),
+          color: active
+              ? _orange.withOpacity(_isDark ? 0.18 : 0.12)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: active ? _orange.withOpacity(0.55) : Colors.transparent,
+            width: 1,
           ),
         ),
-        child: Text(
-          label,
-          style: GoogleFonts.spaceGrotesk(
-            fontSize: 11,
-            fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-            color: active ? _text : _text.withOpacity(0.4),
-            letterSpacing: 1.1,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 13,
+              color: active ? _orange : _text.withOpacity(0.35),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 11,
+                fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                color: active ? _orange : _text.withOpacity(0.4),
+                letterSpacing: 0.8,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1343,51 +1471,58 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                                       ),
                                     ),
                                     Expanded(
-                                      child: Padding(
-                                        padding: const EdgeInsets.fromLTRB(
-                                          14,
-                                          10,
-                                          16,
-                                          10,
+                                      child: Container(
+                                        margin: const EdgeInsets.fromLTRB(8, 4, 16, 4),
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                        decoration: BoxDecoration(
+                                          color: active ? _orange.withOpacity(0.08) : Colors.black.withOpacity(0.15),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(
+                                            color: active ? _orange.withOpacity(0.3) : Colors.white.withOpacity(0.03),
+                                          ),
                                         ),
                                         child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            Text(
-                                              machineName.toUpperCase(),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: GoogleFonts.spaceGrotesk(
-                                                fontSize: 10,
-                                                letterSpacing: 1.05,
-                                                fontWeight:
-                                                    active
-                                                        ? FontWeight.w800
-                                                        : FontWeight.w600,
-                                                color:
-                                                    active
-                                                        ? _text
-                                                        : _muted.withOpacity(
-                                                          0.78,
-                                                        ),
-                                              ),
+                                            Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    machineName.toUpperCase(),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: GoogleFonts.spaceGrotesk(
+                                                      fontSize: 11,
+                                                      letterSpacing: 0.5,
+                                                      fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                                                      color: active ? _orange : Colors.white70,
+                                                    ),
+                                                  ),
+                                                ),
+                                                if (active)
+                                                  Container(
+                                                    width: 6,
+                                                    height: 6,
+                                                    decoration: BoxDecoration(
+                                                      color: _orange,
+                                                      shape: BoxShape.circle,
+                                                      boxShadow: [
+                                                        BoxShadow(color: _orange.withOpacity(0.5), blurRadius: 4),
+                                                      ],
+                                                    ),
+                                                  ),
+                                              ],
                                             ),
-                                            const SizedBox(height: 2),
+                                            const SizedBox(height: 4),
                                             Text(
-                                              machineId,
+                                              'ID: $machineId',
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
                                               style: GoogleFonts.inter(
                                                 fontSize: 9,
-                                                color:
-                                                    active
-                                                        ? _orange.withOpacity(
-                                                          0.95,
-                                                        )
-                                                        : _text.withOpacity(
-                                                          0.4,
-                                                        ),
+                                                color: active ? _orange.withOpacity(0.8) : _muted.withOpacity(0.5),
+                                                fontWeight: FontWeight.w500,
                                               ),
                                             ),
                                           ],
@@ -1616,34 +1751,42 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
         (_machineName != null && _machineName!.trim().isNotEmpty)
             ? _machineName!.trim().toUpperCase()
             : 'MOTEUR INDUSTRIEL';
+            
     return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(20),
       child: Container(
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.white.withOpacity(0.06)),
+          border: Border.all(color: Colors.white.withOpacity(0.08)),
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF14162A), Color(0xFF0D0E1B)],
+            colors: [Color(0xFF1E2138), Color(0xFF0F111E)],
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.4),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            )
+          ],
         ),
         child: Stack(
           clipBehavior: Clip.none,
           children: [
             Positioned(
-              right: -40,
-              top: -30,
+              right: -50,
+              top: -50,
               child: Icon(
                 Icons.blur_circular,
-                size: 180,
-                color: _orange.withOpacity(0.06),
+                size: 220,
+                color: _cyan.withOpacity(0.04),
               ),
             ),
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 SizedBox(
-                  height: 260,
+                  height: 280,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
@@ -1654,9 +1797,9 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                               begin: Alignment.topCenter,
                               end: Alignment.bottomCenter,
                               colors: [
-                                _cyan.withOpacity(0.04),
+                                _cyan.withOpacity(0.06),
                                 Colors.transparent,
-                                Colors.black.withOpacity(0.45),
+                                Colors.black.withOpacity(0.6),
                               ],
                             ),
                           ),
@@ -1664,61 +1807,101 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                       ),
                       Center(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Image.asset(
-                            _motor3dAsset,
-                            fit: BoxFit.contain,
-                            errorBuilder:
-                                (_, __, ___) => Icon(
-                                  Icons.precision_manufacturing,
-                                  size: 100,
-                                  color: _muted.withOpacity(0.25),
-                                ),
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        top: 16,
-                        right: 16,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _panel2.withOpacity(0.92),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.08),
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                          child: AnimatedBuilder(
+                            animation: _pulseCtrl,
+                            builder: (_, child) => Transform.translate(
+                              offset: Offset(0, alerteCritique ? _pulseCtrl.value * 2 : 0),
+                              child: child,
+                            ),
+                            child: Image.asset(
+                              _motor3dAsset,
+                              fit: BoxFit.contain,
+                              errorBuilder:
+                                  (_, __, ___) => Icon(
+                                    Icons.precision_manufacturing,
+                                    size: 120,
+                                    color: _cyan.withOpacity(0.2),
+                                  ),
                             ),
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                'RENDEMENT',
-                                style: GoogleFonts.spaceGrotesk(
-                                  fontSize: 8,
-                                  color: _muted.withOpacity(0.8),
-                                  letterSpacing: 1.2,
-                                ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 20,
+                        right: 20,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.35),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.15),
                               ),
-                              Text(
-                                '${rendement.toStringAsFixed(1)}%',
-                                style: GoogleFonts.spaceGrotesk(
-                                  fontSize: 20,
-                                  color: _cyan,
-                                  fontWeight: FontWeight.w900,
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 44,
+                                  height: 44,
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      CircularProgressIndicator(
+                                        value: rendement / 100,
+                                        backgroundColor: Colors.white.withOpacity(0.1),
+                                        valueColor: AlwaysStoppedAnimation<Color>(_cyan),
+                                        strokeWidth: 4,
+                                      ),
+                                      Center(
+                                        child: Text(
+                                          '${rendement.round()}%',
+                                          style: GoogleFonts.spaceGrotesk(
+                                            fontSize: 12,
+                                            color: _cyan,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 12),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'RENDEMENT',
+                                      style: GoogleFonts.spaceGrotesk(
+                                        fontSize: 9,
+                                        color: _muted.withOpacity(0.9),
+                                        letterSpacing: 1.2,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    Text(
+                                      'GLOBAL',
+                                      style: GoogleFonts.spaceGrotesk(
+                                        fontSize: 14,
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
                       Positioned(
-                        left: 18,
-                        bottom: 16,
-                        right: 18,
+                        left: 20,
+                        bottom: 20,
+                        right: 20,
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
@@ -1727,60 +1910,48 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        width: 10,
-                                        height: 10,
-                                        decoration: BoxDecoration(
-                                          color:
-                                              alerteCritique
-                                                  ? const Color(0xFFFF3B3B)
-                                                  : _green,
-                                          shape: BoxShape.circle,
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: (alerteCritique
-                                                      ? const Color(0xFFFF3B3B)
-                                                      : _green)
-                                                  .withOpacity(0.55),
-                                              blurRadius: 10,
+                                  AnimatedBuilder(
+                                    animation: _pulseCtrl,
+                                    builder: (_, __) => Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: alerteCritique ? _red.withOpacity(0.15) : _green.withOpacity(0.15),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: alerteCritique ? _red.withOpacity(0.4 + 0.4*_pulseCtrl.value) : _green.withOpacity(0.3),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(alerteCritique ? Icons.warning_amber_rounded : Icons.check_circle_outline, size: 12, color: alerteCritique ? _red : _green),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            alerteCritique
+                                                ? 'ALERTE CRITIQUE'
+                                                : 'NOMINAL',
+                                            style: GoogleFonts.spaceGrotesk(
+                                              fontSize: 10,
+                                              color:
+                                                  alerteCritique
+                                                      ? _red
+                                                      : _green,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: 1.1,
                                             ),
-                                          ],
-                                        ),
+                                          ),
+                                        ],
                                       ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        alerteCritique
-                                            ? 'ALERTE CRITIQUE'
-                                            : 'NOMINAL',
-                                        style: GoogleFonts.spaceGrotesk(
-                                          fontSize: 10,
-                                          color:
-                                              alerteCritique
-                                                  ? const Color(0xFFFF3B3B)
-                                                  : _green,
-                                          fontWeight: FontWeight.w800,
-                                          letterSpacing: 1.1,
-                                        ),
-                                      ),
-                                    ],
+                                    ),
                                   ),
-                                  const SizedBox(height: 6),
+                                  const SizedBox(height: 8),
                                   Text(
                                     motorTitle,
                                     style: GoogleFonts.spaceGrotesk(
-                                      fontSize: 20,
-                                      color: _text,
+                                      fontSize: 24,
+                                      color: Colors.white,
                                       fontWeight: FontWeight.w900,
                                       letterSpacing: -0.3,
-                                    ),
-                                  ),
-                                  Text(
-                                    'S/N: $_machineId',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 10,
-                                      color: _text.withOpacity(0.5),
                                     ),
                                   ),
                                 ],
@@ -1788,16 +1959,14 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                             ),
                             if (_canControlMachine) ...[
                               _emergencyStopButton(),
-                              const SizedBox(width: 8),
                             ],
-                            // Image button removed
                           ],
                         ),
                       ),
                       if (_machineStopped)
                         Positioned.fill(
                           child: Container(
-                            color: Colors.black.withOpacity(0.55),
+                            color: Colors.black.withOpacity(0.65),
                             child: Center(
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
@@ -1805,15 +1974,16 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                                   const Icon(
                                     Icons.power_off,
                                     color: Color(0xFFFF8A80),
-                                    size: 44,
+                                    size: 56,
                                   ),
-                                  const SizedBox(height: 8),
+                                  const SizedBox(height: 12),
                                   Text(
                                     'MOTEUR ARRÊTÉ',
                                     style: GoogleFonts.spaceGrotesk(
                                       color: const Color(0xFFFF8A80),
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w800,
+                                      fontSize: 18,
+                                      letterSpacing: 2.0,
+                                      fontWeight: FontWeight.w900,
                                     ),
                                   ),
                                 ],
@@ -1824,39 +1994,39 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-                  decoration: BoxDecoration(
-                    color: _panel2.withOpacity(0.65),
-                    border: Border(
-                      top: BorderSide(color: Colors.white.withOpacity(0.05)),
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.04),
+                      border: Border(
+                        top: BorderSide(color: Colors.white.withOpacity(0.1)),
+                      ),
                     ),
-                  ),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
+                    child: Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
                       children: [
-                        _motorInfoChip('Machine', _machineId, _cyan),
-                        const SizedBox(width: 8),
-                        _motorInfoChip('Zone', _zone, _orange),
-                        const SizedBox(width: 8),
+                        _motorInfoChip('Zone', _zone, _orange, Icons.location_on),
                         _motorInfoChip(
-                          'Temp.',
+                          'Température',
                           '${_thermal.toStringAsFixed(1)}°C',
-                          _thermal >= 75 ? _red : _green,
+                          _thermal >= 75 ? _red : _cyan,
+                          Icons.thermostat,
                           panneKey: 'thermal',
                         ),
-                        const SizedBox(width: 8),
                         _motorInfoChip(
                           'Risque IA',
                           '$_iaProbPanne%',
                           _riskColor,
+                          Icons.auto_graph_rounded,
                         ),
-                        const SizedBox(width: 8),
                         _motorInfoChip(
                           'Statut',
-                          _machineStopped ? 'ARRÊTÉ' : 'EN MARCHE',
+                          _machineStopped ? 'ARRÊTÉ' : 'MARCHE',
                           _machineStopped ? _red : _green,
+                          Icons.power_settings_new,
                         ),
                       ],
                     ),
@@ -1873,23 +2043,24 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
   Widget _emergencyStopButton() {
     if (_machineStopped) {
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: _red.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: _red.withOpacity(0.3)),
+          color: _red.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _red.withOpacity(0.4)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.power_off, size: 16, color: _red),
-            const SizedBox(width: 6),
+            Icon(Icons.power_off, size: 16, color: _red),
+            const SizedBox(width: 8),
             Text(
               'ARRÊTÉ',
               style: GoogleFonts.inter(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
                 color: _red,
+                letterSpacing: 1.0,
               ),
             ),
           ],
@@ -1903,24 +2074,25 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
       icon:
           _isStoppingMachine
               ? const SizedBox(
-                width: 16,
-                height: 16,
+                width: 18,
+                height: 18,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
                   color: Colors.white,
                 ),
               )
-              : const Icon(Icons.power_settings_new, size: 18),
+              : const Icon(Icons.warning_amber_rounded, size: 20),
       label: Text(
-        isUrgent ? 'ARRÊT D\'URGENCE' : 'ARRÊTER MACHINE',
-        style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700),
+        isUrgent ? 'ARRÊT D\'URGENCE' : 'ARRÊTER MOTEUR',
+        style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.5),
       ),
       style: ElevatedButton.styleFrom(
         backgroundColor: isUrgent ? const Color(0xFFD32F2F) : _green,
         foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        elevation: isUrgent ? 6 : 2,
-        shadowColor: isUrgent ? const Color(0xFFD32F2F).withOpacity(0.5) : null,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        elevation: isUrgent ? 8 : 2,
+        shadowColor: isUrgent ? const Color(0xFFD32F2F).withOpacity(0.6) : null,
       ),
     );
   }
@@ -1928,7 +2100,8 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
   Widget _motorInfoChip(
     String label,
     String value,
-    Color accent, {
+    Color accent,
+    IconData icon, {
     String? panneKey,
   }) {
     final stress =
@@ -1937,47 +2110,52 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
       animation: _pulseCtrl,
       builder: (_, __) {
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          width: 130,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: _panel,
-            borderRadius: BorderRadius.circular(10),
+            color: Colors.black.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color:
                   stress
-                      ? const Color(
-                        0xFFFF7B7B,
-                      ).withOpacity(0.55 + 0.4 * _pulseCtrl.value)
-                      : accent.withOpacity(0.3),
-              width: stress ? 2.2 : 1,
+                      ? const Color(0xFFFF7B7B).withOpacity(0.55 + 0.4 * _pulseCtrl.value)
+                      : accent.withOpacity(0.2),
+              width: stress ? 2.0 : 1,
             ),
             boxShadow:
                 stress
                     ? [
                       BoxShadow(
-                        color: const Color(
-                          0xFFFF7B7B,
-                        ).withOpacity(0.22 * _pulseCtrl.value),
-                        blurRadius: 8,
+                        color: const Color(0xFFFF7B7B).withOpacity(0.22 * _pulseCtrl.value),
+                        blurRadius: 10,
                       ),
                     ]
                     : null,
           ),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                label,
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 9,
-                  color: _muted,
-                  letterSpacing: 1,
-                ),
+              Row(
+                children: [
+                  Icon(icon, size: 12, color: accent.withOpacity(0.8)),
+                  const SizedBox(width: 6),
+                  Text(
+                    label.toUpperCase(),
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 9,
+                      color: _muted.withOpacity(0.8),
+                      letterSpacing: 1.2,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 6),
               Text(
                 value,
                 style: GoogleFonts.inter(
-                  fontSize: 13,
-                  color: stress ? const Color(0xFFFFB4AB) : accent,
+                  fontSize: 14,
+                  color: stress ? const Color(0xFFFFB4AB) : Colors.white,
                   fontWeight: FontWeight.w800,
                 ),
               ),
@@ -2198,59 +2376,115 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
               final overallState = overallRisk >= 70 ? 'DANGER' : overallRisk >= 40 ? 'RISQUE' : 'NORMAL';
 
               Widget buildSensorTile(String label, String valueStr, IconData icon, Color color, String stateStr, double risk) {
-                return Container(
-                  width: isSmall ? constraints.maxWidth / 2 - 20 : 160,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.03),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(icon, color: Colors.white70, size: 14),
-                          const SizedBox(width: 6),
-                          Text(label, style: GoogleFonts.inter(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
-                        ],
+                final hasRisk = risk >= 40;
+                return AnimatedBuilder(
+                  animation: _pulseCtrl,
+                  builder: (context, child) {
+                    return Container(
+                      width: isSmall ? constraints.maxWidth / 2 - 20 : 160,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.02),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: hasRisk
+                              ? color.withOpacity(0.3 + 0.3 * _pulseCtrl.value)
+                              : Colors.white.withOpacity(0.08),
+                          width: hasRisk ? 1.5 : 1,
+                        ),
+                        boxShadow: hasRisk
+                            ? [
+                                BoxShadow(
+                                  color: color.withOpacity(0.1 + 0.15 * _pulseCtrl.value),
+                                  blurRadius: 15,
+                                  spreadRadius: 2,
+                                )
+                              ]
+                            : [],
                       ),
-                      const SizedBox(height: 12),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(valueStr.replaceAll(RegExp(r'[^\d.-]'), ''), style: GoogleFonts.inter(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700, height: 1)),
-                          const SizedBox(width: 4),
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 3),
-                            child: Text(valueStr.replaceAll(RegExp(r'[\d.-]'), '').trim(), style: GoogleFonts.inter(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.w500)),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: color.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(icon, color: color, size: 14),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  label,
+                                  style: GoogleFonts.inter(
+                                      color: Colors.white70,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 0.5),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                      if (stateStr.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(stateStr, style: GoogleFonts.inter(color: color, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
-                            Text('${risk.toInt()}%', style: GoogleFonts.inter(color: color, fontSize: 10, fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 16),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(valueStr.replaceAll(RegExp(r'[^\d.-]'), ''),
+                                  style: GoogleFonts.spaceGrotesk(
+                                      color: Colors.white,
+                                      fontSize: 26,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: -0.5,
+                                      height: 1)),
+                              const SizedBox(width: 4),
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 3),
+                                child: Text(valueStr.replaceAll(RegExp(r'[\d.-]'), '').trim(),
+                                    style: GoogleFonts.inter(
+                                        color: Colors.white54,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600)),
+                              ),
+                            ],
+                          ),
+                          if (stateStr.isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(stateStr,
+                                    style: GoogleFonts.spaceGrotesk(
+                                        color: color,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 0.8)),
+                                Text('${risk.toInt()}%',
+                                    style: GoogleFonts.inter(
+                                        color: color,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700)),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: LinearProgressIndicator(
+                                value: risk / 100,
+                                backgroundColor: color.withOpacity(0.15),
+                                valueColor: AlwaysStoppedAnimation<Color>(color),
+                                minHeight: 4,
+                              ),
+                            ),
                           ],
-                        ),
-                        const SizedBox(height: 6),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(2),
-                          child: LinearProgressIndicator(
-                            value: risk / 100,
-                            backgroundColor: Colors.white.withOpacity(0.05),
-                            valueColor: AlwaysStoppedAnimation<Color>(color),
-                            minHeight: 3,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+                        ],
+                      ),
+                    );
+                  },
                 );
               }
 
@@ -2312,24 +2546,75 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                       ],
                     ),
                     const SizedBox(height: 24),
-                    Row(
-                      children: [
-                        Text('Risque global :', style: GoogleFonts.inter(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500)),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: LinearProgressIndicator(
-                              value: overallRisk / 100,
-                              backgroundColor: Colors.white.withOpacity(0.05),
-                              valueColor: AlwaysStoppedAnimation<Color>(overallColor),
-                              minHeight: 6,
-                            ),
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withOpacity(0.05)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.psychology_rounded, size: 16, color: _cyan),
+                              const SizedBox(width: 8),
+                              Text('DIAGNOSTIC IA KINETIC', style: GoogleFonts.spaceGrotesk(color: _cyan, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1.0)),
+                              const Spacer(),
+                              if (_iaRulEstime != null && _iaRulEstime! > 0)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: _cyan.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: _cyan.withOpacity(0.3)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.update_rounded, size: 12, color: _cyan),
+                                      const SizedBox(width: 4),
+                                      Text('RUL: ${_iaRulEstime!.ceil()}h', style: GoogleFonts.inter(color: _cyan, fontSize: 10, fontWeight: FontWeight.w700)),
+                                    ],
+                                  ),
+                                ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Text('${overallRisk.toInt()}%', style: GoogleFonts.inter(color: overallColor, fontSize: 12, fontWeight: FontWeight.w700)),
-                      ],
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Text('Probabilité de panne :', style: GoogleFonts.inter(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500)),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: TweenAnimationBuilder<double>(
+                                    tween: Tween<double>(begin: 0, end: _iaProbPanne / 100),
+                                    duration: const Duration(seconds: 1),
+                                    curve: Curves.easeOutCubic,
+                                    builder: (context, value, child) {
+                                      return LinearProgressIndicator(
+                                        value: value,
+                                        backgroundColor: _riskColor.withOpacity(0.15),
+                                        valueColor: AlwaysStoppedAnimation<Color>(_riskColor),
+                                        minHeight: 8,
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Text('${_iaProbPanne.toInt()}%', style: GoogleFonts.spaceGrotesk(color: _riskColor, fontSize: 16, fontWeight: FontWeight.w800)),
+                            ],
+                          ),
+                          if (_iaHorizonJoursLine().isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Text(_iaHorizonJoursLine(), style: GoogleFonts.inter(color: _muted, fontSize: 11, fontStyle: FontStyle.italic)),
+                          ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -2533,7 +2818,7 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
             ),
             child: Column(
               children: [
-                const Icon(Icons.engineering_rounded, size: 40, color: _panel3),
+                Icon(Icons.engineering_rounded, size: 40, color: _panel3),
                 const SizedBox(height: 12),
                 Text(
                   'Aucun technicien/maintenance assigné',
@@ -2572,9 +2857,9 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: _panel,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        color: Colors.black.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
       ),
       child: InkWell(
         onTap: () {
@@ -2616,30 +2901,44 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
             ),
           );
         },
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(16),
           child: Row(
             children: [
               Container(
-                width: 42,
-                height: 42,
+                width: 46,
+                height: 46,
                 decoration: BoxDecoration(
-                  color: _cyan.withOpacity(0.10),
-                  borderRadius: BorderRadius.circular(12),
+                  gradient: LinearGradient(
+                    colors: [
+                      _cyan.withOpacity(0.8),
+                      _cyan.withOpacity(0.4),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _cyan.withOpacity(0.2),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    )
+                  ],
                 ),
                 child: Center(
                   child: Text(
                     name.isNotEmpty ? name[0].toUpperCase() : '?',
                     style: GoogleFonts.inter(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: _cyan,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2647,72 +2946,97 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                     Text(
                       name,
                       style: GoogleFonts.inter(
-                        fontSize: 13,
+                        fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: _text,
+                        color: Colors.white,
+                        letterSpacing: -0.3,
                       ),
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 6),
                     Row(
                       children: [
-                        Icon(
-                          Icons.work_rounded,
-                          size: 11,
-                          color: _muted.withOpacity(0.5),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          specialty,
-                          style: GoogleFonts.spaceGrotesk(
-                            fontSize: 10,
-                            color: _muted.withOpacity(0.7),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _cyan.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: _cyan.withOpacity(0.2)),
                           ),
-                        ),
-                        if (email.isNotEmpty) ...[
-                          const SizedBox(width: 12),
-                          Icon(
-                            Icons.email_rounded,
-                            size: 11,
-                            color: _muted.withOpacity(0.5),
-                          ),
-                          const SizedBox(width: 4),
-                          Flexible(
-                            child: Text(
-                              email,
-                              style: GoogleFonts.spaceGrotesk(
-                                fontSize: 10,
-                                color: _muted.withOpacity(0.7),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.work_rounded,
+                                size: 10,
+                                color: _cyan.withOpacity(0.9),
                               ),
-                              overflow: TextOverflow.ellipsis,
+                              const SizedBox(width: 4),
+                              Text(
+                                specialty.toUpperCase(),
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                  color: _cyan.withOpacity(0.9),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (email.isNotEmpty || phone.isNotEmpty) ...[
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Row(
+                              children: [
+                                if (phone.isNotEmpty) ...[
+                                  Icon(
+                                    Icons.phone_rounded,
+                                    size: 12,
+                                    color: _muted.withOpacity(0.6),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    phone,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 11,
+                                      color: _muted.withOpacity(0.8),
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  if (email.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                                      child: Text('•', style: TextStyle(color: _muted.withOpacity(0.3))),
+                                    ),
+                                ],
+                                if (email.isNotEmpty) ...[
+                                  Icon(
+                                    Icons.email_rounded,
+                                    size: 12,
+                                    color: _muted.withOpacity(0.6),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      email,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        color: _muted.withOpacity(0.8),
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
                         ],
                       ],
                     ),
-                    if (phone.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.phone_rounded,
-                            size: 11,
-                            color: _muted.withOpacity(0.5),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            phone,
-                            style: GoogleFonts.spaceGrotesk(
-                              fontSize: 10,
-                              color: _muted.withOpacity(0.7),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, size: 20, color: _panel3),
+              Icon(Icons.chevron_right_rounded, size: 24, color: Colors.white24),
             ],
           ),
         ),
@@ -3523,7 +3847,7 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, size: 20, color: _panel3),
+              Icon(Icons.chevron_right_rounded, size: 20, color: _panel3),
             ],
           ),
         ),
@@ -4243,7 +4567,7 @@ class _MachineDetailAiPageState extends State<MachineDetailAiPage>
               ),
             ),
             const SizedBox(width: 12),
-            const Icon(Icons.arrow_forward_ios, size: 14, color: _muted),
+            Icon(Icons.arrow_forward_ios, size: 14, color: _muted),
           ],
         ),
       ),

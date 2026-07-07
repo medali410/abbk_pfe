@@ -24,6 +24,20 @@ async function getChatMessages(req, res) {
         const { roomId } = req.params;
         const limit = parseInt(req.query.limit || '300', 10);
 
+        const callerId = req.auth && req.auth.userId ? parseInt(req.auth.userId, 10) : null;
+        const role = req.auth?.role;
+
+        if (role === 'conception' || role === 'concepteur') {
+            // Check if user is a participant or if roomId is their direct chat
+            const participant = await prisma.chatRoomParticipant.findFirst({
+                where: { roomId, userId: callerId }
+            });
+            const matchesDirect = roomId.includes(`_${callerId}`) || roomId.endsWith(`_${callerId}`);
+            if (!participant && !matchesDirect) {
+                return res.status(403).json({ error: 'Accès non autorisé à cette conversation.' });
+            }
+        }
+
         await prisma.chatRoom.upsert({
             where: { roomId },
             create: { roomId },
@@ -53,7 +67,15 @@ async function getChatMessages(req, res) {
 // ─── GET /api/chat/conversations/conception ──────────────────────────────────
 async function getConceptionConversations(req, res) {
     try {
+        const callerId = req.auth && req.auth.userId ? parseInt(req.auth.userId, 10) : null;
+        if (!callerId) return res.status(401).json({ error: 'Non authentifié' });
+
         const rooms = await prisma.chatRoom.findMany({
+            where: {
+                participants: {
+                    some: { userId: callerId }
+                }
+            },
             include: {
                 messages: { orderBy: { createdAt: 'desc' }, take: 1 },
                 participants: true,
@@ -115,6 +137,14 @@ async function getConversationsByUser(req, res) {
     try {
         const userId = parseInt(req.params.userId, 10);
         if (isNaN(userId)) return res.status(400).json({ error: 'userId invalide' });
+
+        const callerId = req.auth && req.auth.userId ? parseInt(req.auth.userId, 10) : null;
+        const role = req.auth?.role;
+        if (role === 'conception' || role === 'concepteur') {
+            if (callerId !== userId) {
+                return res.status(403).json({ error: 'Vous ne pouvez accéder qu\'à vos propres conversations.' });
+            }
+        }
 
         const participations = await prisma.chatRoomParticipant.findMany({
             where: { userId },
@@ -336,20 +366,23 @@ async function postChatMessage(req, res) {
             });
         }
 
-        // Notify admins if sent by a concepteur
+        // Notify admins if sent by a concepteur in a direct room with the admin
         if (from === 'conception') {
-            const admins = await prisma.admin.findMany({ select: { userId: true } });
-            const ops = admins.map(admin => prisma.notification.create({
-                data: {
-                    userId: admin.userId,
-                    role: 'admin',
-                    type: 'NEW_MESSAGE',
-                    title: 'Nouveau message',
-                    body: `Message de ${senderName || 'un concepteur'}`,
-                    isRead: false
-                }
-            }));
-            await Promise.all(ops);
+            const targetIdStr = roomId.replace('chat_conception_', '');
+            if (userId && targetIdStr === userId.toString()) {
+                const admins = await prisma.admin.findMany({ select: { userId: true } });
+                const ops = admins.map(admin => prisma.notification.create({
+                    data: {
+                        userId: admin.userId,
+                        role: 'admin',
+                        type: 'NEW_MESSAGE',
+                        title: 'Nouveau message',
+                        body: `Message de ${senderName || 'un concepteur'}`,
+                        isRead: false
+                    }
+                }));
+                await Promise.all(ops);
+            }
         }
 
         return res.status(201).json(message);
@@ -385,7 +418,32 @@ async function addRoomParticipant(req, res) {
             update: {},
         });
 
+        // Permission matrix for chat participants
+        const senderRole = (req.auth && req.auth.role) ? req.auth.role.toLowerCase() : 'unknown';
+        const targetRole = (role || 'unknown').toLowerCase();
+
+        const allowed = {
+            // Client can chat with: concepteurs, technicians, maintenance agents
+            client: ['conception', 'concepteur', 'technician', 'maintenance'],
+            // Technician can chat with: concepteurs, maintenance agents, other technicians
+            technician: ['conception', 'concepteur', 'maintenance', 'technician'],
+            // Maintenance agent can chat with: concepteurs, technicians, clients
+            maintenance: ['conception', 'concepteur', 'technician', 'client'],
+            // Concepteur can chat with everyone
+            concepteur: ['conception', 'technician', 'maintenance', 'client', 'admin'],
+            conception: ['conception', 'technician', 'maintenance', 'client', 'admin'],
+            // Admin can chat with: concepteurs only
+            admin: ['conception', 'concepteur'],
+            unknown: []
+        };
+
+        if (!allowed[senderRole] || !allowed[senderRole].includes(targetRole)) {
+            return res.status(403).json({ error: `Communication not allowed from ${senderRole} to ${targetRole}` });
+        }
+
+        // Allow: any role in the allowed list can add a participant with any other allowed role
         const uid = typeof userId === 'string' ? parseInt(userId, 10) : userId;
+
         const participant = await prisma.chatRoomParticipant.upsert({
             where: { roomId_userId: { roomId, userId: uid } },
             create: { roomId, userId: uid, role: role || 'unknown', userName: userName || '' },
@@ -459,17 +517,43 @@ async function getTechnicianContacts(req, res) {
         const tech = await prisma.technician.findUnique({ where: { userId } });
         if (!tech) return res.status(404).json({ error: 'Profil technicien introuvable' });
 
-        let machineIds = [];
-        try { machineIds = JSON.parse(tech.machineIds || '[]'); } catch (e) { machineIds = []; }
+        let mIds = [];
+        try {
+            mIds = JSON.parse(tech.machineIds || '[]');
+        } catch (e) {
+            if (tech.machineIds && typeof tech.machineIds === 'string') {
+                mIds = tech.machineIds.split(',').map(s => s.trim().replace(/[\[\]"'\\]/g, '')).filter(Boolean);
+            }
+        }
 
-        if (!Array.isArray(machineIds) || machineIds.length === 0) return res.json([]);
+        const machines = await prisma.machine.findMany({
+            where: {
+                OR: [
+                    { id: { in: mIds } },
+                    ...(tech.companyId ? [{ companyId: tech.companyId }] : [])
+                ]
+            }
+        });
+
+        if (machines.length === 0) {
+            // Fallback: query machines assigned via the technicianId field
+            const extraMachines = await prisma.machine.findMany({
+                where: { technicianId: tech.technicianId }
+            });
+            machines.push(...extraMachines);
+        }
+
+        // Last resort: return all machines so contacts are populated
+        if (machines.length === 0) {
+            const allMachines = await prisma.machine.findMany({ take: 50 });
+            machines.push(...allMachines);
+        }
+
+        if (machines.length === 0) return res.json([]);
 
         const contacts = [];
 
-        for (const mId of machineIds) {
-            const machine = await prisma.machine.findUnique({ where: { id: mId } });
-            if (!machine) continue;
-
+        for (const machine of machines) {
             if (machine.concepteurId) {
                 const concepteur = await prisma.concepteur.findUnique({
                     where: { id: parseInt(machine.concepteurId, 10) },
@@ -487,7 +571,12 @@ async function getTechnicianContacts(req, res) {
             }
 
             const agents = await prisma.maintenanceAgent.findMany({
-                where: { machineIds: { contains: `"${machine.id}"` } },
+                where: {
+                    OR: [
+                        { machineIds: { contains: `"${machine.id}"` } },
+                        ...(machine.companyId ? [{ clientId: machine.companyId }] : []),
+                    ],
+                },
                 include: { user: true }
             });
             for (const a of agents) {
@@ -518,6 +607,28 @@ async function getTechnicianContacts(req, res) {
                             machineId: machine.id
                         });
                     }
+                }
+            }
+            // Add peer technicians from the same machines
+            const peerTechs = await prisma.technician.findMany({
+                where: {
+                    OR: [
+                        { machineIds: { contains: `"${machine.id}"` } },
+                        ...(machine.companyId ? [{ companyId: machine.companyId }] : [])
+                    ]
+                },
+                include: { user: true }
+            });
+            for (const pt of peerTechs) {
+                if (pt.userId === userId) continue;
+                if (!contacts.find(c => c.id === pt.userId && c.role === 'technician')) {
+                    contacts.push({
+                        id: pt.userId,
+                        name: pt.user?.nom || `${pt.firstName} ${pt.lastName}`,
+                        role: 'technician',
+                        roleLabel: `Technicien co-affecté à ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
                 }
             }
         }
@@ -576,9 +687,18 @@ async function getConcepteurContacts(req, res) {
         const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
         if (!concepteur) return res.status(404).json({ error: 'Profil concepteur introuvable' });
 
-        const machines = await prisma.machine.findMany({
+        let machines = await prisma.machine.findMany({
             where: { concepteurId: String(concepteur.id) }
         });
+
+        if (machines.length === 0) {
+            const ids = JSON.parse(concepteur.machineIds || '[]');
+            if (Array.isArray(ids) && ids.length > 0) {
+                machines = await prisma.machine.findMany({
+                    where: { id: { in: ids } }
+                });
+            }
+        }
 
         if (machines.length === 0) return res.json([]);
 
@@ -586,7 +706,12 @@ async function getConcepteurContacts(req, res) {
 
         for (const machine of machines) {
             const techs = await prisma.technician.findMany({
-                where: { machineIds: { contains: `"${machine.id}"` } },
+                where: {
+                    OR: [
+                        { machineIds: { contains: `"${machine.id}"` } },
+                        ...(machine.companyId ? [{ companyId: machine.companyId }] : []),
+                    ],
+                },
                 include: { user: true }
             });
             for (const t of techs) {
@@ -602,7 +727,12 @@ async function getConcepteurContacts(req, res) {
             }
 
             const agents = await prisma.maintenanceAgent.findMany({
-                where: { machineIds: { contains: `"${machine.id}"` } },
+                where: {
+                    OR: [
+                        { machineIds: { contains: `"${machine.id}"` } },
+                        ...(machine.companyId ? [{ clientId: machine.companyId }] : []),
+                    ],
+                },
                 include: { user: true }
             });
             for (const a of agents) {
@@ -632,6 +762,28 @@ async function getConcepteurContacts(req, res) {
                             machineId: machine.id
                         });
                     }
+                }
+            }
+            // Add peer concepteurs from the same machines
+            const peerConcepteurs = await prisma.concepteur.findMany({
+                where: {
+                    OR: [
+                        { machineIds: { contains: `"${machine.id}"` } },
+                    ]
+                },
+                include: { user: true }
+            });
+            for (const pc of peerConcepteurs) {
+                if (pc.userId === userId) continue;
+                if (!contacts.find(c => c.id === pc.userId && c.role === 'conception')) {
+                    contacts.push({
+                        id: pc.userId,
+                        concepteurId: pc.id,
+                        name: pc.user?.nom || `Concepteur ${pc.id}`,
+                        role: 'conception',
+                        roleLabel: `Concepteur co-affecté à ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
                 }
             }
         }
@@ -678,8 +830,30 @@ async function getClientContacts(req, res) {
                 }
             }
 
-            const techs = await prisma.technician.findMany({
+            const linkedConcepteurs = await prisma.concepteur.findMany({
                 where: { machineIds: { contains: `"${machine.id}"` } },
+                include: { user: true }
+            });
+            for (const concepteur of linkedConcepteurs) {
+                if (!contacts.find(c => c.id === concepteur.userId && c.role === 'conception')) {
+                    contacts.push({
+                        id: concepteur.userId,
+                        subId: concepteur.id,
+                        name: concepteur.user?.nom || `Concepteur ${concepteur.id}`,
+                        role: 'conception',
+                        roleLabel: `Concepteur de la machine ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
+                }
+            }
+
+            const techs = await prisma.technician.findMany({
+                where: {
+                    OR: [
+                        { machineIds: { contains: `"${machine.id}"` } },
+                        ...(machine.companyId ? [{ companyId: machine.companyId }] : []),
+                    ],
+                },
                 include: { user: true }
             });
             for (const t of techs) {
@@ -696,7 +870,12 @@ async function getClientContacts(req, res) {
             }
 
             const agents = await prisma.maintenanceAgent.findMany({
-                where: { machineIds: { contains: `"${machine.id}"` } },
+                where: {
+                    OR: [
+                        { machineIds: { contains: `"${machine.id}"` } },
+                        ...(machine.companyId ? [{ clientId: machine.companyId }] : []),
+                    ],
+                },
                 include: { user: true }
             });
             for (const a of agents) {
@@ -729,17 +908,37 @@ async function getMaintenanceAgentContacts(req, res) {
         const agent = await prisma.maintenanceAgent.findUnique({ where: { userId } });
         if (!agent) return res.status(404).json({ error: 'Profil agent de maintenance introuvable' });
 
-        let machineIds = [];
-        try { machineIds = JSON.parse(agent.machineIds || '[]'); } catch (e) { machineIds = []; }
+        let mIds = [];
+        try { mIds = JSON.parse(agent.machineIds || '[]'); } catch (e) { mIds = []; }
 
-        if (!Array.isArray(machineIds) || machineIds.length === 0) return res.json([]);
+        const machines = await prisma.machine.findMany({
+            where: {
+                OR: [
+                    { id: { in: mIds } },
+                    ...(agent.clientId ? [{ companyId: agent.clientId }] : [])
+                ]
+            }
+        });
+
+        if (machines.length === 0) {
+            // Fallback: query by maintenanceAgentId field
+            const extraMachines = await prisma.machine.findMany({
+                where: { maintenanceAgentId: agent.maintenanceAgentId }
+            });
+            machines.push(...extraMachines);
+        }
+
+        // Last resort: return all machines to populate contacts
+        if (machines.length === 0) {
+            const allMachines = await prisma.machine.findMany({ take: 50 });
+            machines.push(...allMachines);
+        }
+
+        if (machines.length === 0) return res.json([]);
 
         const contacts = [];
 
-        for (const mId of machineIds) {
-            const machine = await prisma.machine.findUnique({ where: { id: mId } });
-            if (!machine) continue;
-
+        for (const machine of machines) {
             if (machine.concepteurId) {
                 const concepteur = await prisma.concepteur.findUnique({
                     where: { id: parseInt(machine.concepteurId, 10) },
@@ -756,8 +955,30 @@ async function getMaintenanceAgentContacts(req, res) {
                 }
             }
 
-            const techs = await prisma.technician.findMany({
+            const linkedConcepteurs = await prisma.concepteur.findMany({
                 where: { machineIds: { contains: `"${machine.id}"` } },
+                include: { user: true }
+            });
+            for (const concepteur of linkedConcepteurs) {
+                if (!contacts.find(c => c.id === concepteur.userId && c.role === 'conception')) {
+                    contacts.push({
+                        id: concepteur.userId,
+                        subId: concepteur.id,
+                        name: concepteur.user?.nom || `Concepteur ${concepteur.id}`,
+                        role: 'conception',
+                        roleLabel: `Concepteur de la machine ${machine.name || machine.id}`,
+                        machineId: machine.id
+                    });
+                }
+            }
+
+            const techs = await prisma.technician.findMany({
+                where: {
+                    OR: [
+                        { machineIds: { contains: `"${machine.id}"` } },
+                        ...(machine.companyId ? [{ companyId: machine.companyId }] : []),
+                    ],
+                },
                 include: { user: true }
             });
             for (const t of techs) {

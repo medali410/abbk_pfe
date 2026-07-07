@@ -8,6 +8,7 @@ import 'package:image/image.dart' as img;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'dart:ui';
 import 'services/api_service.dart';
+import 'services/theme_service.dart';
 import 'utils/app_layout.dart';
 import 'machine_detail_ai_page.dart';
 import 'add_machine_page.dart';
@@ -29,14 +30,20 @@ class ConcepteurDashboardPage extends StatefulWidget {
 }
 
 class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
-  // Theme Colors
-  static const Color bgColor = Color(0xFF0A0A1B);
-  static const Color sidebarColor = Color(0xFF111122);
-  static const Color cardColor = Color(0xFF1A1A2E);
-  static const Color primaryColor = Color(0xFFFF9F64);
-  static const Color accentColor = Color(0xFF7B61FF);
-  static const Color textColor = Color(0xFFF4F4F9);
-  static const Color mutedTextColor = Color(0xFF9E9EAE);
+  bool get _isDarkMode => ThemeService().isDarkMode;
+
+  Color get bgColor => _isDarkMode ? const Color(0xFF0A0A1B) : const Color(0xFFF4F6F8);
+  Color get sidebarColor => _isDarkMode ? const Color(0xFF111122) : const Color(0xFFFFFFFF);
+  Color get cardColor => _isDarkMode ? const Color(0xFF1A1A2E) : const Color(0xFFFFFFFF);
+  Color get primaryColor => _isDarkMode ? const Color(0xFFFF9F64) : const Color(0xFFFF6E00);
+  Color get accentColor => _isDarkMode ? const Color(0xFF7B61FF) : const Color(0xFF5B41FF);
+  Color get textColor => _isDarkMode ? const Color(0xFFF4F4F9) : const Color(0xFF1E1E2D);
+  Color get mutedTextColor => _isDarkMode ? const Color(0xFF9E9EAE) : const Color(0xFF64748B);
+  Color get listItemBg => _isDarkMode ? const Color(0xFF14141F) : const Color(0xFFFFFFFF);
+  Color get listItemBorder => _isDarkMode ? const Color(0xFF222233) : const Color(0xFFE2E8F0);
+  Color get chipBg => _isDarkMode ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9);
+  Color get borderSubtle => _isDarkMode ? Colors.white.withOpacity(0.08) : const Color(0xFFE2E8F0);
+  Color get inputFill => _isDarkMode ? const Color(0x11FFFFFF) : const Color(0xFFF8FAFC);
   static const Color successColor = Color(0xFF4CAF50);
   static const Color alertColor = Color(0xFFFF4B4B);
   static const int _maxPickedImageBytes = 12 * 1024 * 1024;
@@ -210,9 +217,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       width: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E2D),
+        color: cardColor,
         shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFF222233)),
+        border: Border.all(color: cardColor.withOpacity(0.5)),
       ),
       child: Text(
         initials,
@@ -397,6 +404,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
         builder:
             (ctx) => AddClientPage(
               initialData: Map<String, dynamic>.from(c),
+              isDarkMode: ThemeService().isDarkMode,
               onBack: () => Navigator.of(ctx).pop(true),
             ),
       ),
@@ -781,7 +789,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           width: width,
           color: cardColor,
           alignment: Alignment.center,
-          child: const Icon(
+          child: Icon(
             Icons.precision_manufacturing,
             color: mutedTextColor,
             size: 36,
@@ -898,11 +906,17 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
   @override
   void initState() {
     super.initState();
+    ThemeService().addListener(_onThemeChanged);
     _bootstrapDashboard();
+  }
+
+  void _onThemeChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    ThemeService().removeListener(_onThemeChanged);
     _liveTelemetryTimer?.cancel();
     _telemetryTick.dispose();
     _missionAckSocket?.dispose();
@@ -1170,13 +1184,13 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          backgroundColor: const Color(0xFF1E2030),
+          backgroundColor: cardColor,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
           title: Row(
             children: [
-              const Icon(Icons.precision_manufacturing, color: primaryColor),
+              Icon(Icons.precision_manufacturing, color: primaryColor),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -1195,7 +1209,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             ).catchError((_) => null),
             builder: (ctx, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
-                return const SizedBox(
+                return SizedBox(
                   height: 100,
                   child: Center(
                     child: CircularProgressIndicator(color: primaryColor),
@@ -1728,9 +1742,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: cardColor.withOpacity(0.45),
+        color: _isDarkMode ? cardColor.withOpacity(0.45) : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: borderSubtle),
       ),
       child: Row(
         children: [
@@ -1799,7 +1813,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       decoration: BoxDecoration(
         color: cardColor.withOpacity(0.5),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2479,7 +2493,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                 enabledBorder: UnderlineInputBorder(
                   borderSide: BorderSide(color: primaryColor.withOpacity(0.4)),
                 ),
-                focusedBorder: const UnderlineInputBorder(
+                focusedBorder: UnderlineInputBorder(
                   borderSide: BorderSide(color: primaryColor),
                 ),
               ),
@@ -2958,7 +2972,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                 Expanded(
                   child:
                       _loading
-                          ? const Center(
+                          ? Center(
                             child: CircularProgressIndicator(
                               color: primaryColor,
                             ),
@@ -3020,7 +3034,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
   Widget _buildMainContent() {
     if (selectedMenu == 'MESSAGERIE') {
-      return const MessageEquipeView(embedded: true);
+      return SizedBox.expand(
+        child: MessageEquipeView(embedded: true, isDarkMode: ThemeService().isDarkMode),
+      );
     }
     return RefreshIndicator(
       onRefresh: () async {
@@ -3132,14 +3148,14 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       decoration: BoxDecoration(
         color: sidebarColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.verified_user_outlined, color: primaryColor),
+              Icon(Icons.verified_user_outlined, color: primaryColor),
               const SizedBox(width: 8),
               Text(
                 'Contrôle des connexions clients',
@@ -3163,8 +3179,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                 _clientLoginSurveyFuture ?? ApiService.getClientLoginSurvey(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 32),
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 32),
                   child: Center(
                     child: CircularProgressIndicator(color: primaryColor),
                   ),
@@ -3344,9 +3360,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFF0A0A0F),
+        color: sidebarColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: borderSubtle),
       ),
       child: FutureBuilder<List<dynamic>>(
         future: Future.wait<dynamic>([
@@ -3444,13 +3460,13 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     cid.isNotEmpty && cid == _selectedCatalogClientId;
                 return Container(
                   decoration: BoxDecoration(
-                    color: const Color(0xFF14141F),
+                    color: listItemBg,
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
                       color:
                           selected
                               ? primaryColor.withOpacity(0.6)
-                              : const Color(0xFF222233),
+                              : listItemBorder,
                     ),
                   ),
                   child: Column(
@@ -3593,9 +3609,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                       return Container(
                         padding: const EdgeInsets.fromLTRB(10, 10, 10, 2),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF14141F),
+                          color: listItemBg,
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFF222233)),
+                          border: Border.all(color: listItemBorder),
                         ),
                         child: Column(
                           children: [
@@ -3691,9 +3707,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                       return Container(
                         padding: const EdgeInsets.fromLTRB(10, 10, 10, 2),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF14141F),
+                          color: listItemBg,
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFF222233)),
+                          border: Border.all(color: listItemBorder),
                         ),
                         child: Column(
                           children: [
@@ -3803,10 +3819,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                           child: Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF14141F),
+                              color: listItemBg,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: const Color(0xFF222233),
+                                color: listItemBorder,
                               ),
                             ),
                             child: Row(
@@ -3986,7 +4002,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   border: Border(
-                    bottom: BorderSide(color: Colors.white.withOpacity(0.08)),
+                    bottom: BorderSide(color: borderSubtle),
                   ),
                 ),
                 child: Row(
@@ -3999,17 +4015,17 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                         decoration: InputDecoration(
                           hintText: 'Rechercher par nom, ID ou email...',
                           hintStyle: GoogleFonts.inter(
-                            color: mutedTextColor.withOpacity(0.5),
+                            color: mutedTextColor.withOpacity(0.7),
                             fontSize: 13,
                           ),
-                          prefixIcon: const Icon(
+                          prefixIcon: Icon(
                             Icons.search_rounded,
                             size: 18,
                             color: primaryColor,
                           ),
                           suffixIcon: _clientSearchController.text.isNotEmpty
                               ? IconButton(
-                                  icon: const Icon(Icons.clear_rounded, size: 18, color: Colors.white54),
+                                  icon: Icon(Icons.clear_rounded, size: 18, color: mutedTextColor),
                                   onPressed: () {
                                     _clientSearchController.clear();
                                     setState(() => _clientSearchQuery = '');
@@ -4017,16 +4033,16 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                 )
                               : null,
                           filled: true,
-                          fillColor: const Color(0x11FFFFFF),
+                          fillColor: inputFill,
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                             borderSide: BorderSide(
-                              color: Colors.white.withOpacity(0.08),
+                              color: borderSubtle,
                             ),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
+                            borderSide: BorderSide(
                               color: primaryColor,
                               width: 1.2,
                             ),
@@ -4062,10 +4078,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                 width: 320,
                                 child: Container(
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF10101A),
+                                    color: _isDarkMode ? const Color(0xFF10101A) : const Color(0xFFFFFFFF),
                                     borderRadius: BorderRadius.circular(14),
                                     border: Border.all(
-                                      color: const Color(0xFF222233),
+                                      color: listItemBorder,
                                     ),
                                   ),
                                   padding: const EdgeInsets.all(12),
@@ -4133,10 +4149,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
         decoration: BoxDecoration(
           color: sidebarColor,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withOpacity(0.08)),
+          border: Border.all(color: borderSubtle),
         ),
-        child: const Padding(
-          padding: EdgeInsets.symmetric(vertical: 42),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 42),
           child: Center(child: CircularProgressIndicator(color: primaryColor)),
         ),
       );
@@ -4219,9 +4235,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF171733),
+        color: cardColor,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(color: primaryColor.withOpacity(0.08)),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -4232,7 +4248,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               Container(
                 height: 154,
                 width: double.infinity,
-                color: const Color(0xFF1E1E2D),
+                color: bgColor,
                 alignment: Alignment.center,
                 child: _entityAvatar(client, cname, radius: 45),
               ),
@@ -4242,10 +4258,15 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withOpacity(0.15),
-                        Colors.black.withOpacity(0.55),
-                      ],
+                      colors: _isDarkMode
+                          ? [
+                              Colors.black.withOpacity(0.15),
+                              Colors.black.withOpacity(0.55),
+                            ]
+                          : [
+                              Colors.white.withOpacity(0.4),
+                              Colors.white.withOpacity(0.9),
+                            ],
                     ),
                   ),
                 ),
@@ -4320,14 +4341,14 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                       final loc = (m['location'] ?? 'Inconnue').toString();
                                       
                                       return AlertDialog(
-                                        backgroundColor: const Color(0xFF1E1E2D),
+                                        backgroundColor: cardColor,
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                         title: Row(
                                           children: [
-                                            const Icon(Icons.info_outline, color: primaryColor),
+                                            Icon(Icons.info_outline, color: primaryColor),
                                             const SizedBox(width: 8),
                                             Expanded(
-                                              child: Text('Détails de la machine', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 18)),
+                                              child: Text('Détails de la machine', style: GoogleFonts.spaceGrotesk(color: textColor, fontSize: 18)),
                                             ),
                                           ],
                                         ),
@@ -4337,19 +4358,19 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                           children: [
                                             Padding(
                                               padding: const EdgeInsets.symmetric(vertical: 4),
-                                              child: Text('Nom : $mName', style: GoogleFonts.inter(color: Colors.white70)),
+                                              child: Text('Nom : $mName', style: GoogleFonts.inter(color: textColor.withOpacity(0.7))),
                                             ),
                                             Padding(
                                               padding: const EdgeInsets.symmetric(vertical: 4),
-                                              child: Text('Référence : $ref', style: GoogleFonts.inter(color: Colors.white70)),
+                                              child: Text('Référence : $ref', style: GoogleFonts.inter(color: textColor.withOpacity(0.7))),
                                             ),
                                             Padding(
                                               padding: const EdgeInsets.symmetric(vertical: 4),
-                                              child: Text('Catégorie : $type', style: GoogleFonts.inter(color: Colors.white70)),
+                                              child: Text('Catégorie : $type', style: GoogleFonts.inter(color: textColor.withOpacity(0.7))),
                                             ),
                                             Padding(
                                               padding: const EdgeInsets.symmetric(vertical: 4),
-                                              child: Text('Localisation : $loc', style: GoogleFonts.inter(color: Colors.white70)),
+                                              child: Text('Localisation : $loc', style: GoogleFonts.inter(color: textColor.withOpacity(0.7))),
                                             ),
                                             Padding(
                                               padding: const EdgeInsets.symmetric(vertical: 4),
@@ -4360,7 +4381,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                         actions: [
                                           TextButton(
                                             onPressed: () => Navigator.pop(context),
-                                            child: const Text('FERMER', style: TextStyle(color: primaryColor)),
+                                            child: Text('FERMER', style: TextStyle(color: primaryColor)),
                                           ),
                                         ],
                                       );
@@ -4370,7 +4391,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.03),
+                                    color: _isDarkMode ? Colors.white.withOpacity(0.03) : Colors.black.withOpacity(0.03),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Row(
@@ -4388,7 +4409,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                           overflow: TextOverflow.ellipsis,
                                           style: GoogleFonts.inter(
                                             fontSize: 11,
-                                            color: Colors.white70,
+                                            color: _isDarkMode ? Colors.white70 : Colors.black87,
                                           ),
                                         ),
                                       ),
@@ -4512,9 +4533,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFF14141F),
+                color: cardColor,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white.withOpacity(0.05)),
+                border: Border.all(color: primaryColor.withOpacity(0.06)),
               ),
               child: Row(
                 children: [
@@ -4535,7 +4556,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                         const SizedBox(height: 2),
                         Row(
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.location_on_outlined,
                               color: mutedTextColor,
                               size: 12,
@@ -4581,7 +4602,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          const Icon(
+                                          Icon(
                                             Icons.precision_manufacturing,
                                             size: 12,
                                             color: primaryColor,
@@ -4652,7 +4673,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       decoration: BoxDecoration(
         color: sidebarColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4663,7 +4684,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               children: [
                 Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.people_outline_rounded,
                       color: primaryColor,
                     ),
@@ -4705,7 +4726,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           else
             Row(
               children: [
-                const Icon(Icons.people_outline_rounded, color: primaryColor),
+                Icon(Icons.people_outline_rounded, color: primaryColor),
                 const SizedBox(width: 8),
                 Text(
                   'Techniciens',
@@ -5423,7 +5444,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       decoration: BoxDecoration(
         color: sidebarColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -5434,7 +5455,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               children: [
                 Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.build_circle_outlined,
                       color: primaryColor,
                     ),
@@ -5476,7 +5497,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           else
             Row(
               children: [
-                const Icon(Icons.build_circle_outlined, color: primaryColor),
+                Icon(Icons.build_circle_outlined, color: primaryColor),
                 const SizedBox(width: 8),
                 Text(
                   'Agents maintenance',
@@ -6017,7 +6038,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       decoration: BoxDecoration(
         color: sidebarColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -6028,7 +6049,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                 children: [
                   Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.shopping_cart_checkout,
                         color: primaryColor,
                       ),
@@ -6057,7 +6078,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               )
               : Row(
                 children: [
-                  const Icon(Icons.shopping_cart_checkout, color: primaryColor),
+                  Icon(Icons.shopping_cart_checkout, color: primaryColor),
                   const SizedBox(width: 8),
                   Text(
                     'Demandes d\'achat',
@@ -6227,7 +6248,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       decoration: BoxDecoration(
         color: sidebarColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -6238,7 +6259,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                 children: [
                   Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.engineering_rounded,
                         color: primaryColor,
                       ),
@@ -6295,7 +6316,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               )
               : Row(
                 children: [
-                  const Icon(Icons.engineering_rounded, color: primaryColor),
+                  Icon(Icons.engineering_rounded, color: primaryColor),
                   const SizedBox(width: 8),
                   Text(
                     'Demandes équipe terrain',
@@ -6642,43 +6663,17 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Stack(
-          children: [
-            IconButton(
-              onPressed: _showMachineNotificationsDialog,
-              icon: const Icon(
-                Icons.notifications_outlined,
-                color: Colors.white,
-              ),
-            ),
-            if (_unreadMachineNotifications > 0)
-              Positioned(
-                right: 6,
-                top: 6,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 5,
-                    vertical: 1,
-                  ),
-                  decoration: BoxDecoration(
-                    color: primaryColor,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  constraints: const BoxConstraints(minWidth: 16),
-                  child: Text(
-                    _unreadMachineNotifications > 99
-                        ? '99+'
-                        : _unreadMachineNotifications.toString(),
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
-                      color: Colors.black,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-          ],
+        IconButton(
+          onPressed: () {
+            ThemeService().toggleTheme();
+            setState(() {});
+          },
+          icon: Icon(
+            ThemeService().isDarkMode ? Icons.wb_sunny_rounded : Icons.nightlight_round,
+            color: ThemeService().isDarkMode ? Colors.amber : const Color(0xFF7A4B29),
+            size: 20,
+          ),
+          tooltip: ThemeService().isDarkMode ? 'Mode Jour' : 'Mode Nuit',
         ),
         const SizedBox(width: 8),
         IconButton(
@@ -6686,7 +6681,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             ApiService.clearAuth();
             Navigator.of(context).pushReplacementNamed('/');
           },
-          icon: const Icon(Icons.logout_rounded, color: alertColor, size: 20),
+          icon: Icon(Icons.logout_rounded, color: mutedTextColor, size: 20),
         ),
       ],
     );
@@ -6814,7 +6809,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       machineId: mid,
       machineName: mname,
       motorType: motor,
-      viewerRole: 'concepteur', // Affiche le bouton MISSION pour le concepteur
+      viewerRole: 'concepteur', 
     );
 
     return Column(
@@ -6826,7 +6821,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             value: mid.isNotEmpty ? mid : null,
             decoration: InputDecoration(
               labelText: 'Sélectionner une machine',
-              labelStyle: const TextStyle(color: Colors.white70),
+              labelStyle: TextStyle(color: mutedTextColor),
               filled: true,
               fillColor: cardColor,
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -6837,7 +6832,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               final name = (m['name'] ?? m['machineName'] ?? 'Machine').toString();
               return DropdownMenuItem<String>(
                 value: id.isNotEmpty ? id : null,
-                child: Text('$name • $id', style: const TextStyle(color: Colors.white)),
+                child: Text('$name • $id', style: TextStyle(color: textColor)),
               );
             }).toList(),
             onChanged: (val) {
@@ -6918,7 +6913,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
           decoration: BoxDecoration(
             color: cardColor,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withOpacity(0.08)),
+            border: Border.all(color: borderSubtle),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -6990,8 +6985,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (_profileLoading)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
                         child: LinearProgressIndicator(
                           color: primaryColor,
                           backgroundColor: Colors.white10,
@@ -7014,7 +7009,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                           : 'Concepteur',
                       style: GoogleFonts.inter(
                         fontSize: 16,
-                        color: Colors.white,
+                        color: textColor,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -7048,8 +7043,8 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                       icon: const Icon(Icons.edit_outlined, size: 18),
                       label: const Text('MODIFIER LE PROFIL'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: BorderSide(color: Colors.white.withOpacity(0.25)),
+                        foregroundColor: textColor,
+                        side: BorderSide(color: borderSubtle),
                         padding: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 12,
@@ -7083,7 +7078,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                             ),
                             label: Text('Machine publique ($_publishedCount)'),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1E293B),
+                              backgroundColor: chipBg,
                               foregroundColor: primaryColor,
                               side: BorderSide(
                                 color: _profileExpandedFilter == 'public'
@@ -7117,7 +7112,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                             ),
                             label: Text('Machine no public ($_notPublishedCount)'),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1E293B),
+                              backgroundColor: chipBg,
                               foregroundColor: mutedTextColor,
                               side: BorderSide(
                                 color: _profileExpandedFilter == 'private'
@@ -7225,15 +7220,15 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: sidebarColor.withOpacity(0.55),
+        color: chipBg,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.14)),
+        border: Border.all(color: borderSubtle),
       ),
       child: Text(
         '$label: $value',
         style: GoogleFonts.inter(
           fontSize: 11,
-          color: Colors.white.withOpacity(0.92),
+          color: textColor,
           fontWeight: FontWeight.w500,
         ),
       ),
@@ -8023,7 +8018,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                           ),
                           child: Row(
                             children: [
-                              const Icon(
+                              Icon(
                                 Icons.search,
                                 color: mutedTextColor,
                                 size: 20,
@@ -8033,23 +8028,29 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                                 child: TextField(
                                   controller: _searchController,
                                   onChanged: (v) => setState(() {}),
+                                  cursorColor: textColor,
                                   decoration: InputDecoration(
                                     hintText: 'Rechercher une machine...',
                                     hintStyle: GoogleFonts.inter(
-                                      color: mutedTextColor,
+                                      color: mutedTextColor.withOpacity(0.65),
                                       fontSize: 13,
                                     ),
                                     border: InputBorder.none,
+                                    enabledBorder: InputBorder.none,
+                                    focusedBorder: InputBorder.none,
+                                    filled: false,
+                                    contentPadding: EdgeInsets.zero,
                                   ),
                                   style: GoogleFonts.inter(
                                     color: textColor,
                                     fontSize: 13,
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               ),
                               if (_searchController.text.isNotEmpty)
                                 IconButton(
-                                  icon: const Icon(Icons.clear, color: mutedTextColor, size: 18),
+                                  icon: Icon(Icons.clear, color: mutedTextColor, size: 18),
                                   padding: EdgeInsets.zero,
                                   constraints: const BoxConstraints(),
                                   splashRadius: 18,
@@ -8295,7 +8296,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     final titleStyle = GoogleFonts.spaceGrotesk(
       fontSize: narrow ? 22 : 32,
       fontWeight: FontWeight.w900,
-      color: Colors.white,
+      color: textColor,
       letterSpacing: -0.5,
     );
     final subtitle = GoogleFonts.inter(
@@ -8365,7 +8366,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       decoration: BoxDecoration(
         color: sidebarColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(color: borderSubtle),
       ),
       child:
           narrow
@@ -8374,7 +8375,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                 children: [
                   Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.filter_list,
                         color: primaryColor,
                         size: 20,
@@ -8414,7 +8415,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               )
               : Row(
                 children: [
-                  const Icon(Icons.filter_list, color: primaryColor, size: 20),
+                  Icon(Icons.filter_list, color: primaryColor, size: 20),
                   const SizedBox(width: 16),
                   Expanded(
                     child: _filterInput('Rechercher par nom ou référence...'),
@@ -8442,15 +8443,24 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
     return TextField(
       controller: _searchController,
       onChanged: (v) => setState(() {}),
+      cursorColor: textColor,
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: GoogleFonts.inter(
-          color: mutedTextColor.withOpacity(0.5),
+          color: mutedTextColor.withOpacity(0.65),
           fontSize: 13,
         ),
         border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        filled: false,
+        contentPadding: EdgeInsets.zero,
       ),
-      style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
+      style: GoogleFonts.inter(
+        color: textColor,
+        fontSize: 13,
+        fontWeight: FontWeight.w500,
+      ),
     );
   }
 
@@ -8479,10 +8489,10 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
             dropdownColor: sidebarColor,
             style: GoogleFonts.inter(
               fontSize: 13,
-              color: Colors.white,
+              color: textColor,
               fontWeight: FontWeight.w500,
             ),
-            icon: const Icon(
+            icon: Icon(
               Icons.keyboard_arrow_down,
               color: mutedTextColor,
               size: 16,
@@ -8551,9 +8561,9 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF171733),
+        color: cardColor,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(color: primaryColor.withOpacity(0.08)),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -8887,7 +8897,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                 fallback: Container(
                   color: cardColor,
                   height: 180,
-                  child: const Icon(
+                  child: Icon(
                     Icons.precision_manufacturing,
                     color: mutedTextColor,
                     size: 48,
@@ -8995,7 +9005,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                         children: [
                           Row(
                             children: [
-                              const Icon(
+                              Icon(
                                 Icons.timer_outlined,
                                 color: primaryColor,
                                 size: 14,
@@ -9160,7 +9170,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
       return const SizedBox.shrink();
     }
     return PopupMenuButton<String>(
-      icon: const Icon(Icons.more_vert, color: mutedTextColor, size: 18),
+      icon: Icon(Icons.more_vert, color: mutedTextColor, size: 18),
       color: sidebarColor,
       itemBuilder:
           (context) => [
@@ -9168,7 +9178,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
               value: 'edit',
               child: Text(
                 'Modifier',
-                style: TextStyle(color: textColor, fontSize: 13),
+                style: TextStyle(color: Colors.white70, fontSize: 13),
               ),
             ),
             const PopupMenuItem(
@@ -9178,7 +9188,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                 style: TextStyle(color: alertColor, fontSize: 13),
               ),
             ),
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'publish',
               child: Text(
                 'Publier/Dépublier',
@@ -9522,7 +9532,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                     padding: const EdgeInsets.all(16),
                     child: Row(
                       children: [
-                        const Icon(Icons.view_in_ar, color: primaryColor),
+                        Icon(Icons.view_in_ar, color: primaryColor),
                         const SizedBox(width: 12),
                         Text(
                           'Visualisation 3D : ${m['name']}',
@@ -9534,7 +9544,7 @@ class _ConcepteurDashboardPageState extends State<ConcepteurDashboardPage> {
                         ),
                         const Spacer(),
                         IconButton(
-                          icon: const Icon(Icons.close, color: mutedTextColor),
+                         icon: Icon(Icons.close, color: mutedTextColor),
                           onPressed: () => Navigator.pop(context),
                         ),
                       ],
@@ -9687,14 +9697,14 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
     }
   }
 
+  bool get _isDark => ThemeService().isDarkMode;
+  Color get _primary => _isDark ? const Color(0xFF00D1FF) : const Color(0xFFFF6E00);
+  Color get _sidebar => _isDark ? const Color(0xFF0F111A) : Colors.white;
+  Color get _card => _isDark ? const Color(0xFF1A1D2E) : const Color(0xFFF4F6F8);
+  Color get _text => _isDark ? Colors.white : const Color(0xFF1E1E2D);
+  Color get _muted => _isDark ? const Color(0xFFA0A5BA) : const Color(0xFF7A7A8C);
   @override
   Widget build(BuildContext context) {
-    const primaryColor = Color(0xFF00D1FF);
-    const sidebarColor = Color(0xFF0F111A);
-    const cardColor = Color(0xFF1A1D2E);
-    const textColor = Colors.white;
-    const mutedTextColor = Color(0xFFA0A5BA);
-
     final id = (widget.machine['id'] ?? widget.machine['_id'] ?? '').toString();
 
     return Dialog(
@@ -9703,9 +9713,9 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
         width: 700,
         constraints: const BoxConstraints(maxHeight: 800),
         decoration: BoxDecoration(
-          color: sidebarColor,
+          color: _sidebar,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: primaryColor.withOpacity(0.2)),
+          border: Border.all(color: _primary.withOpacity(0.2)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -9718,12 +9728,12 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: primaryColor.withOpacity(0.1),
+                      color: _primary.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.precision_manufacturing,
-                      color: primaryColor,
+                      color: _primary,
                       size: 20,
                     ),
                   ),
@@ -9737,7 +9747,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                               ? 'MODIFIER LA MACHINE'
                               : 'DÉTAILS DE LA MACHINE',
                           style: GoogleFonts.spaceGrotesk(
-                            color: primaryColor,
+                            color: _primary,
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 1.5,
@@ -9751,7 +9761,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                               ? 'Nouvelle Machine'
                               : _nameCtrl.text,
                           style: GoogleFonts.spaceGrotesk(
-                            color: Colors.white,
+                            color: _text,
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
@@ -9771,7 +9781,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                       onPressed: _onDelete,
                     ),
                   IconButton(
-                    icon: const Icon(Icons.close, color: mutedTextColor),
+                    icon: Icon(Icons.close, color: _muted),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -9808,18 +9818,18 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                           _urlCtrl.text,
                           height: 160,
                           fallback: Container(
-                            color: cardColor,
-                            child: const Icon(
+                            color: _card,
+                            child: Icon(
                               Icons.precision_manufacturing,
                               size: 48,
-                              color: mutedTextColor,
+                              color: _muted,
                             ),
                           ),
                         ),
                       ),
                     ),
                     if (!_editMode) ...[
-                      _buildInfoSection('IDENTifiant UNIQUE', id, primaryColor),
+                      _buildInfoSection('IDENTifiant UNIQUE', id, _primary),
                       const SizedBox(height: 24),
                       Row(
                         children: [
@@ -9827,7 +9837,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                             child: _buildInfoSection(
                               'CATÉGORIE',
                               _typeCtrl.text,
-                              textColor,
+                              _text,
                             ),
                           ),
                           const SizedBox(width: 24),
@@ -9835,7 +9845,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                             child: _buildInfoSection(
                               'LOCALISATION',
                               _locationCtrl.text,
-                              textColor,
+                              _text,
                             ),
                           ),
                         ],
@@ -9847,7 +9857,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                             child: _buildInfoSection(
                               'PRIX',
                               _priceCtrl.text.isEmpty ? 'Non renseigné' : '${_priceCtrl.text} €',
-                              textColor,
+                              _text,
                             ),
                           ),
                           const SizedBox(width: 24),
@@ -9855,7 +9865,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                             child: _buildInfoSection(
                               'STOCK',
                               _stockCtrl.text,
-                              textColor,
+                              _text,
                             ),
                           ),
                         ],
@@ -9864,7 +9874,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                       _buildInfoSection(
                         'URL DE L\'IMAGE',
                         _urlCtrl.text.isEmpty ? 'Aucune image configurée' : _urlCtrl.text,
-                        mutedTextColor,
+                        _muted,
                       ),
                       const SizedBox(height: 24),
                       _buildInfoSection(
@@ -9917,22 +9927,22 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                           DropdownButtonFormField<String>(
                             value: ['L', 'M', 'H'].contains(_aiType) ? _aiType : 'M',
                             isExpanded: true,
-                            dropdownColor: const Color(0xFF1A1D2E),
-                            style: const TextStyle(color: Colors.white),
+                           dropdownColor: _card,
+                            style: TextStyle(color: _text),
                             decoration: InputDecoration(
                               labelText: 'Taille de la machine (Type IA)',
-                              labelStyle: const TextStyle(color: Color(0xFFA0A5BA)),
-                              prefixIcon: const Icon(Icons.psychology_outlined, color: Color(0xFF00D1FF), size: 20),
+                              labelStyle: TextStyle(color: _muted),
+                              prefixIcon: Icon(Icons.psychology_outlined, color: _primary, size: 20),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Colors.white10),
+                                borderSide: BorderSide(color: _text.withOpacity(0.08)),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: Color(0xFF00D1FF)),
+                                borderSide: BorderSide(color: _primary),
                               ),
                               filled: true,
-                              fillColor: Colors.white.withOpacity(0.05),
+                              fillColor: _text.withOpacity(0.05),
                             ),
                             items: const [
                               DropdownMenuItem(value: 'L', child: Text('Type L (Petite < 15kW)', overflow: TextOverflow.ellipsis)),
@@ -9987,7 +9997,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                         Text(
                           'Assigner à un client',
                           style: GoogleFonts.inter(
-                            color: mutedTextColor,
+                            color: _muted,
                             fontSize: 12,
                           ),
                         ),
@@ -10002,10 +10012,10 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                           child: DropdownButtonHideUnderline(
                             child: DropdownButton<String>(
                               isExpanded: true,
-                              dropdownColor: const Color(0xFF1A1D2E),
-                              icon: const Icon(Icons.arrow_drop_down, color: primaryColor),
+                              dropdownColor: _card,
+                              icon: Icon(Icons.arrow_drop_down, color: _primary),
                               value: _companyId.isEmpty ? null : _companyId,
-                              hint: const Text('Aucun client assigné', style: TextStyle(color: Colors.white54)),
+                              hint: Text('Aucun client assigné', style: TextStyle(color: _muted)),
                               items: [
                                 const DropdownMenuItem<String>(
                                   value: null,
@@ -10030,7 +10040,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                         title: Text(
                           _isPublic ? 'Publiée' : 'Non publiée',
                           style: GoogleFonts.inter(
-                            color: Colors.white,
+                            color: _text,
                             fontSize: 14,
                           ),
                         ),
@@ -10039,12 +10049,12 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                               ? 'Activé : visible dans le catalogue public'
                               : 'Désactivé : visible uniquement dans votre dashboard',
                           style: GoogleFonts.inter(
-                            color: mutedTextColor,
+                            color: _muted,
                             fontSize: 12,
                           ),
                         ),
                         value: _isPublic,
-                        activeColor: primaryColor,
+                        activeColor: _primary,
                         onChanged: (v) => setState(() => _isPublic = v),
                       ),
                     ],
@@ -10082,8 +10092,8 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                       icon: const Icon(Icons.edit_outlined, size: 18),
                       label: const Text('MODIFIER', style: TextStyle(fontSize: 12)),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: primaryColor,
-                        side: const BorderSide(color: primaryColor),
+                        foregroundColor: _primary,
+                        side: BorderSide(color: _primary),
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       ),
                       onPressed: () => setState(() => _editMode = true),
@@ -10100,13 +10110,13 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                                 _editMode = false;
                                 if (id.isEmpty) Navigator.pop(context);
                               }),
-                              child: const Text('ANNULER', style: TextStyle(color: mutedTextColor, fontSize: 13)),
+                              child: const Text('ANNULER', style: TextStyle(color: Colors.white54, fontSize: 13)),
                             ),
                             const SizedBox(width: 8),
                             ElevatedButton(
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: primaryColor,
-                                foregroundColor: Colors.black,
+                                backgroundColor: _primary,
+                                foregroundColor: _isDark ? Colors.black : Colors.white,
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                               ),
                               onPressed: _saving ? null : _save,
@@ -10138,7 +10148,7 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
         Text(
           title,
           style: GoogleFonts.inter(
-            color: const Color(0xFFA0A5BA),
+            color: _muted,
             fontSize: 10,
             fontWeight: FontWeight.bold,
             letterSpacing: 1.2,
@@ -10171,25 +10181,25 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
             Expanded(
               child: TextField(
                 controller: ctrl,
-                style: const TextStyle(color: Colors.white),
+                style: TextStyle(color: _text),
                 decoration: InputDecoration(
                   labelText: label,
-                  labelStyle: const TextStyle(color: Color(0xFFA0A5BA)),
+                  labelStyle: TextStyle(color: _muted),
                   prefixIcon: Icon(
                     icon,
-                    color: const Color(0xFF00D1FF),
+                    color: _primary,
                     size: 20,
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Colors.white10),
+                    borderSide: BorderSide(color: _text.withOpacity(0.08)),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFF00D1FF)),
+                    borderSide: BorderSide(color: _primary),
                   ),
                   filled: true,
-                  fillColor: Colors.white.withOpacity(0.05),
+                  fillColor: _text.withOpacity(0.05),
                 ),
               ),
             ),
@@ -10200,13 +10210,13 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
                 child: Center(
                   child: IconButton(
                     onPressed: onUpload,
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.file_upload_outlined,
-                      color: Color(0xFF00D1FF),
+                      color: _primary,
                     ),
                     tooltip: 'Téléverser depuis le PC',
                     style: IconButton.styleFrom(
-                      backgroundColor: Colors.white.withOpacity(0.05),
+                      backgroundColor: _text.withOpacity(0.05),
                       padding: const EdgeInsets.all(12),
                     ),
                   ),
@@ -10316,21 +10326,21 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
       context: context,
       builder:
           (ctx) => AlertDialog(
-            backgroundColor: const Color(0xFF1A1D2E),
-            title: const Text(
+            backgroundColor: _card,
+            title: Text(
               'Supprimer la machine ?',
-              style: TextStyle(color: Colors.white),
+              style: TextStyle(color: _text),
             ),
-            content: const Text(
+            content: Text(
               'Cette action est irréversible. Toutes les données liées seront perdues.',
-              style: TextStyle(color: Color(0xFFA0A5BA)),
+              style: TextStyle(color: _muted),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
-                child: const Text(
+                child: Text(
                   'ANNULER',
-                  style: TextStyle(color: Color(0xFFA0A5BA)),
+                  style: TextStyle(color: _muted),
                 ),
               ),
               ElevatedButton(
@@ -10391,11 +10401,11 @@ class _MachineManagementDialogState extends State<_MachineManagementDialog> {
         Container(
           height: height,
           width: width,
-          color: const Color(0xFF1A1A2E),
+          color: _card,
           alignment: Alignment.center,
-          child: const Icon(
+          child: Icon(
             Icons.precision_manufacturing,
-            color: Color(0xFF9E9EAE),
+            color: _muted,
             size: 36,
           ),
         );

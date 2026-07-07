@@ -4,19 +4,7 @@ import 'package:intl/intl.dart';
 import 'services/api_service.dart';
 import 'control_calendar_page.dart';
 import 'control_reports_history_page.dart';
-
-// ─── Design Tokens ────────────────────────────────────────────────────────────
-const _bg           = Color(0xFF0B0B1A);
-const _surface      = Color(0xFF141428);
-const _surfaceHigh  = Color(0xFF1C1C35);
-const _surfaceLow   = Color(0xFF111122);
-const _primary      = Color(0xFFFF6E00);
-const _primaryLight = Color(0xFFFF8C3A);
-const _secondary    = Color(0xFF00D4FF);
-const _green        = Color(0xFF00E5A0);
-const _onSurface    = Color(0xFFE8E8FF);
-const _onVariant    = Color(0xFF9090B0);
-const _outline      = Color(0xFF2A2A48);
+import 'services/theme_service.dart';
 
 class MachineConsultationPage extends StatefulWidget {
   final String? technicianId;
@@ -54,16 +42,36 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
     '14:00', '15:00', '16:00', '17:00'
   ];
 
+  bool get _isDarkMode => ThemeService().isDarkMode;
+
+  Color get _bg => _isDarkMode ? const Color(0xFF0B0B1A) : const Color(0xFFFCFAF7);
+  Color get _surface => _isDarkMode ? const Color(0xFF141428) : const Color(0xFFFFF8F0);
+  Color get _surfaceHigh => _isDarkMode ? const Color(0xFF1C1C35) : const Color(0xFFFFFFFF);
+  Color get _surfaceLow => _isDarkMode ? const Color(0xFF111122) : const Color(0xFFF5E0C3);
+  Color get _primary => const Color(0xFFFF6E00);
+  Color get _primaryLight => const Color(0xFFFF8C3A);
+  Color get _secondary => _isDarkMode ? const Color(0xFF00D4FF) : const Color(0xFF1E88E5);
+  Color get _green => const Color(0xFF00E5A0);
+  Color get _onSurface => _isDarkMode ? const Color(0xFFE8E8FF) : const Color(0xFF2D1F0E);
+  Color get _onVariant => _isDarkMode ? const Color(0xFF9090B0) : const Color(0xFF7A4F2E);
+  Color get _outline => _isDarkMode ? const Color(0xFF2A2A48) : const Color(0xFFCD7F32).withOpacity(0.3);
+
   @override
   void initState() {
     super.initState();
+    ThemeService().addListener(_onThemeChanged);
     _fadeCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
     _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
     _fetchMachines();
   }
 
+  void _onThemeChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    ThemeService().removeListener(_onThemeChanged);
     _typeController.dispose();
     _fadeCtrl.dispose();
     super.dispose();
@@ -109,7 +117,7 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
             padding: const EdgeInsets.all(28),
             decoration: BoxDecoration(color: _surfaceHigh, borderRadius: BorderRadius.circular(20)),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const CircularProgressIndicator(color: _primary),
+              CircularProgressIndicator(color: _primary),
               const SizedBox(height: 16),
               Text('Planification…', style: GoogleFonts.inter(color: _onSurface)),
             ]),
@@ -179,7 +187,7 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
+            gradient: LinearGradient(
               colors: [_primary, _primaryLight],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -210,7 +218,7 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.drag_indicator_rounded, color: _onVariant, size: 18),
+              Icon(Icons.drag_indicator_rounded, color: _onVariant, size: 18),
               const SizedBox(width: 8),
               Text('En déplacement…', style: GoogleFonts.inter(color: _onVariant, fontSize: 14)),
             ],
@@ -220,7 +228,7 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             colors: [_primary, _primaryLight],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -304,8 +312,8 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
               // Status
               if (isBooked)
                 Row(children: [
-                  const Icon(Icons.check_circle_rounded, color: _primary, size: 14),
-                  const SizedBox(width: 4),
+                  Icon(Icons.check_circle_rounded, color: _primary, size: 14),
+                  const SizedBox(width: 6),
                   Text('Réservé', style: GoogleFonts.inter(color: _primary, fontWeight: FontWeight.w600, fontSize: 11)),
                 ])
               else if (isHovered)
@@ -319,12 +327,12 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
                     ),
                   ),
                   const SizedBox(width: 4),
-                  const Icon(Icons.add_circle_rounded, color: _primary, size: 18),
+                  Icon(Icons.add_circle_rounded, color: _primary, size: 18),
                 ])
               else
                 Row(children: [
-                  Container(width: 6, height: 6, decoration: const BoxDecoration(color: _green, shape: BoxShape.circle)),
-                  const SizedBox(width: 5),
+                  Container(width: 6, height: 6, decoration: BoxDecoration(color: _green, shape: BoxShape.circle)),
+                  const SizedBox(width: 8),
                   Text('Dispo', style: GoogleFonts.inter(color: _green, fontWeight: FontWeight.w600, fontSize: 11)),
                 ]),
             ],
@@ -343,8 +351,8 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
           height: 26,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [_primary, _primaryLight]),
-            borderRadius: BorderRadius.circular(8),
+            gradient: LinearGradient(colors: [_primary, _primaryLight]),
+            borderRadius: BorderRadius.circular(20),
           ),
           child: Text(number, style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12)),
         ),
@@ -376,17 +384,17 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
               DropdownButtonHideUnderline(
                 child: DropdownButton<String>(
                   isExpanded: true,
-                  dropdownColor: const Color(0xFF1E1E36),
+                  dropdownColor: _surfaceHigh,
                   style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.w600),
-                  icon: const Icon(Icons.keyboard_arrow_down_rounded, color: _primary),
+                  icon: Icon(Icons.keyboard_arrow_down_rounded, color: _primary),
                   value: _selectedMachineId.isEmpty ? null : _selectedMachineId,
                   items: _machines.map((m) {
                     return DropdownMenuItem<String>(
                       value: m['id']?.toString() ?? '',
                       child: Row(
                         children: [
-                          const Icon(Icons.precision_manufacturing_rounded, color: _secondary, size: 16),
-                          const SizedBox(width: 10),
+                          Icon(Icons.precision_manufacturing_rounded, color: _secondary, size: 16),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               m['name'] ?? m['id'] ?? '',
@@ -427,16 +435,16 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
                   filled: true,
                   fillColor: _surfaceLow,
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _outline),
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: _outline),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _primary, width: 1.5),
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: _primary, width: 1.5),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _outline),
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: _outline),
                   ),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 ),
@@ -499,8 +507,8 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
                     ),
                     const SizedBox(height: 4),
                     Row(children: [
-                      Container(width: 6, height: 6, decoration: const BoxDecoration(color: _green, shape: BoxShape.circle)),
-                      const SizedBox(width: 5),
+                      Container(width: 6, height: 6, decoration: BoxDecoration(color: _green, shape: BoxShape.circle)),
+                      const SizedBox(width: 8),
                       Flexible(
                         child: Text(
                           '$availableCount créneaux libres',
@@ -522,8 +530,10 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
                     firstDate: DateTime.now(),
                     lastDate: DateTime.now().add(const Duration(days: 365)),
                     builder: (context, child) => Theme(
-                      data: ThemeData.dark().copyWith(
-                        colorScheme: const ColorScheme.dark(primary: _primary, surface: _surfaceHigh),
+                      data: Theme.of(context).copyWith(
+                        colorScheme: _isDarkMode
+                            ? ColorScheme.dark(primary: _primary, surface: _surfaceHigh)
+                            : ColorScheme.light(primary: _primary, surface: _surfaceHigh),
                       ),
                       child: child!,
                     ),
@@ -537,7 +547,7 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: _primary.withOpacity(0.3)),
                   ),
-                  child: const Icon(Icons.calendar_month_rounded, color: _primary, size: 20),
+                  child: Icon(Icons.calendar_month_rounded, color: _primary, size: 20),
                 ),
               ),
             ],
@@ -580,7 +590,7 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
         backgroundColor: _bg,
         body: Center(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const CircularProgressIndicator(color: _primary),
+            CircularProgressIndicator(color: _primary),
             const SizedBox(height: 16),
             Text('Chargement…', style: GoogleFonts.inter(color: _onVariant)),
           ]),
@@ -602,8 +612,8 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
               Container(
                 padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [_primary, _primaryLight]),
-                  borderRadius: BorderRadius.circular(10),
+                  gradient: LinearGradient(colors: [_primary, _primaryLight]),
+                  borderRadius: BorderRadius.circular(4),
                 ),
                 child: const Icon(Icons.calendar_today_rounded, color: Colors.white, size: 16),
               ),
@@ -621,10 +631,21 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
               ),
             ],
           ),
+          actions: [
+            IconButton(
+              icon: Icon(_isDarkMode ? Icons.light_mode : Icons.dark_mode, color: _primary),
+              onPressed: () => ThemeService().toggleTheme(),
+            ),
+            IconButton(
+              icon: Icon(Icons.refresh, color: _primary),
+              onPressed: () => _fetchMachines(),
+            ),
+            const SizedBox(width: 8),
+          ],
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(52),
             child: Container(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 border: Border(bottom: BorderSide(color: _outline)),
               ),
               child: TabBar(
@@ -664,7 +685,7 @@ class _MachineConsultationPageState extends State<MachineConsultationPage>
         SizedBox(
           width: 190,
           child: DecoratedBox(
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: _surface,
               border: Border(right: BorderSide(color: _outline)),
             ),

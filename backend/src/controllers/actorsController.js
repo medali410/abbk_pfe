@@ -12,6 +12,13 @@ const { validateConcepteurProfileUpdate, validateCreateConcepteur } = require('.
 
 async function listConcepteurs(req, res) {
     try {
+        const role = req.auth?.role;
+        if (role === 'conception' || role === 'concepteur') {
+            const userId = getAuthUserId(req.auth);
+            const concepteur = await prisma.concepteur.findUnique({ where: { userId }, include: { user: true } });
+            if (!concepteur) return res.json([]);
+            return res.json([mergeUserProfile(concepteur.user, concepteur, { concepteurId: concepteur.id })]);
+        }
         const rows = await ActorModel.listConcepteurs();
         res.set('Cache-Control', 'no-store');
         return res.json(
@@ -38,22 +45,27 @@ async function createConcepteur(req, res) {
         createdUserId = user.id;
 
         // Tentative d'envoi d'email
-        const credentialsEmail = await sendWelcomeEmail(email, username, password);
+        let credentialsEmail;
+        if (req.body.sendEmail !== false) {
+            credentialsEmail = await sendWelcomeEmail(email, username, password);
 
-        // Si l'envoi échoue, on annule la création du compte (demande utilisateur)
-        if (!credentialsEmail.sent) {
-            await prisma.user.delete({ where: { id: createdUserId } });
-            createdUserId = null;
+            // Si l'envoi échoue, on annule la création du compte (demande utilisateur)
+            if (!credentialsEmail.sent) {
+                await prisma.user.delete({ where: { id: createdUserId } });
+                createdUserId = null;
 
-            const errorMsg =
-                credentialsEmail.reason === 'smtp_credentials_missing'
-                    ? 'Configuration SMTP manquante dans le fichier .env (SMTP_USER/SMTP_PASS)'
-                    : `Échec de l'envoi de l'email : ${credentialsEmail.detail || 'Erreur inconnue'}`;
+                const errorMsg =
+                    credentialsEmail.reason === 'smtp_credentials_missing'
+                        ? 'Configuration SMTP manquante dans le fichier .env (SMTP_USER/SMTP_PASS)'
+                        : `Échec de l'envoi de l'email : ${credentialsEmail.detail || 'Erreur inconnue'}`;
 
-            return res.status(500).json({
-                error: errorMsg,
-                hint: "Le compte n'a pas été créé car l'email n'a pu être envoyé.",
-            });
+                return res.status(500).json({
+                    error: errorMsg,
+                    hint: "Le compte n'a pas été créé car l'email n'a pu être envoyé.",
+                });
+            }
+        } else {
+            credentialsEmail = { sent: false, reason: 'skipped_by_user' };
         }
 
         return res.status(201).json({
@@ -76,6 +88,16 @@ async function getConcepteur(req, res) {
     try {
         const { id } = req.params;
         const convid = parseInt(id, 10) || 0;
+
+        const role = req.auth?.role;
+        if (role === 'conception' || role === 'concepteur') {
+            const userId = getAuthUserId(req.auth);
+            const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+            if (!concepteur || (concepteur.id !== convid && concepteur.userId !== convid)) {
+                return res.status(403).json({ error: 'Vous ne pouvez accéder qu\'à votre propre compte.' });
+            }
+        }
+
         let row = await prisma.concepteur.findFirst({
             where: {
                 OR: [{ id: convid }, { userId: convid }],
@@ -109,6 +131,16 @@ async function updateConcepteur(req, res) {
         const { email, username, password, location } = req.body;
 
         const convid = parseInt(id, 10) || 0;
+
+        const role = req.auth?.role;
+        if (role === 'conception' || role === 'concepteur') {
+            const userId = getAuthUserId(req.auth);
+            const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+            if (!concepteur || (concepteur.id !== convid && concepteur.userId !== convid)) {
+                return res.status(403).json({ error: 'Vous ne pouvez modifier que votre propre compte.' });
+            }
+        }
+
         let existing = await prisma.concepteur.findFirst({
             where: {
                 OR: [{ id: convid }, { userId: convid }],
@@ -161,7 +193,37 @@ async function updateConcepteur(req, res) {
 
 async function listTechnicians(req, res) {
     try {
-        const rows = await ActorModel.listTechnicians();
+        let rows = await ActorModel.listTechnicians();
+
+        const role = req.auth?.role;
+        if (role === 'conception' || role === 'concepteur') {
+            const userId = getAuthUserId(req.auth);
+            const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+            if (concepteur) {
+                const userConcepteurId = String(concepteur.id);
+                let allowedIds = [];
+                try { allowedIds = JSON.parse(concepteur.machineIds || '[]'); } catch (e) { }
+                const machines = await prisma.machine.findMany({
+                    where: {
+                        OR: [
+                            { concepteurId: userConcepteurId },
+                            { id: { in: allowedIds } }
+                        ]
+                    }
+                });
+                const machineIdsStr = machines.map(m => String(m.id));
+                const companyIds = [...new Set(machines.map(m => m.companyId).filter(Boolean))];
+                rows = rows.filter(t => {
+                    if (t.companyId && companyIds.includes(t.companyId)) return true;
+                    let tMachineIds = [];
+                    try { tMachineIds = JSON.parse(t.machineIds || '[]'); } catch (e) { }
+                    return tMachineIds.some(mId => machineIdsStr.includes(String(mId)));
+                });
+            } else {
+                rows = [];
+            }
+        }
+
         return res.json(
             rows.map((p) => mergeUserProfile(p.user, p, {
                 technicianId: p.technicianId,
@@ -179,13 +241,13 @@ async function createTechnician(req, res) {
     let createdUserId = null;
     try {
         const { email, password, name, firstName, lastName, address, location, companyId, machineIds, specialization, status } = req.body;
-        
+
         const { user, profile } = await createUserWithProfile(
             'technician',
             { email, nom: name, password, adresse: address || location },
-            { 
-                firstName: firstName || '', 
-                lastName: lastName || '', 
+            {
+                firstName: firstName || '',
+                lastName: lastName || '',
                 companyId: companyId || '',
                 specialization: specialization || 'Vibration',
                 status: status || 'Disponible',
@@ -194,7 +256,12 @@ async function createTechnician(req, res) {
         );
         createdUserId = user.id;
 
-        const credentialsEmail = await sendWelcomeEmail(email, `${firstName || ''} ${lastName || ''}`.trim() || name || user.nom, password, 'Technicien');
+        let credentialsEmail;
+        if (req.body.sendEmail !== false) {
+            credentialsEmail = await sendWelcomeEmail(email, `${firstName || ''} ${lastName || ''}`.trim() || name || user.nom, password, 'Technicien');
+        } else {
+            credentialsEmail = { sent: false, reason: 'skipped_by_user' };
+        }
 
         return res.status(201).json({
             ...mergeUserProfile(user, profile, {
@@ -209,7 +276,7 @@ async function createTechnician(req, res) {
         if (createdUserId) {
             try {
                 await prisma.user.delete({ where: { id: createdUserId } });
-            } catch (e) {}
+            } catch (e) { }
         }
         return res.status(err.status || 500).json({ error: err.message });
     }
@@ -236,7 +303,7 @@ async function updateTechnician(req, res) {
         if (password) userData.password = await hashPassword(password);
         if (address || location) userData.adresse = address || location;
 
-        const updatedUser = Object.keys(userData).length > 0 
+        const updatedUser = Object.keys(userData).length > 0
             ? await prisma.user.update({ where: { id: existing.userId }, data: userData })
             : existing.user;
 
@@ -267,7 +334,37 @@ async function updateTechnician(req, res) {
 
 async function listMaintenanceAgents(req, res) {
     try {
-        const rows = await ActorModel.listMaintenanceAgents();
+        let rows = await ActorModel.listMaintenanceAgents();
+
+        const role = req.auth?.role;
+        if (role === 'conception' || role === 'concepteur') {
+            const userId = getAuthUserId(req.auth);
+            const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+            if (concepteur) {
+                const userConcepteurId = String(concepteur.id);
+                let allowedIds = [];
+                try { allowedIds = JSON.parse(concepteur.machineIds || '[]'); } catch (e) { }
+                const machines = await prisma.machine.findMany({
+                    where: {
+                        OR: [
+                            { concepteurId: userConcepteurId },
+                            { id: { in: allowedIds } }
+                        ]
+                    }
+                });
+                const machineIdsStr = machines.map(m => String(m.id));
+                const companyIds = [...new Set(machines.map(m => m.companyId).filter(Boolean))];
+                rows = rows.filter(a => {
+                    if (a.clientId && companyIds.includes(a.clientId)) return true;
+                    let aMachineIds = [];
+                    try { aMachineIds = JSON.parse(a.machineIds || '[]'); } catch (e) { }
+                    return aMachineIds.some(mId => machineIdsStr.includes(String(mId)));
+                });
+            } else {
+                rows = [];
+            }
+        }
+
         return res.json(
             rows.map((a) =>
                 mergeUserProfile(a.user, a, {
@@ -335,9 +432,9 @@ async function updateMyConcepteurProfile(req, res) {
 
         const updatedProfile = hasProfileUpdate
             ? await prisma.concepteur.update({
-                  where: { id: dashboard.row.id },
-                  data: profileData,
-              })
+                where: { id: dashboard.row.id },
+                data: profileData,
+            })
             : dashboard.row;
 
         const refreshed = await getConcepteurProfileDashboard(userId);
@@ -357,20 +454,25 @@ async function createMaintenanceAgent(req, res) {
     let createdUserId = null;
     try {
         const { email, password, name, firstName, lastName, address, location, clientId, machineIds } = req.body;
-        
+
         const { user, profile } = await createUserWithProfile(
             'maintenance',
             { email, nom: name, password, adresse: address || location },
-            { 
-                firstName: firstName || '', 
-                lastName: lastName || '', 
+            {
+                firstName: firstName || '',
+                lastName: lastName || '',
                 clientId: clientId || '',
                 machineIds: Array.isArray(machineIds) ? JSON.stringify(machineIds) : '[]'
             }
         );
         createdUserId = user.id;
 
-        const credentialsEmail = await sendWelcomeEmail(email, `${firstName || ''} ${lastName || ''}`.trim() || name || user.nom, password, 'Agent de Maintenance');
+        let credentialsEmail;
+        if (req.body.sendEmail !== false) {
+            credentialsEmail = await sendWelcomeEmail(email, `${firstName || ''} ${lastName || ''}`.trim() || name || user.nom, password, 'Agent de Maintenance');
+        } else {
+            credentialsEmail = { sent: false, reason: 'skipped_by_user' };
+        }
 
         return res.status(201).json({
             ...mergeUserProfile(user, profile, {
@@ -385,7 +487,7 @@ async function createMaintenanceAgent(req, res) {
         if (createdUserId) {
             try {
                 await prisma.user.delete({ where: { id: createdUserId } });
-            } catch (e) {}
+            } catch (e) { }
         }
         return res.status(err.status || 500).json({ error: err.message });
     }
@@ -412,7 +514,7 @@ async function updateMaintenanceAgent(req, res) {
         if (password) userData.password = await hashPassword(password);
         if (address || location) userData.adresse = address || location;
 
-        const updatedUser = Object.keys(userData).length > 0 
+        const updatedUser = Object.keys(userData).length > 0
             ? await prisma.user.update({ where: { id: existing.userId }, data: userData })
             : existing.user;
 

@@ -6,6 +6,7 @@ import 'login_page.dart';
 import 'home_page.dart';
 import 'services/api_service.dart';
 import 'services/global_notification_service.dart';
+import 'services/theme_service.dart';
 import 'dashboard_page.dart';
 import 'client_dashboard_page.dart';
 import 'add_client_page.dart';
@@ -96,6 +97,7 @@ class _SessionEntryState extends State<SessionEntry> {
   @override
   void initState() {
     super.initState();
+    ThemeService().loadTheme(); // Load saved theme preference
     _consumeGoogleOAuthReturnFromAnyWebRoute();
   }
 
@@ -279,6 +281,7 @@ Future<void> main() async {
   }
   try {
     await ApiService.loadSavedAuth();
+    await ThemeService().loadTheme();
     GlobalNotificationService().init();
   } catch (e, st) {
     debugPrint('ApiService.loadSavedAuth: $e\n$st');
@@ -291,83 +294,74 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      navigatorKey: _rootNavigatorKey,
-      title: 'Predictive Cloud',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        primaryColor: const Color(0xFFFF6E00),
-        scaffoldBackgroundColor: const Color(0xFF0F0F1E),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFFFF6E00),
-          surface: Color(0xFF0F0F1E),
-          onSurface: Color(0xFFF4F4F9),
-          surfaceContainerHighest: Color(0xFF1E1E2E),
-        ),
-        textTheme: GoogleFonts.interTextTheme(
-          Theme.of(context).textTheme,
-        ).apply(
-          bodyColor: const Color(0xFFF4F4F9),
-          displayColor: const Color(0xFFF4F4F9),
-        ),
-      ),
-      initialRoute: resolveInitialWebRoute(),
+    return AnimatedBuilder(
+      animation: ThemeService(),
       builder: (context, child) {
-        return GlobalAlertListener(
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              if (child != null) Positioned.fill(child: child),
-            ],
-          ),
+        return MaterialApp(
+          navigatorKey: _rootNavigatorKey,
+          title: 'Predictive Cloud',
+          debugShowCheckedModeBanner: false,
+          theme: ThemeService().getTheme(),
+          darkTheme: ThemeService().getTheme(),
+          themeMode: ThemeService().isDarkMode ? ThemeMode.dark : ThemeMode.light,
+          initialRoute: resolveInitialWebRoute(),
+          builder: (context, child) {
+            return GlobalAlertListener(
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  if (child != null) Positioned.fill(child: child),
+                ],
+              ),
+            );
+          },
+          routes: {
+            '/': (context) => const SessionEntry(),
+            '/machines': (context) => const SessionEntry(initialSection: 'catalog'),
+            '/login': (context) => const LoginPage(),
+            '/dashboard': (context) => const DashboardPage(),
+            '/client-dashboard':
+                (context) => ClientDashboardPage(
+                  clientName:
+                      (ApiService.savedClientName ?? 'Espace client').trim(),
+                  clientId: (ApiService.savedClientId ?? '').trim(),
+                  clientData: {
+                    'clientId': (ApiService.savedClientId ?? '').trim(),
+                    'id': (ApiService.savedClientId ?? '').trim(),
+                    'name': (ApiService.savedClientName ?? 'Espace client').trim(),
+                    'email': (ApiService.savedClientEmail ?? '').trim(),
+                    'location': (ApiService.savedClientLocation ?? '').trim(),
+                  },
+                ),
+
+            '/add-client': (context) => const AddClientPage(),
+            '/team': (context) => const DashboardPage(),
+            '/technician-profile': (context) => const TechnicianProfilePage(),
+            '/technician-terminal': (context) => const TechnicianTerminalPage(),
+            '/technician-collaboration':
+                (context) => const TechnicianCollaborationPage(),
+            '/conception-observatory':
+                (context) => const ConceptionObservatoryPage(),
+            '/concepteur-dashboard': (context) => const ConcepteurDashboardPage(),
+            '/mission-control': (context) => const MissionControlPage(),
+            '/control-calendar': (context) => const ControlCalendarPage(),
+            '/control-reports-history':
+                (context) => const ControlReportsHistoryPage(),
+            '/preventive-history': (context) => const PreventiveHistoryPage(),
+
+            '/maintenance-login': (context) => const MaintenanceLoginPage(),
+            '/maintenance-dashboard': (context) => const MaintenanceDashboardPage(),
+            '/maintenance-profile': (context) => const MaintenanceProfilePage(),
+            '/maintenance-machine-hub': (context) => const MaintenanceMachineHubPage(),
+            '/add-technician': (context) => const AddTechnicianPage(),
+            '/machine-team': (context) => const MachineTeamPage(),
+            '/machine-detail':
+                (context) => const MachineDetailAiPage(machineId: 'MAC_HATHA'),
+            '/message-equipe': (context) => const MessageEquipePage(),
+            '/technician-dashboard': (context) => const TechnicianDashboardPage(),
+            '/machine-consultation': (context) => const MachineConsultationPage(),
+          },
         );
-      },
-      routes: {
-        '/': (context) => const SessionEntry(),
-        '/machines': (context) => const SessionEntry(initialSection: 'catalog'),
-        '/login': (context) => const LoginPage(),
-        '/dashboard': (context) => const DashboardPage(),
-        '/client-dashboard':
-            (context) => ClientDashboardPage(
-              clientName:
-                  (ApiService.savedClientName ?? 'Espace client').trim(),
-              clientId: (ApiService.savedClientId ?? '').trim(),
-              clientData: {
-                'clientId': (ApiService.savedClientId ?? '').trim(),
-                'id': (ApiService.savedClientId ?? '').trim(),
-                'name': (ApiService.savedClientName ?? 'Espace client').trim(),
-                'email': (ApiService.savedClientEmail ?? '').trim(),
-                'location': (ApiService.savedClientLocation ?? '').trim(),
-              },
-            ),
-
-        '/add-client': (context) => const AddClientPage(),
-        '/team': (context) => const DashboardPage(),
-        '/technician-profile': (context) => const TechnicianProfilePage(),
-        '/technician-terminal': (context) => const TechnicianTerminalPage(),
-        '/technician-collaboration':
-            (context) => const TechnicianCollaborationPage(),
-        '/conception-observatory':
-            (context) => const ConceptionObservatoryPage(),
-        '/concepteur-dashboard': (context) => const ConcepteurDashboardPage(),
-        '/mission-control': (context) => const MissionControlPage(),
-        '/control-calendar': (context) => const ControlCalendarPage(),
-        '/control-reports-history':
-            (context) => const ControlReportsHistoryPage(),
-        '/preventive-history': (context) => const PreventiveHistoryPage(),
-
-        '/maintenance-login': (context) => const MaintenanceLoginPage(),
-        '/maintenance-dashboard': (context) => const MaintenanceDashboardPage(),
-        '/maintenance-profile': (context) => const MaintenanceProfilePage(),
-        '/maintenance-machine-hub': (context) => const MaintenanceMachineHubPage(),
-        '/add-technician': (context) => const AddTechnicianPage(),
-        '/machine-team': (context) => const MachineTeamPage(),
-        '/machine-detail':
-            (context) => const MachineDetailAiPage(machineId: 'MAC_HATHA'),
-        '/message-equipe': (context) => const MessageEquipePage(),
-        '/technician-dashboard': (context) => const TechnicianDashboardPage(),
-        '/machine-consultation': (context) => const MachineConsultationPage(),
       },
     );
   }

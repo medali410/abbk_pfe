@@ -5,6 +5,7 @@ import 'ai_analysis_page.dart';
 import 'maintenance_ai_chat_page.dart';
 import 'maintenance_ia_status.dart';
 import 'maintenance_telemetry_mini_charts.dart';
+import 'services/theme_service.dart';
 
 /// Onglet « Analyse IA » : vue dédiée au risque et aux scénarios par machine.
 class MaintenanceAiAnalysisContent extends StatefulWidget {
@@ -24,15 +25,32 @@ class MaintenanceAiAnalysisContent extends StatefulWidget {
 }
 
 class _MaintenanceAiAnalysisContentState extends State<MaintenanceAiAnalysisContent> {
-  static const _text = Color(0xFFE2DFFF);
-  static const _muted = Color(0xFFE2BFB0);
+  // ── Theme-aware getters ──────────────────────────────────────────────────────
+  bool get _isDark => ThemeService().isDarkMode;
+  Color get _text   => _isDark ? const Color(0xFFE2DFFF) : const Color(0xFF1E1E2D);
+  Color get _muted  => _isDark ? const Color(0xFFE2BFB0) : const Color(0xFF64748B);
+  Color get _surface => _isDark ? const Color(0xFF1D1D38) : Colors.white;
+  Color get _chipBg  => _isDark ? const Color(0xFF1D1D38) : const Color(0xFFF1F5F9);
+  Color get _insightBg => _isDark ? Colors.black.withOpacity(0.15) : const Color(0xFFF1F5F9);
   static const _accent = Color(0xFFFF6E00);
-  
+  static const _aiColor = Color(0xFFB388FF);
+
   final PageController _pageController = PageController(viewportFraction: 0.92);
   int _currentPage = 0;
 
   @override
+  void initState() {
+    super.initState();
+    ThemeService().addListener(_onThemeChanged);
+  }
+
+  void _onThemeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    ThemeService().removeListener(_onThemeChanged);
     _pageController.dispose();
     super.dispose();
   }
@@ -68,7 +86,7 @@ class _MaintenanceAiAnalysisContentState extends State<MaintenanceAiAnalysisCont
                   'Synthèse du modèle de panne et des scénarios détectés sur vos machines.',
                   style: GoogleFonts.inter(
                     fontSize: 12,
-                    color: _muted.withValues(alpha: 0.9),
+                    color: _muted.withOpacity(0.9),
                     height: 1.4,
                   ),
                 ),
@@ -79,29 +97,29 @@ class _MaintenanceAiAnalysisContentState extends State<MaintenanceAiAnalysisCont
                     context,
                     MaterialPageRoute(
                       builder: (_) => Scaffold(
-                        backgroundColor: const Color(0xFF0D0D1F),
+                        backgroundColor: _isDark ? const Color(0xFF0D0D1F) : const Color(0xFFF8FAFC),
                         appBar: AppBar(
-                          backgroundColor: const Color(0xFF1A1A2E),
+                          backgroundColor: _isDark ? const Color(0xFF1A1A2E) : Colors.white,
                           title: Text(
                             'Assistant IA',
                             style: GoogleFonts.spaceGrotesk(
                               fontWeight: FontWeight.bold,
-                              color: const Color(0xFFE2DFFF),
+                              color: _text,
                             ),
                           ),
-                          iconTheme: const IconThemeData(color: Color(0xFFE2DFFF)),
+                          iconTheme: IconThemeData(color: _text),
                         ),
                         body: MaintenanceAiChatPage(data: widget.data),
                       ),
                     ),
                   );
                 },
-                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18, color: Color(0xFFB388FF)),
+                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18, color: _aiColor),
                 label: Text(
                   'Chat IA',
                   style: GoogleFonts.inter(
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFFB388FF),
+                    color: _aiColor,
                     fontSize: 12,
                   ),
                 ),
@@ -147,7 +165,7 @@ class _MaintenanceAiAnalysisContentState extends State<MaintenanceAiAnalysisCont
                     }
                   },
                   selectedColor: _accent.withOpacity(0.2),
-                  backgroundColor: const Color(0xFF1D1D38),
+                  backgroundColor: _chipBg,
                   labelStyle: GoogleFonts.inter(
                     color: isSelected ? _accent : _text,
                     fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
@@ -180,7 +198,7 @@ class _MaintenanceAiAnalysisContentState extends State<MaintenanceAiAnalysisCont
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 8.0),
                 child: Material(
-                  color: const Color(0xFF1D1D38),
+                  color: _surface,
                   borderRadius: BorderRadius.circular(16),
                   clipBehavior: Clip.antiAlias,
                   child: InkWell(
@@ -208,7 +226,7 @@ class _MaintenanceAiAnalysisContentState extends State<MaintenanceAiAnalysisCont
                             children: [
                               Icon(
                                 Icons.precision_manufacturing_outlined,
-                                color: _accent.withValues(alpha: 0.9),
+                                color: _accent.withOpacity(0.9),
                                 size: 24,
                               ),
                               const SizedBox(width: 12),
@@ -238,7 +256,6 @@ class _MaintenanceAiAnalysisContentState extends State<MaintenanceAiAnalysisCont
                             compact: false,
                           ),
                           const SizedBox(height: 16),
-                          // Les LineChart capturent les taps ; on les ignore pour que le InkWell ouvre la page.
                           IgnorePointer(
                             child: MaintenanceTelemetryMiniCharts(
                               key: ValueKey('telemetry-$id'),
@@ -250,14 +267,14 @@ class _MaintenanceAiAnalysisContentState extends State<MaintenanceAiAnalysisCont
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.15),
+                              color: _insightBg,
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
                               insight,
                               style: GoogleFonts.inter(
                                 fontSize: 13,
-                                color: _text.withValues(alpha: 0.88),
+                                color: _text.withOpacity(0.88),
                                 height: 1.4,
                               ),
                             ),
@@ -285,7 +302,7 @@ class _MaintenanceAiAnalysisContentState extends State<MaintenanceAiAnalysisCont
                   height: 6,
                   width: isSelected ? 20 : 6,
                   decoration: BoxDecoration(
-                    color: isSelected ? _accent : _muted.withValues(alpha: 0.3),
+                    color: isSelected ? _accent : _muted.withOpacity(0.3),
                     borderRadius: BorderRadius.circular(3),
                   ),
                 );

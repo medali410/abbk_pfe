@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'machine_detail_ai_page.dart';
 
+import 'services/theme_service.dart';
+
 /// Données agrégées par la chaîne IoT + modèle (probabilité panne, scénario, niveau).
 
 double iaProbPanne(Map<String, dynamic> m) {
@@ -71,8 +73,10 @@ class MaintenanceMachineIaStrip extends StatelessWidget {
   final Map<String, dynamic> machine;
   final bool compact;
 
-  static const _text = Color(0xFFE2DFFF);
-  static const _muted = Color(0xFFE2BFB0);
+  bool get _isDark => ThemeService().isDarkMode;
+  Color get _text => _isDark ? const Color(0xFFE2DFFF) : const Color(0xFF1E1E2D);
+  Color get _muted => _isDark ? const Color(0xFFE2BFB0) : const Color(0xFF7A7A8C);
+  Color get _bg => _isDark ? Colors.black.withValues(alpha: 0.25) : Colors.black.withValues(alpha: 0.05);
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +88,7 @@ class MaintenanceMachineIaStrip extends StatelessWidget {
     return Container(
       padding: EdgeInsets.all(compact ? 8 : 10),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.25),
+        color: _bg,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: accent.withValues(alpha: 0.45)),
       ),
@@ -188,8 +192,9 @@ class MaintenanceIaSidebarMachineRow extends StatelessWidget {
   final Map<String, dynamic> machine;
   final bool compact;
 
-  static const _text = Color(0xFFE2DFFF);
-  static const _muted = Color(0xFFE2BFB0);
+  bool get _isDark => ThemeService().isDarkMode;
+  Color get _text => _isDark ? const Color(0xFFE2DFFF) : const Color(0xFF1E1E2D);
+  Color get _muted => _isDark ? const Color(0xFFE2BFB0) : const Color(0xFF7A7A8C);
 
   @override
   Widget build(BuildContext context) {

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:file_picker/file_picker.dart';
@@ -11,6 +12,7 @@ import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:url_launcher/url_launcher.dart';
 import '../services/api_service.dart';
 import 'voice_player_widget.dart';
 import 'chat/chat_theme.dart';
@@ -18,7 +20,8 @@ import 'chat/chat_layout.dart';
 import 'chat/chat_sidebar.dart';
 import 'chat/chat_main_area.dart';
 import 'chat/chat_info_panel.dart';
-import 'chat/call_screen.dart';
+// import 'chat/call_screen.dart';
+// import 'chat/agora_call_screen.dart';
 
 class MessageEquipeView extends StatefulWidget {
   final String? technicianId;
@@ -99,25 +102,60 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
   String _callType = 'voice';
   Map<String, dynamic>? _incomingCallData;
   final AudioPlayer _ringtonePlayer = AudioPlayer();
+  Timer? _incomingCallTimeout;
   final TextEditingController _searchController = TextEditingController();
+  // JWT Decoder (manual fallback without third-party package)
+  Map<String, dynamic> _decodeJwt(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return <String, dynamic>{};
+
+      String normalized = parts[1].replaceAll('-', '+').replaceAll('_', '/');
+      switch (normalized.length % 4) {
+        case 0: break;
+        case 2: normalized += '=='; break;
+        case 3: normalized += '='; break;
+        default: return <String, dynamic>{};
+      }
+      
+      final payload = utf8.decode(base64.decode(normalized));
+      return json.decode(payload) as Map<String, dynamic>;
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
   int get _currentUserId {
+    // 1. Prioritize extracting the real integer ID straight from the JWT auth token
+    final token = ApiService.authToken;
+    if (token != null && token.isNotEmpty) {
+      try {
+        final decoded = _decodeJwt(token);
+        if (decoded['id'] != null) {
+          return int.parse(decoded['id'].toString());
+        } else if (decoded['userId'] != null) {
+          return int.parse(decoded['userId'].toString());
+        }
+      } catch (e) {
+        debugPrint('Error decoding JWT for userId: $e');
+      }
+    }
+
+    // 2. Fallbacks if token fails
     final userRole = ApiService.savedUserRole?.toLowerCase();
     final isConcepteur = userRole == 'concepteur' || (userRole == 'conception' && !ApiService.isSuperAdmin);
     if (isConcepteur) {
       final myProfile = ApiService.savedConcepteurProfile;
       if (myProfile != null) {
-        final idStr = (myProfile['id'] ?? myProfile['_id'] ?? myProfile['concepteurId'] ?? myProfile['userId'] ?? '').toString();
+        final idStr = (myProfile['userId'] ?? myProfile['id'] ?? myProfile['_id'] ?? myProfile['concepteurId'] ?? '').toString();
         final id = int.tryParse(idStr);
         if (id != null) return id;
       }
     }
-    if (_senderRole == 'technician' && _technicianId.isNotEmpty) {
-      return int.tryParse(_technicianId) ?? 1;
-    }
-    if (_senderRole == 'client' && _clientId.isNotEmpty) {
-      return int.tryParse(_clientId) ?? 1;
-    }
-    return 1;
+    
+    // For other roles, if we failed to get it from JWT, their specific IDs (like TC-123) are not integer userIds.
+    // We return 0 so it doesn't accidentally collide with Admin (id 1).
+    return 0;
   }
   Map<String, dynamic>? _selectedDesignerDetails;
   List<int> _blockedUserIds = [];
@@ -180,6 +218,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     _pollingTimer?.cancel();
     _typingDebounceTimer?.cancel();
     _typingTimer?.cancel();
+    _incomingCallTimeout?.cancel();
     super.dispose();
   }
 
@@ -240,6 +279,13 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     return n.isNotEmpty ? n : 'Discussion';
   }
 
+  String _generateDirectRoomId(int otherId) {
+    int id1 = _currentUserId;
+    int id2 = otherId;
+    if (id1 < id2) return 'chat_direct_${id1}_$id2';
+    return 'chat_direct_${id2}_$id1';
+  }
+
   Future<void> _initChat() async {
     _socket = io.io(ApiService.socketBaseUrl, <String, dynamic>{
       'transports': <String>['websocket'],
@@ -275,6 +321,12 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
               _conversations[idx]['unreadCount'] = (_conversations[idx]['unreadCount'] ?? 0) + 1;
             });
           }
+          return;
+        }
+        // Deduplication: skip messages we sent ourselves optimistically
+        final echoed = (m['_localId'] ?? '').toString();
+        if (echoed.isNotEmpty && _sentLocalIds.contains(echoed)) {
+          _sentLocalIds.remove(echoed); // cleanup
           return;
         }
         final fromMe = senderVal == _senderName &&
@@ -349,6 +401,17 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
           setState(() => _incomingCallData = Map<String, dynamic>.from(data));
           _startRingtone();
           _showIncomingCallDialog();
+          // Start timeout for missed call (30 seconds)
+          _incomingCallTimeout?.cancel();
+          _incomingCallTimeout = Timer(const Duration(seconds: 30), () {
+            if (mounted && _incomingCallData != null) {
+              _stopRingtone();
+              _sendMissedCallMessage(_incomingCallData!['callType'] ?? 'voice');
+              setState(() => _incomingCallData = null);
+              // Close dialog if still open
+              Navigator.of(context).pop();
+            }
+          });
         }
       } catch (_) {}
     });
@@ -361,232 +424,29 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
       final userRole = ApiService.savedUserRole?.toLowerCase();
       final isConcepteur = userRole == 'concepteur' || (userRole == 'conception' && !ApiService.isSuperAdmin);
 
-      if (_senderRole == 'client') {
-        if (_clientId.isNotEmpty) {
-          final list = <Map<String, dynamic>>[];
-          final contacts = await ApiService.getClientContacts();
+      final isAdmin = ApiService.isSuperAdmin || ApiService.savedUserRole?.toLowerCase() == 'admin';
+      final list = <Map<String, dynamic>>[];
+      List<Map<String, dynamic>> contacts = [];
 
-          // Group by role
-          final concepteurs = contacts.where((c) => c['role'] == 'conception').toList();
-          final techs = contacts.where((c) => c['role'] == 'technician').toList();
-          final agents = contacts.where((c) => c['role'] == 'maintenance').toList();
-
-          list.add({'roomId': '__section_admin__', 'isSectionHeader': true, 'sectionLabel': 'SUPPORT GÉNÉRAL', 'sectionIcon': 'admin_panel_settings', 'sectionColor': 'red'});
-          list.add({
-            'roomId': 'chat_client_${_clientId}_admin', 'name': 'Administrateur',
-            'subId': 'admin', 'roleLabel': 'Admin', 'lastText': 'Contacter le support', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-            'role': 'admin'
-          });
-
-          if (concepteurs.isNotEmpty) {
-            list.add({'roomId': '__section_concep__', 'isSectionHeader': true, 'sectionLabel': 'CONCEPTEURS', 'sectionIcon': 'engineering', 'sectionColor': 'purple'});
-            for (final c in concepteurs) {
-              list.add({
-                'roomId': 'chat_client_${_clientId}_concepteur_${c['subId']}', 'name': c['name'], 'subId': c['subId'].toString(),
-                'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-                'machineId': c['machineId'], 'role': 'conception'
-              });
-            }
-          }
-
-          if (techs.isNotEmpty) {
-            list.add({'roomId': '__section_tech__', 'isSectionHeader': true, 'sectionLabel': 'TECHNICIENS', 'sectionIcon': 'build', 'sectionColor': 'blue'});
-            for (final t in techs) {
-              list.add({
-                'roomId': 'chat_client_${_clientId}_tech_${t['subId']}', 'name': t['name'], 'subId': t['subId'].toString(),
-                'roleLabel': t['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-                'machineId': t['machineId'], 'role': 'technician'
-              });
-            }
-          }
-
-          if (agents.isNotEmpty) {
-            list.add({'roomId': '__section_maint__', 'isSectionHeader': true, 'sectionLabel': 'AGENTS DE MAINTENANCE', 'sectionIcon': 'support_agent', 'sectionColor': 'orange'});
-            for (final a in agents) {
-              list.add({
-                'roomId': 'chat_client_${_clientId}_maint_${a['subId']}', 'name': a['name'], 'subId': a['subId'].toString(),
-                'roleLabel': a['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-                'machineId': a['machineId'], 'role': 'maintenance'
-              });
-            }
-          }
-
-          _conversations = list;
-        }
-      } else if (_senderRole == 'conception' || _senderRole == 'concepteur') {
-        final list = <Map<String, dynamic>>[];
-        final isAdmin = ApiService.isSuperAdmin;
-
-        if (isAdmin) {
-          // ── Admin : charger uniquement les concepteurs ──
-          try {
-            final contacts = await ApiService.getConcepteurContacts();
-            final concepteurs = contacts.where((c) => c['role'] == 'conception').toList();
-            if (concepteurs.isNotEmpty) {
-              list.add({'roomId': '__section_concepteurs__', 'isSectionHeader': true, 'sectionLabel': 'CONCEPTEURS', 'sectionIcon': 'engineering', 'sectionColor': 'orange'});
-              for (final c in concepteurs) {
-                list.add({
-                  'roomId': 'chat_conception_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
-                  'roleLabel': c['roleLabel'] ?? 'Concepteur',
-                  'machines': c['machines'] ?? <String>[],
-                  'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-                });
-              }
-            }
-          } catch (_) {}
-        } else {
-          // ── Concepteur : charger uniquement ses contacts (par machine) ──
-          final myProfile = ApiService.savedConcepteurProfile;
-          final myConcepteurId = myProfile != null ? (myProfile['id'] ?? myProfile['_id'] ?? '').toString() : '';
-          
-          if (myConcepteurId.isNotEmpty) {
-            list.add({
-              'roomId': 'chat_conception_$myConcepteurId',
-              'name': 'Admin',
-              'lastText': 'Discuter avec l\'administrateur',
-              'lastAt': DateTime.now().toIso8601String(),
-              'senderName': 'Admin',
-              'roleLabel': 'Admin',
-            });
-          }
-
-          try {
-            final contacts = await ApiService.getConcepteurContacts();
-            
-            final techs = contacts.where((c) => c['role'] == 'technician').toList();
-            final agents = contacts.where((c) => c['role'] == 'maintenance').toList();
-            final clients = contacts.where((c) => c['role'] == 'client').toList();
-            final concepteurs = contacts.where((c) => c['role'] == 'conception').toList();
-
-            if (concepteurs.isNotEmpty) {
-              list.add({'roomId': '__section_concepteurs__', 'isSectionHeader': true, 'sectionLabel': 'CONCEPTEURS', 'sectionIcon': 'engineering', 'sectionColor': 'orange'});
-              for (final c in concepteurs) {
-                list.add({
-                  'roomId': 'chat_conception_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
-                  'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-                });
-              }
-            }
-
-            if (clients.isNotEmpty) {
-              list.add({'roomId': '__section_clients__', 'isSectionHeader': true, 'sectionLabel': 'CLIENTS', 'sectionIcon': 'groups', 'sectionColor': 'green'});
-              for (final c in clients) {
-                list.add({
-                  'roomId': 'chat_conception_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
-                  'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-                });
-              }
-            }
-
-            if (techs.isNotEmpty) {
-              list.add({'roomId': '__section_tech__', 'isSectionHeader': true, 'sectionLabel': 'TECHNICIENS', 'sectionIcon': 'engineering', 'sectionColor': 'purple'});
-              for (final c in techs) {
-                list.add({
-                  'roomId': 'chat_conception_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
-                  'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-                });
-              }
-            }
-
-            if (agents.isNotEmpty) {
-              list.add({'roomId': '__section_maint__', 'isSectionHeader': true, 'sectionLabel': 'AGENTS DE MAINTENANCE', 'sectionIcon': 'support_agent', 'sectionColor': 'blue'});
-              for (final c in agents) {
-                list.add({
-                  'roomId': 'chat_conception_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
-                  'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-                });
-              }
-            }
-          } catch (_) {}
+      if (!isAdmin) {
+        String adminRoomId = 'chat_admin';
+        if (_senderRole == 'client' && _clientId.isNotEmpty) {
+           adminRoomId = 'chat_client_${_clientId}_admin';
+        } else if ((_senderRole == 'conception' || _senderRole == 'concepteur')) {
+           final profile = ApiService.savedConcepteurProfile;
+           final cId = profile != null ? (profile['id'] ?? profile['_id'] ?? '').toString() : '';
+           if (cId.isNotEmpty) adminRoomId = 'chat_conception_$cId';
+        } else if (_senderRole == 'maintenance') {
+           try {
+             final ws = await ApiService.getMaintenanceWorkspace();
+             final agent = ws['agent'] as Map?;
+             final aId = (agent?['maintenanceAgentId'] ?? agent?['id'] ?? '').toString();
+             adminRoomId = aId.isNotEmpty ? 'chat_maintenance_${aId}_admin' : 'chat_maintenance_admin';
+           } catch (_) {}
+        } else if (_technicianId.isNotEmpty) {
+           adminRoomId = 'chat_technicien_$_technicianId';
         }
 
-        _conversations = list;
-        if (mounted) setState(() {});
-
-        // Charger le dernier message pour chaque conversation (non-header)
-        for (final conv in _conversations) {
-          if (conv['isSectionHeader'] == true) continue;
-          try {
-            final msgs = await ApiService.getChatMessages(conv['roomId'], limit: 1);
-            if (msgs.isNotEmpty) {
-              conv['lastText']   = msgs.first['text'] ?? '';
-              conv['lastAt']     = msgs.first['createdAt'] ?? '';
-              conv['senderName'] = msgs.first['senderName'] ?? '';
-            }
-          } catch (_) {}
-        }
-        if (mounted) setState(() {});
-        return; // évite le bloc générique ci-dessous
-      } else {
-        if (_technicianId.isNotEmpty) {
-          final list = <Map<String, dynamic>>[];
-          list.add({
-            'roomId': 'chat_technicien_$_technicianId',
-            'name': 'Admin',
-            'lastText': 'Discuter avec l\'administrateur',
-            'lastAt': DateTime.now().toIso8601String(),
-            'senderName': 'Admin',
-            'roleLabel': 'Admin',
-          });
-
-          try {
-            final contacts = await ApiService.getTechnicianContacts();
-            
-            final concepteurs = contacts.where((c) => c['role'] == 'conception').toList();
-            final agents = contacts.where((c) => c['role'] == 'maintenance').toList();
-            final clients = contacts.where((c) => c['role'] == 'client').toList();
-
-            if (concepteurs.isNotEmpty) {
-              list.add({'roomId': '__section_concep__', 'isSectionHeader': true, 'sectionLabel': 'CONCEPTEURS', 'sectionIcon': 'engineering', 'sectionColor': 'orange'});
-              for (final c in concepteurs) {
-                list.add({
-                  'roomId': 'chat_direct_${_technicianId}_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
-                  'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-                });
-              }
-            }
-
-            if (agents.isNotEmpty) {
-              list.add({'roomId': '__section_maint__', 'isSectionHeader': true, 'sectionLabel': 'AGENTS DE MAINTENANCE', 'sectionIcon': 'support_agent', 'sectionColor': 'blue'});
-              for (final c in agents) {
-                list.add({
-                  'roomId': 'chat_direct_${_technicianId}_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
-                  'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-                });
-              }
-            }
-
-            if (clients.isNotEmpty) {
-              list.add({'roomId': '__section_clients__', 'isSectionHeader': true, 'sectionLabel': 'CLIENTS', 'sectionIcon': 'groups', 'sectionColor': 'green'});
-              for (final c in clients) {
-                list.add({
-                  'roomId': 'chat_direct_${_technicianId}_${c['id']}', 'name': c['name'], 'subId': c['id'].toString(),
-                  'roleLabel': c['roleLabel'], 'lastText': 'Ouvrir la discussion', 'lastAt': DateTime.now().toIso8601String(), 'senderName': '',
-                });
-              }
-            }
-          } catch (_) {}
-
-          _conversations = list;
-          if (mounted) setState(() {});
-          return;
-        }
-      } 
-      
-      if (_senderRole == 'maintenance') {
-
-        // ── Agent de maintenance : charger ses contacts (par machine) ──
-        String myAgentId = '';
-        try {
-          final workspace = await ApiService.getMaintenanceWorkspace();
-          final agent = workspace['agent'] as Map<String, dynamic>?;
-          myAgentId = (agent?['maintenanceAgentId'] ?? agent?['id'] ?? '').toString();
-        } catch (_) {}
-
-        final list = <Map<String, dynamic>>[];
-        final adminRoomId = myAgentId.isNotEmpty
-            ? 'chat_maintenance_${myAgentId}_admin'
-            : 'chat_maintenance_admin';
         list.add({
           'roomId': adminRoomId,
           'name': 'Admin',
@@ -596,79 +456,120 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
           'roleLabel': 'Admin',
           'role': 'admin',
         });
-
-        try {
-          final contacts = await ApiService.getMaintenanceAgentContacts();
-
-          final concepteurs = contacts.where((c) => c['role'] == 'conception').toList();
-          final techs = contacts.where((c) => c['role'] == 'technician').toList();
-          final clients = contacts.where((c) => c['role'] == 'client').toList();
-
-          if (concepteurs.isNotEmpty) {
-            list.add({'roomId': '__section_concep__', 'isSectionHeader': true, 'sectionLabel': 'CONCEPTEURS', 'sectionIcon': 'engineering', 'sectionColor': 'purple'});
-            for (final c in concepteurs) {
-              final agentId = myAgentId.isNotEmpty ? myAgentId : 'agent';
-              list.add({
-                'roomId': 'chat_direct_maint_${agentId}_${c['id']}',
-                'name': c['name'], 'subId': c['id'].toString(),
-                'roleLabel': c['roleLabel'],
-                'lastText': 'Ouvrir la discussion',
-                'lastAt': DateTime.now().toIso8601String(),
-                'senderName': '', 'role': 'conception',
-              });
-            }
-          }
-
-          if (techs.isNotEmpty) {
-            list.add({'roomId': '__section_tech__', 'isSectionHeader': true, 'sectionLabel': 'TECHNICIENS', 'sectionIcon': 'build', 'sectionColor': 'blue'});
-            for (final c in techs) {
-              final agentId = myAgentId.isNotEmpty ? myAgentId : 'agent';
-              list.add({
-                'roomId': 'chat_direct_maint_${agentId}_${c['id']}',
-                'name': c['name'], 'subId': c['id'].toString(),
-                'roleLabel': c['roleLabel'],
-                'lastText': 'Ouvrir la discussion',
-                'lastAt': DateTime.now().toIso8601String(),
-                'senderName': '', 'role': 'technician',
-              });
-            }
-          }
-
-          if (clients.isNotEmpty) {
-            list.add({'roomId': '__section_clients__', 'isSectionHeader': true, 'sectionLabel': 'CLIENTS', 'sectionIcon': 'groups', 'sectionColor': 'green'});
-            for (final c in clients) {
-              final agentId = myAgentId.isNotEmpty ? myAgentId : 'agent';
-              list.add({
-                'roomId': 'chat_direct_maint_${agentId}_${c['id']}',
-                'name': c['name'], 'subId': c['id'].toString(),
-                'roleLabel': c['roleLabel'],
-                'lastText': 'Ouvrir la discussion',
-                'lastAt': DateTime.now().toIso8601String(),
-                'senderName': '', 'role': 'client',
-              });
-            }
-          }
-        } catch (_) {}
-
-        _conversations = list;
-        if (mounted) setState(() {});
-
-        // Load last message preview
-        for (final conv in _conversations) {
-          if (conv['isSectionHeader'] == true) continue;
-          try {
-            final msgs = await ApiService.getChatMessages(conv['roomId'], limit: 1);
-            if (msgs.isNotEmpty) {
-              conv['lastText'] = msgs.first['text'] ?? '';
-              conv['lastAt'] = msgs.first['createdAt'] ?? '';
-              conv['senderName'] = msgs.first['senderName'] ?? '';
-            }
-          } catch (_) {}
-        }
-        if (mounted) setState(() {});
-        return;
       }
-      
+
+      try {
+        if (isAdmin) {
+          final rawConcepteurs = await ApiService.getConcepteurs();
+          contacts.addAll(rawConcepteurs.map((c) => {
+            'id': c['id'] ?? c['_id'],
+            'name': c['username'] ?? c['name'] ?? 'Concepteur',
+            'role': 'concepteurs', 
+            'roleLabel': c['roleLabel'] ?? 'Concepteur',
+            'machines': c['machines'] ?? <String>[],
+          }).map((m) { m['role'] = 'conception'; return m; }).toList());
+          contacts.addAll(await ApiService.getTechnicianContacts());
+          contacts.addAll(await ApiService.getClientContacts());
+          contacts.addAll(await ApiService.getMaintenanceAgentContacts());
+        } else if (_senderRole == 'client') {
+          contacts = await ApiService.getClientContacts();
+        } else if (_senderRole == 'conception' || _senderRole == 'concepteur') {
+          contacts = await ApiService.getConcepteurContacts();
+        } else if (_senderRole == 'maintenance') {
+          contacts = await ApiService.getMaintenanceAgentContacts();
+        } else {
+          contacts = await ApiService.getTechnicianContacts();
+        }
+      } catch (e) {
+        debugPrint('Erreur chargement contacts unifiés: $e');
+      }
+
+      final concepteurs = contacts.where((c) => c['role'] == 'conception' || c['role'] == 'concepteur').toList();
+      final techs = contacts.where((c) => c['role'] == 'technician').toList();
+      final agents = contacts.where((c) => c['role'] == 'maintenance').toList();
+      final clients = contacts.where((c) => c['role'] == 'client').toList();
+
+      final seenIds = <String>{};
+
+      void addSection(String headerId, String label, String icon, String color, List sectionContacts) {
+        if (sectionContacts.isEmpty) return;
+        list.add({
+          'roomId': headerId,
+          'isSectionHeader': true,
+          'sectionLabel': label,
+          'sectionIcon': icon,
+          'sectionColor': color,
+        });
+
+        for (final c in sectionContacts) {
+          final idStr = c['id'].toString();
+          final idKey = '${c['role']}_${idStr}';
+          if (seenIds.contains(idKey)) continue;
+          seenIds.add(idKey);
+          
+          String roomId = '';
+          if (isAdmin) {
+             roomId = 'chat_${c['role'] == 'concepteur' ? 'conception' : c['role']}_${idStr}';
+          } else {
+             final intId = int.tryParse(idStr) ?? 0;
+             roomId = _generateDirectRoomId(intId);
+          }
+
+          list.add({
+            'roomId': roomId,
+            'name': c['name'] ?? 'Contact',
+            'subId': idStr,
+            'roleLabel': c['roleLabel'] ?? '',
+            'machines': c['machines'] ?? <String>[],
+            'lastText': 'Ouvrir la discussion',
+            'lastAt': DateTime.now().toIso8601String(),
+            'senderName': '',
+            'role': c['role'] ?? '',
+          });
+        }
+      }
+
+      // ── Apply per-role visibility rules ──────────────────────────────
+      // Client     → Concepteurs, Techniciens, Maintenance
+      // Technicien → Concepteurs, Techniciens (peers), Maintenance
+      // Maintenance → Concepteurs, Techniciens, Clients
+      // Concepteur → All
+      // Admin      → Concepteurs only
+      // ─────────────────────────────────────────────────────────────────
+      List<Map<String, dynamic>> filteredConcepteurs = [];
+      List<Map<String, dynamic>> filteredTechs = [];
+      List<Map<String, dynamic>> filteredAgents = [];
+      List<Map<String, dynamic>> filteredClients = [];
+
+      if (isAdmin) {
+        filteredConcepteurs = concepteurs;
+        // Admin chats with concepteurs only
+      } else if (_senderRole == 'client') {
+        filteredConcepteurs = concepteurs;
+        filteredTechs = techs;
+        filteredAgents = agents;
+      } else if (_senderRole == 'conception' || _senderRole == 'concepteur') {
+        filteredConcepteurs = concepteurs;
+        filteredTechs = techs;
+        filteredAgents = agents;
+        filteredClients = clients;
+      } else if (_senderRole == 'maintenance') {
+        filteredConcepteurs = concepteurs;
+        filteredTechs = techs;
+        filteredClients = clients;
+      } else {
+        // Technicien
+        filteredConcepteurs = concepteurs;
+        filteredTechs = techs; // peers
+        filteredAgents = agents;
+      }
+
+      addSection('__section_concep__', 'CONCEPTEURS', 'engineering', 'orange', filteredConcepteurs);
+      addSection('__section_tech__', 'TECHNICIENS', 'build', 'purple', filteredTechs);
+      addSection('__section_maint__', 'AGENTS DE MAINTENANCE', 'support_agent', 'blue', filteredAgents);
+      addSection('__section_clients__', 'CLIENTS', 'groups', 'green', filteredClients);
+
+      _conversations = list;
       // Load last message and resolve names for ALL roles
       for (final conv in _conversations) {
         final roomName = (conv['name'] ?? conv['roomId'] ?? '').toString();
@@ -865,12 +766,17 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
 
     _socket?.emit('join_chat_room', {'roomId': _activeRoomId});
 
+    // Generate a local ID to deduplicate the socket echo
+    final localId = '${DateTime.now().millisecondsSinceEpoch}_${_activeRoomId}_${_senderName.hashCode}';
+    _sentLocalIds.add(localId);
+
     final localMessage = <String, dynamic>{
       'roomId': _activeRoomId,
       'from': _senderRole,
       'senderName': _senderName,
       'text': text,
       'createdAt': DateTime.now().toIso8601String(),
+      '_localId': localId,
     };
 
     if (mounted) {
@@ -890,7 +796,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     };
 
     // 1. Emit socket event instantly for real-time delivery
-    _socket?.emit('chat_message', payload);
+    _socket?.emit('chat_message', {...payload, '_localId': localId});
 
     // 2. Post to DB via REST API in background
     ApiService.postChatMessage(payload).catchError((err) {
@@ -1441,6 +1347,19 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                     onPressed: () => Navigator.pop(dialogCtx),
                     child: Text('Annuler', style: TextStyle(color: theme.muted)),
                   ),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.group_add, size: 16),
+                    label: const Text('Créer un groupe'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _accent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(dialogCtx);
+                      _showCreateGroupDialog(contacts);
+                    },
+                  ),
                 ],
               );
             },
@@ -1450,11 +1369,198 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     );
   }
 
+  void _showCreateGroupDialog(List<Map<String, dynamic>> allContacts) {
+    final selectedIds = <int>{};
+    final groupNameController = TextEditingController();
+    List<Map<String, dynamic>> contacts = allContacts;
+    bool isFetchingContacts = contacts.isEmpty;
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            brightness: widget.isDarkMode ? Brightness.dark : Brightness.light,
+          ),
+          child: StatefulBuilder(
+            builder: (dialogCtx, setDialogState) {
+              final theme = ChatTheme.of(dialogCtx);
+              if (isFetchingContacts) {
+                ApiService.getConcepteurContacts().then((results) {
+                  if (mounted) setDialogState(() { contacts = results; isFetchingContacts = false; });
+                });
+              }
+              return AlertDialog(
+                backgroundColor: theme.bg,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: Text('Créer un groupe', style: theme.titleStyle),
+                content: SizedBox(
+                  width: 420,
+                  height: 480,
+                  child: isFetchingContacts
+                      ? Center(child: CircularProgressIndicator(color: _accent))
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TextField(
+                              controller: groupNameController,
+                              style: TextStyle(color: theme.text),
+                              decoration: InputDecoration(
+                                labelText: 'Nom du groupe',
+                                labelStyle: TextStyle(color: theme.muted),
+                                enabledBorder: OutlineInputBorder(
+                                  borderSide: BorderSide(color: theme.muted.withOpacity(0.4)),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderSide: BorderSide(color: _accent),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                prefixIcon: Icon(Icons.group, color: theme.muted),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text('Sélectionner les membres:', style: theme.subtitleStyle),
+                            const SizedBox(height: 6),
+                            Expanded(
+                              child: contacts.isEmpty
+                                  ? Center(child: Text('Aucun contact disponible', style: TextStyle(color: theme.muted)))
+                                  : ListView.builder(
+                                      itemCount: contacts.length,
+                                      itemBuilder: (_, i) {
+                                        final c = contacts[i];
+                                        final id = c['id'] is int ? c['id'] as int : int.tryParse(c['id'].toString()) ?? -1;
+                                        final isSelected = selectedIds.contains(id);
+                                        return CheckboxListTile(
+                                          value: isSelected,
+                                          activeColor: _accent,
+                                          title: Text(c['name'] ?? '', style: theme.nameStyle),
+                                          subtitle: Text(c['roleLabel'] ?? c['role'] ?? '', style: theme.subtitleStyle),
+                                          onChanged: (val) {
+                                            setDialogState(() {
+                                              if (val == true) selectedIds.add(id);
+                                              else selectedIds.remove(id);
+                                            });
+                                          },
+                                        );
+                                      },
+                                    ),
+                            ),
+                          ],
+                        ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () { groupNameController.dispose(); Navigator.pop(dialogCtx); },
+                    child: Text('Annuler', style: TextStyle(color: theme.muted)),
+                  ),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.check, size: 16),
+                    label: Text('Créer (${selectedIds.length})'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: selectedIds.length >= 1 ? _accent : Colors.grey,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: selectedIds.length < 1 ? null : () {
+                      final name = groupNameController.text.trim().isNotEmpty
+                          ? groupNameController.text.trim()
+                          : 'Groupe ${DateTime.now().millisecondsSinceEpoch}';
+                      final members = contacts.where((c) {
+                        final id = c['id'] is int ? c['id'] as int : int.tryParse(c['id'].toString()) ?? -1;
+                        return selectedIds.contains(id);
+                      }).toList();
+                      groupNameController.dispose();
+                      Navigator.pop(dialogCtx);
+                      _createGroupRoom(name, members);
+                    },
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _createGroupRoom(String groupName, List<Map<String, dynamic>> members) async {
+    final roomId = 'group_${_senderName.replaceAll(' ', '_')}_${DateTime.now().millisecondsSinceEpoch}';
+    final now = DateTime.now().toIso8601String();
+
+    try {
+      await ApiService.addRoomParticipant(roomId: roomId, userId: _currentUserId, role: _senderRole, userName: _senderName);
+    } catch (e) {
+      debugPrint('Group create: could not add self: $e');
+    }
+
+    for (final m in members) {
+      try {
+        final uid = m['id'] is int ? m['id'] as int : int.tryParse(m['id'].toString()) ?? -1;
+        if (uid < 0) continue;
+        await ApiService.addRoomParticipant(roomId: roomId, userId: uid, role: m['role'] ?? 'unknown', userName: m['name'] ?? '');
+      } catch (e) {
+        debugPrint('Group create: could not add member: $e');
+      }
+    }
+
+    final memberNames = members.map((m) => m['name'] ?? '').join(', ');
+    final groupConv = {
+      'roomId': roomId,
+      'name': groupName,
+      'lastText': 'Groupe créé — $memberNames',
+      'lastAt': now,
+      'senderName': _senderName,
+      'isGroup': true,
+      'participants': [
+        {'userId': _currentUserId, 'userName': _senderName, 'role': _senderRole},
+        ...members.map((m) => {'userId': m['id'], 'userName': m['name'], 'role': m['role'] ?? 'unknown'}),
+      ],
+    };
+
+    if (!mounted) return;
+    setState(() {
+      _conversations.insert(0, groupConv);
+    });
+
+    _socket?.emit('join_chat_room', {'roomId': roomId});
+
+    try {
+      await ApiService.postChatMessage({
+        'roomId': roomId,
+        'from': _senderRole,
+        'senderName': _senderName,
+        'text': '🎉 Groupe "$groupName" créé avec ${members.length} membre(s).',
+        'userId': _currentUserId.toString(),
+      });
+    } catch (_) {}
+
+    if (!mounted) return;
+    _switchConversation({
+      'roomId': roomId,
+      'name': groupName,
+    });
+  }
+
   String _fmtTime(dynamic raw) {
     final dt = DateTime.tryParse((raw ?? '').toString());
     if (dt == null) return '--:--';
     final d = dt.toLocal();
     return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  }
+
+  String? _extractMeetingLink(String? text) {
+    if (text == null) return null;
+    final index = text.indexOf('https://meet.jit.si/');
+    if (index == -1) return null;
+    int end = text.indexOf('\n', index);
+    if (end == -1) {
+      end = text.indexOf(' ', index);
+    }
+    if (end == -1) {
+      return text.substring(index).trim();
+    }
+    return text.substring(index, end).trim();
   }
 
   void _updateConversationLastMessage(String roomId, String text, String createdAt, String senderName) {
@@ -1525,8 +1631,49 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
     );
   }
 
+  void _sendMissedCallMessage(String type) {
+    if (_activeRoomId.isEmpty) return;
+    final text = type == 'video' ? '📽️ Appel vidéo manqué' : '📞 Appel vocal manqué';
+    final localMessage = <String, dynamic>{
+      'roomId': _activeRoomId,
+      'from': _senderRole,
+      'senderName': _senderName,
+      'text': text,
+      'createdAt': DateTime.now().toIso8601String(),
+    };
+
+    if (mounted) {
+      setState(() {
+        _messages.add(localMessage);
+      });
+      _scrollToLatest();
+    }
+
+    final currentUserId = _currentUserId;
+    final payload = {
+      'roomId': _activeRoomId,
+      'from': _senderRole,
+      'userId': currentUserId,
+      'senderName': _senderName,
+      'text': text,
+    };
+
+    _socket?.emit('chat_message', payload);
+    ApiService.postChatMessage(payload).catchError((err) {
+      debugPrint('REST missed call message failed: $err');
+    });
+
+    _updateConversationLastMessage(
+      _activeRoomId,
+      text,
+      DateTime.now().toIso8601String(),
+      _senderName,
+    );
+  }
+
   void _handleCallEnded() {
     _stopRingtone();
+    _incomingCallTimeout?.cancel();
     if (mounted) {
       final wasCaller = _incomingCallData == null;
       setState(() {
@@ -1574,10 +1721,92 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
 
   void _initiateCall(String type) {
     if (_activeRoomId.isEmpty || _socket == null) return;
-    setState(() {
-      _inCall = true;
-      _callType = type;
+    
+    // Generate a unique room name for Jitsi
+    final roomName = 'abbk_meeting_${DateTime.now().millisecondsSinceEpoch}';
+    final jitsiLink = 'https://meet.jit.si/$roomName';
+    
+    // Send a Jitsi meeting request message with actual link
+    final meetingMessage = '📅 Réunion vidéo\n🔗 $jitsiLink\n\nCliquez sur le lien pour rejoindre la réunion.';
+    
+    final localMessage = <String, dynamic>{
+      'roomId': _activeRoomId,
+      'from': _senderRole,
+      'senderName': _senderName,
+      'text': meetingMessage,
+      'createdAt': DateTime.now().toIso8601String(),
+      'isTeamsRequest': true,
+      'teamsLink': jitsiLink,
+    };
+
+    if (mounted) {
+      setState(() {
+        _messages.add(localMessage);
+      });
+      _scrollToLatest();
+    }
+
+    final currentUserId = _currentUserId;
+    final payload = {
+      'roomId': _activeRoomId,
+      'from': _senderRole,
+      'userId': currentUserId,
+      'senderName': _senderName,
+      'text': meetingMessage,
+      'isTeamsRequest': true,
+      'teamsLink': jitsiLink,
+    };
+
+    _socket?.emit('chat_message', payload);
+    ApiService.postChatMessage(payload).catchError((err) {
+      debugPrint('REST jitsi request message failed: $err');
     });
+
+    _updateConversationLastMessage(
+      _activeRoomId,
+      '📅 Réunion vidéo',
+      DateTime.now().toIso8601String(),
+      _senderName,
+    );
+
+    // Show confirmation with option to join immediately
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Réunion vidéo créée avec succès'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'Rejoindre',
+            textColor: Colors.white,
+            onPressed: () => _joinJitsiMeeting(roomName),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _joinJitsiMeeting(String roomName) async {
+    try {
+      final jitsiUrl = 'https://meet.jit.si/$roomName';
+      final uri = Uri.parse(jitsiUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Impossible d\'ouvrir le lien de réunion')),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error opening Jitsi meeting: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur lors de la connexion à la réunion')),
+        );
+      }
+    }
   }
 
   void _startRingtone() {
@@ -1644,11 +1873,15 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
             onPressed: () {
               Navigator.pop(ctx);
               _stopRingtone();
+              _incomingCallTimeout?.cancel();
               setState(() {
                 _inCall = true;
                 _callType = callType;
                 _incomingCallData = null;
               });
+
+              // Navigate to Agora call screen
+              // call screen disabled
             },
             child: const Text('ACCEPTER', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
@@ -1711,12 +1944,12 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
         remoteIsTyping: _remoteIsTyping,
         remoteTypingName: _remoteTypingName,
         inputController: _input,
-        isRecording: _isRecording,
-        recordingDuration: '${(_recordingDurationSeconds / 60).floor()}:${(_recordingDurationSeconds % 60).toString().padLeft(2, '0')}',
+        isRecording: false,
+        recordingDuration: '',
         onPickFile: () => _pickAndUploadFile(isImage: false),
-        onStartRecording: _startVoiceRecording,
-        onStopRecording: _stopVoiceRecording,
-        onCancelRecording: _cancelVoiceRecording,
+        onStartRecording: () {},
+        onStopRecording: () {},
+        onCancelRecording: () {},
         onSendMessage: _send,
         onInputChanged: (v) {
           final isTypingNow = v.trim().isNotEmpty;
@@ -1757,8 +1990,12 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
         },
         buildMessageItem: (m) {
           final senderId = (m['senderId'] ?? m['sender_id'] ?? 0) as int;
-          final mine = senderId == _currentUserId;
+          final mine = (senderId != 0 && senderId == _currentUserId) ||
+                       (m['senderName'] != null && m['senderName'].toString().trim().toLowerCase() == _senderName.trim().toLowerCase());
           final text = (m['text'] ?? '').toString();
+
+          final rawTeamsLink = m['teamsLink']?.toString() ?? _extractMeetingLink(text);
+          final isTeamsRequest = m['isTeamsRequest'] == true || rawTeamsLink != null;
 
           return Align(
             alignment: mine ? Alignment.centerLeft : Alignment.centerRight,
@@ -1816,8 +2053,107 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
                     const SizedBox(height: 5),
                   ],
 
-                  if (text.isNotEmpty)
-                    Text(text, style: ChatTheme.of(context).messageStyle),
+                  if (text.isNotEmpty) ...[
+                    if (isTeamsRequest && rawTeamsLink != null) ...[
+                      Builder(
+                        builder: (context) {
+                          final theme = ChatTheme.of(context);
+                          final isDark = Theme.of(context).brightness == Brightness.dark;
+                          
+                          final cardBg = mine 
+                              ? Colors.white.withOpacity(0.15) 
+                              : (isDark ? Colors.blue.withOpacity(0.15) : Colors.blue.withOpacity(0.08));
+                          
+                          final cardBorder = mine 
+                              ? Colors.white.withOpacity(0.3) 
+                              : (isDark ? Colors.blue.withOpacity(0.3) : Colors.blue.withOpacity(0.2));
+                          
+                          final contentColor = mine 
+                              ? Colors.white 
+                              : (isDark ? const Color(0xFF60A5FA) : const Color(0xFF1D4ED8));
+
+                          final titleTextColor = mine ? Colors.white : theme.text;
+                          final bodyTextColor = mine ? Colors.white70 : theme.muted;
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '📅 Réunion vidéo',
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: titleTextColor,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              GestureDetector(
+                                onTap: () async {
+                                  final meetingLink = rawTeamsLink;
+                                  final roomName = meetingLink.split('/').last;
+                                  await _joinJitsiMeeting(roomName);
+                                },
+                                child: Container(
+                                  constraints: const BoxConstraints(maxWidth: 300),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: cardBg,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: cardBorder),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.link, color: contentColor, size: 14),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          rawTeamsLink,
+                                          style: GoogleFonts.inter(
+                                            color: contentColor,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            decoration: TextDecoration.underline,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      GestureDetector(
+                                        onTap: () async {
+                                          final link = rawTeamsLink;
+                                          await Clipboard.setData(ClipboardData(text: link));
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(
+                                                content: Text('Lien copié dans le presse-papier'),
+                                                duration: Duration(seconds: 2),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                        child: Icon(Icons.copy, color: contentColor, size: 14),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Ouvrez le lien pour rejoindre la réunion.',
+                                style: GoogleFonts.inter(
+                                  fontSize: 10,
+                                  color: bodyTextColor,
+                                ),
+                              ),
+                            ],
+                          );
+                        }
+                      ),
+                    ] else
+                      Text(text, style: ChatTheme.of(context).messageStyle),
+                  ],
                   
                   const SizedBox(height: 4),
                   Row(
@@ -1861,16 +2197,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
       return Stack(
         children: [
           SizedBox.expand(child: themedBody),
-          if (_inCall && _socket != null)
-            CallScreen(
-              socket: _socket!,
-              roomId: _activeRoomId,
-              callType: _callType,
-              callerName: _selectedDesignerDetails?['name']?.toString() ?? 'Contact',
-              myName: _senderName,
-              isIncoming: _incomingCallData != null,
-              onCallEnded: _handleCallEnded,
-            ),
+          // if (_inCall && _socket != null) CallScreen(...) disabled
         ],
       );
     }
@@ -1880,16 +2207,7 @@ class _MessageEquipeViewState extends State<MessageEquipeView> {
       body: Stack(
         children: [
           themedBody,
-          if (_inCall && _socket != null)
-            CallScreen(
-              socket: _socket!,
-              roomId: _activeRoomId,
-              callType: _callType,
-              callerName: _selectedDesignerDetails?['name']?.toString() ?? 'Contact',
-              myName: _senderName,
-              isIncoming: _incomingCallData != null,
-              onCallEnded: _handleCallEnded,
-            ),
+          // if (_inCall && _socket != null) CallScreen(...) disabled
         ],
       ),
     );

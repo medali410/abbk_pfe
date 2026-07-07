@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'add_conception_page.dart';
 import 'client_dashboard_page.dart';
 import 'package:dali_pfe/services/api_service.dart' as api;
+import 'package:dali_pfe/services/theme_service.dart';
 
 class ClientDetailPage extends StatefulWidget {
   final String clientName;
@@ -30,7 +31,18 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   @override
   void initState() {
     super.initState();
+    ThemeService().addListener(_onThemeChanged);
     _fetchStats();
+  }
+
+  void _onThemeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    ThemeService().removeListener(_onThemeChanged);
+    super.dispose();
   }
 
   Future<void> _fetchStats() async {
@@ -57,19 +69,21 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     }
   }
 
+  bool get _isDarkMode => ThemeService().isDarkMode;
+
   // Colors based on tailwind config
-  static const _bg = Color(0xFF10102B);
-  static const _surface = Color(0xFF1D1D38);
-  static const _surfaceLow = Color(0xFF191934);
-  static const _surfaceLowest = Color(0xFF0B0B26);
-  static const _onSurface = Color(0xFFE2DFFF);
-  static const _onSurfaceVariant = Color(0xFFE2BFB0);
-  static const _primary = Color(0xFFFFB692);
-  static const _primaryContainer = Color(0xFFFF6E00);
-  static const _secondary = Color(0xFF75D1FF);
-  static const _tertiary = Color(0xFFEFB1F9);
-  static const _error = Color(0xFFFFB4AB);
-  static const _outline = Color(0xFF594136);
+  Color get _bg => _isDarkMode ? const Color(0xFF10102B) : const Color(0xFFFCFAF7);
+  Color get _surface => _isDarkMode ? const Color(0xFF1D1D38) : const Color(0xFFFFF8F0);
+  Color get _surfaceLow => _isDarkMode ? const Color(0xFF191934) : const Color(0xFFF5E0C3);
+  Color get _surfaceLowest => _isDarkMode ? const Color(0xFF0B0B26) : const Color(0xFFECE4D5);
+  Color get _onSurface => _isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF2D1F0E);
+  Color get _onSurfaceVariant => _isDarkMode ? const Color(0xFFE2BFB0) : const Color(0xFF7A4F2E);
+  Color get _primary => _isDarkMode ? const Color(0xFFFFB692) : const Color(0xFFB87333);
+  Color get _primaryContainer => _isDarkMode ? const Color(0xFFFF6E00) : const Color(0xFF8B5E3C);
+  Color get _secondary => _isDarkMode ? const Color(0xFF75D1FF) : const Color(0xFF1E88E5);
+  Color get _tertiary => _isDarkMode ? const Color(0xFFEFB1F9) : const Color(0xFF8E24AA);
+  Color get _error => _isDarkMode ? const Color(0xFFFFB4AB) : const Color(0xFFD32F2F);
+  Color get _outline => _isDarkMode ? const Color(0xFF594136) : const Color(0xFFCD7F32).withOpacity(0.3);
 
   @override
   Widget build(BuildContext context) {
@@ -130,7 +144,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
             children: [
               if (!isDesktop)
                 IconButton(
-                  icon: const Icon(Icons.arrow_back, color: _onSurfaceVariant),
+                  icon: Icon(Icons.arrow_back, color: _onSurfaceVariant),
                   onPressed: () => Navigator.pop(context),
                 ),
               Text(
@@ -213,7 +227,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   // ─── Sidebar ──────────────────────────────────────────────────
   Widget _buildSidebar() {
     return Container(
-      color: const Color(0xFF131429),
+      color: _isDarkMode ? const Color(0xFF131429) : const Color(0xFFFCFAF7),
       padding: const EdgeInsets.only(top: 64),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -228,7 +242,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                   onTap: () => Navigator.pop(context),
                   child: Row(
                     children: [
-                      const Icon(Icons.arrow_back_ios, color: _onSurfaceVariant, size: 12),
+                      Icon(Icons.arrow_back_ios, color: _onSurfaceVariant, size: 12),
                       const SizedBox(width: 4),
                       Text('RETOUR', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onSurfaceVariant, fontWeight: FontWeight.bold)),
                     ],
@@ -241,10 +255,10 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                       width: 40,
                       height: 40,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF272743),
+                        color: _isDarkMode ? const Color(0xFF272743) : const Color(0xFFF5E0C3),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Icon(Icons.factory_outlined, color: _primary),
+                      child: Icon(Icons.factory_outlined, color: _primary),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -292,7 +306,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
+                    gradient: LinearGradient(
                       colors: [_primaryContainer, _primary],
                     ),
                     borderRadius: BorderRadius.circular(8),
@@ -346,7 +360,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
           color: active ? _surface : Colors.transparent,
-          border: active ? const Border(left: BorderSide(color: _primaryContainer, width: 2)) : null,
+          border: active ? Border(left: BorderSide(color: _primaryContainer, width: 2)) : null,
         ),
         child: Row(
           children: [
@@ -432,14 +446,14 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                   final confirm = await showDialog<bool>(
                     context: context,
                     builder: (context) => AlertDialog(
-                      backgroundColor: const Color(0xFF1D1D38),
-                      title: Text('Supprimer ${widget.clientName}?', style: GoogleFonts.inter(color: Colors.white)),
-                      content: const Text('Voulez-vous vraiment supprimer ce client ? Cette action est irréversible.', style: TextStyle(color: Colors.white70)),
+                      backgroundColor: _surface,
+                      title: Text('Supprimer ${widget.clientName}?', style: GoogleFonts.inter(color: _onSurface)),
+                      content: Text('Voulez-vous vraiment supprimer ce client ? Cette action est irréversible.', style: TextStyle(color: _onSurfaceVariant)),
                       actions: [
-                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ANNULER')),
+                        TextButton(onPressed: () => Navigator.pop(context, false), child: Text('ANNULER', style: TextStyle(color: _onSurfaceVariant))),
                         TextButton(
                           onPressed: () => Navigator.pop(context, true),
-                          child: const Text('SUPPRIMER', style: TextStyle(color: Color(0xFFFFB4AB))),
+                          child: Text('SUPPRIMER', style: TextStyle(color: _error)),
                         ),
                       ],
                     ),
@@ -632,7 +646,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.location_on, color: _primary, size: 24),
+                    Icon(Icons.location_on, color: _primary, size: 24),
                     const SizedBox(width: 8),
                     Text(
                       'GÉOLOCALISATION DES ACTIFS',
@@ -642,7 +656,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(color: const Color(0xFF32324e), borderRadius: BorderRadius.circular(4)),
+                  decoration: BoxDecoration(color: _isDarkMode ? const Color(0xFF32324e) : const Color(0xFFECE4D5), borderRadius: BorderRadius.circular(4)),
                   child: Text('TUNISIA / SIDI BOUZID', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onSurfaceVariant)),
                 ),
               ],
@@ -695,7 +709,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: const Color(0xFF272743),
+        color: _isDarkMode ? const Color(0xFF272743) : const Color(0xFFF5E0C3),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -703,7 +717,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         children: [
           Row(
             children: [
-              const Icon(Icons.bolt, color: _secondary, size: 24),
+              Icon(Icons.bolt, color: _secondary, size: 24),
               const SizedBox(width: 8),
               Text(
                 'CONSOMMATION ÉNERGÉTIQUE',
@@ -788,9 +802,9 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 2),
         height: 80 * heightFactor,
-        decoration: const BoxDecoration(
-          color: Color(0x33FFB692),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(2)),
+        decoration: BoxDecoration(
+          color: _isDarkMode ? const Color(0x33FFB692) : const Color(0x33B87333),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
         ),
       ),
     );
@@ -808,7 +822,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
         children: [
           Row(
             children: [
-              const Icon(Icons.health_and_safety, color: _tertiary, size: 24),
+              Icon(Icons.health_and_safety, color: _tertiary, size: 24),
               const SizedBox(width: 8),
               Text(
                 'ÉTAT DE SANTÉ MACHINES',

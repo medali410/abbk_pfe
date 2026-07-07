@@ -14,8 +14,15 @@ async function list(req, res) {
         if (role === 'conception') {
             const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
             if (concepteur) {
+                let allowedIds = [];
+                try { allowedIds = JSON.parse(concepteur.machineIds || '[]'); } catch (e) { }
                 const machines = await prisma.machine.findMany({
-                    where: { concepteurId: String(concepteur.id) }
+                    where: {
+                        OR: [
+                            { concepteurId: String(concepteur.id) },
+                            { id: { in: allowedIds } }
+                        ]
+                    }
                 });
                 const clientIds = [...new Set(machines.map(m => m.companyId).filter(Boolean))];
                 rows = await prisma.client.findMany({
@@ -68,6 +75,29 @@ async function getById(req, res) {
     try {
         const row = await ClientModel.findByParam(req.params.id);
         if (!row) return res.status(404).json({ error: 'Client introuvable' });
+
+        if (req.auth?.role === 'conception' || req.auth?.role === 'concepteur') {
+            const userId = getAuthUserId(req.auth);
+            const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+            if (concepteur) {
+                let allowedIds = [];
+                try { allowedIds = JSON.parse(concepteur.machineIds || '[]'); } catch (e) { }
+                const machines = await prisma.machine.findMany({
+                    where: {
+                        OR: [
+                            { concepteurId: String(concepteur.id) },
+                            { id: { in: allowedIds } }
+                        ]
+                    }
+                });
+                const companyIds = [...new Set(machines.map(m => m.companyId).filter(Boolean))];
+                if (!companyIds.includes(String(row.clientId))) {
+                    return res.status(403).json({ error: 'Accès interdit. Ce client ne fait pas partie de vos relations.' });
+                }
+            } else {
+                return res.status(403).json({ error: 'Accès interdit.' });
+            }
+        }
         return res.json(mergeUserProfile(row.user, row));
     } catch (err) {
         return res.status(500).json({ error: err.message });
@@ -77,12 +107,36 @@ async function getById(req, res) {
 async function getMachines(req, res) {
     try {
         const { id } = req.params;
+
+        if (req.auth?.role === 'conception' || req.auth?.role === 'concepteur') {
+            const userId = getAuthUserId(req.auth);
+            const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+            if (concepteur) {
+                let allowedIds = [];
+                try { allowedIds = JSON.parse(concepteur.machineIds || '[]'); } catch (e) { }
+                const machines = await prisma.machine.findMany({
+                    where: {
+                        OR: [
+                            { concepteurId: String(concepteur.id) },
+                            { id: { in: allowedIds } }
+                        ]
+                    }
+                });
+                const companyIds = [...new Set(machines.map(m => m.companyId).filter(Boolean))];
+                if (!companyIds.includes(String(id))) {
+                    return res.status(403).json({ error: 'Accès interdit. Les machines de ce client ne vous concernent pas.' });
+                }
+            } else {
+                return res.status(403).json({ error: 'Accès interdit.' });
+            }
+        }
+
         const instances = await prisma.machineInstance.findMany({
             where: { clientId: String(id) },
             include: { model: true },
             orderBy: { id: 'asc' },
         });
-        
+
         return res.json(instances.map(inst => ({
             id: inst.id,
             machineId: inst.id,
@@ -106,13 +160,38 @@ async function getMachines(req, res) {
 async function getTechnicians(req, res) {
     try {
         const { id } = req.params;
+
+        if (req.auth?.role === 'conception' || req.auth?.role === 'concepteur') {
+            const userId = getAuthUserId(req.auth);
+            const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+            if (concepteur) {
+                let allowedIds = [];
+                try { allowedIds = JSON.parse(concepteur.machineIds || '[]'); } catch (e) { }
+                const machines = await prisma.machine.findMany({
+                    where: {
+                        OR: [
+                            { concepteurId: String(concepteur.id) },
+                            { id: { in: allowedIds } }
+                        ]
+                    }
+                });
+                const companyIds = [...new Set(machines.map(m => m.companyId).filter(Boolean))];
+                if (!companyIds.includes(String(id))) {
+                    return res.status(403).json({ error: 'Accès interdit. Les techniciens de ce client ne vous concernent pas.' });
+                }
+            } else {
+                return res.status(403).json({ error: 'Accès interdit.' });
+            }
+        }
+
         const machines = await MachineModel.findManyByCompany(id);
         const machineIdsStr = machines.map(m => String(m.id));
 
         const allTechs = await prisma.technician.findMany({ include: { user: true } });
         const techs = allTechs.filter(t => {
+            if (t.companyId === id) return true;
             let mIds = [];
-            try { mIds = JSON.parse(t.machineIds || '[]'); } catch(e) {}
+            try { mIds = JSON.parse(t.machineIds || '[]'); } catch (e) { }
             return mIds.some(mId => machineIdsStr.includes(String(mId)));
         });
 
@@ -125,13 +204,38 @@ async function getTechnicians(req, res) {
 async function getMaintenanceAgents(req, res) {
     try {
         const { id } = req.params;
+
+        if (req.auth?.role === 'conception' || req.auth?.role === 'concepteur') {
+            const userId = getAuthUserId(req.auth);
+            const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+            if (concepteur) {
+                let allowedIds = [];
+                try { allowedIds = JSON.parse(concepteur.machineIds || '[]'); } catch (e) { }
+                const machines = await prisma.machine.findMany({
+                    where: {
+                        OR: [
+                            { concepteurId: String(concepteur.id) },
+                            { id: { in: allowedIds } }
+                        ]
+                    }
+                });
+                const companyIds = [...new Set(machines.map(m => m.companyId).filter(Boolean))];
+                if (!companyIds.includes(String(id))) {
+                    return res.status(403).json({ error: 'Accès interdit. Les agents de ce client ne vous concernent pas.' });
+                }
+            } else {
+                return res.status(403).json({ error: 'Accès interdit.' });
+            }
+        }
+
         const machines = await MachineModel.findManyByCompany(id);
         const machineIdsStr = machines.map(m => String(m.id));
 
         const allAgents = await prisma.maintenanceAgent.findMany({ include: { user: true } });
         const agents = allAgents.filter(a => {
+            if (a.clientId === id || a.companyId === id) return true;
             let mIds = [];
-            try { mIds = JSON.parse(a.machineIds || '[]'); } catch(e) {}
+            try { mIds = JSON.parse(a.machineIds || '[]'); } catch (e) { }
             return mIds.some(mId => machineIdsStr.includes(String(mId)));
         });
 

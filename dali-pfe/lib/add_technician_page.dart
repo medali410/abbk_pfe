@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'services/api_service.dart';
+import 'services/theme_service.dart';
 
 /// Formulaire super-admin : fiche personnel technician (Mongo `Technician`).
 class AddTechnicianPage extends StatefulWidget {
@@ -18,10 +19,11 @@ class AddTechnicianPage extends StatefulWidget {
 }
 
 class _AddTechnicianPageState extends State<AddTechnicianPage> {
-  static const _bg = Color(0xFF10102B);
-  static const _surface = Color(0xFF1D1D38);
-  static const _onSurface = Color(0xFFE2DFFF);
-  static const _onVariant = Color(0xFFE2BFB0);
+  bool get _isDark => ThemeService().isDarkMode;
+  Color get _bg => _isDark ? const Color(0xFF10102B) : const Color(0xFFF4F6F8);
+  Color get _surface => _isDark ? const Color(0xFF1D1D38) : Colors.white;
+  Color get _onSurface => _isDark ? const Color(0xFFE2DFFF) : const Color(0xFF1E1E2D);
+  Color get _onVariant => _isDark ? const Color(0xFFE2BFB0) : const Color(0xFF7A7A8C);
   static const _primary = Color(0xFFFF6E00);
 
   final _name = TextEditingController();
@@ -40,6 +42,7 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
   bool _loadingMachines = false;
   bool _saving = false;
   bool _obscure = true;
+  bool _sendCredentialsEmail = true;
 
   bool get _isEdit {
     final i = widget.initialData;
@@ -231,7 +234,7 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
         if (pw.isNotEmpty) body['password'] = pw;
         await ApiService.updateTechnician(_apiUpdateId, body);
       } else {
-        await ApiService.addTechnician({
+        final result = await ApiService.addTechnician({
           'name': identifier,
           'firstName': fn,
           'lastName': ln,
@@ -241,7 +244,14 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
           'location': _location.text.trim(),
           'companyId': ck,
           'machineIds': _selectedMachineIds.toList(),
+          'sendEmail': _sendCredentialsEmail,
         });
+        final mailInfo = result['credentialsEmail'];
+        final mailMap = mailInfo is Map ? Map<String, dynamic>.from(mailInfo) : null;
+        final mailMsg = _credentialsEmailSnackMessage(mailMap);
+        if (mailMsg.isNotEmpty) {
+          _snack(mailMsg, err: mailMap?['sent'] != true);
+        }
       }
       if (!mounted) return;
       if (widget.onBack != null) {
@@ -261,6 +271,28 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: err ? Colors.red : null),
     );
+  }
+
+  String _credentialsEmailSnackMessage(Map<String, dynamic>? mail) {
+    if (mail == null) return '';
+    if (mail['sent'] == true) {
+      return 'Un e-mail avec le mot de passe a été envoyé à ${mail['to'] ?? 'l\'adresse indiquée'}.';
+    }
+    final reason = (mail['reason'] ?? '').toString();
+    final detail = (mail['detail'] ?? '').toString().trim();
+    switch (reason) {
+      case 'smtp_credentials_missing':
+        return 'Compte créé. SMTP_USER / SMTP_PASS manquants dans .env.';
+      case 'send_failed':
+        if (detail.isNotEmpty) {
+          return 'Compte créé. E-mail non envoyé : $detail';
+        }
+        return 'Compte créé. E-mail non envoyé (vérifiez SMTP dans .env).';
+      case 'skipped_by_user':
+        return 'Compte créé sans envoi d\'e-mail.';
+      default:
+        return '';
+    }
   }
 
   @override
@@ -320,7 +352,7 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
                 Text('CLIENT / CONTRÔLEUR', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onVariant, letterSpacing: 1.2)),
                 const SizedBox(height: 8),
                 if (_loadingClients)
-                  const LinearProgressIndicator(minHeight: 2, color: _primary)
+                  LinearProgressIndicator(minHeight: 2, color: _primary)
                 else if (_clients.isEmpty)
                   Text('Aucun client.', style: GoogleFonts.inter(color: _onVariant))
                 else
@@ -377,7 +409,7 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
                     Text('Machines (optionnel)', style: GoogleFonts.spaceGrotesk(fontSize: 10, color: _onVariant, letterSpacing: 1.2)),
                     const SizedBox(height: 8),
                     if (_loadingMachines)
-                      const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator(color: _primary)))
+                      Center(child: Padding(padding: const EdgeInsets.all(16), child: CircularProgressIndicator(color: _primary)))
                     else if (_clientKey == null)
                       Text('Choisissez d’abord un client.', style: GoogleFonts.inter(fontSize: 13, color: _onVariant))
                     else if (_machines.isEmpty)
@@ -426,6 +458,23 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
                   ],
                 ),
                 const SizedBox(height: 20),
+                if (!_isEdit)
+                  CheckboxListTile(
+                    value: _sendCredentialsEmail,
+                    onChanged: (v) => setState(() => _sendCredentialsEmail = v ?? true),
+                    activeColor: _primary,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      'Envoyer les identifiants par e-mail',
+                      style: GoogleFonts.inter(color: _onSurface, fontSize: 14),
+                    ),
+                    subtitle: Text(
+                      'Un e-mail contenant l\'adresse et le mot de passe sera envoyé au technicien.',
+                      style: GoogleFonts.inter(color: _onVariant, fontSize: 12),
+                    ),
+                  ),
+                if (!_isEdit) const SizedBox(height: 8),
                 FilledButton(
                   onPressed: _saving ? null : _submit,
                   style: FilledButton.styleFrom(
@@ -494,7 +543,7 @@ class _AddTechnicianPageState extends State<AddTechnicianPage> {
               suffixIcon: suffix,
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: _onVariant.withOpacity(0.2))),
               enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: _onVariant.withOpacity(0.2))),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: _primary)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: _primary)),
             ),
           ),
         ],
