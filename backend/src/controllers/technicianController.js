@@ -10,13 +10,19 @@ const { sendWelcomeEmail } = require('../services/emailService');
 /** Charge machines + télémétries pour un profil Technician. */
 async function loadMachineData(profile) {
     let machineIds = [];
-    try { machineIds = JSON.parse(profile.machineIds || '[]'); } catch (_) {}
+    try { machineIds = JSON.parse(profile.machineIds || '[]'); } catch (_) { }
 
-    const machines = machineIds.length
+    const assignedMachines = await prisma.machine.findMany({
+        select: { id: true }
+    });
+
+    const allMachineIds = [...new Set([...machineIds, ...assignedMachines.map(m => m.id)])];
+
+    const machines = allMachineIds.length
         ? await prisma.machine.findMany({
-              where: { id: { in: machineIds } },
-              select: { id: true, name: true, type: true, status: true, location: true, motorType: true },
-          })
+            where: { id: { in: allMachineIds } },
+            select: { id: true, name: true, type: true, status: true, location: true, motorType: true },
+        })
         : [];
 
     const telemetryMap = {};
@@ -45,15 +51,49 @@ async function listTechnicians(req, res) {
     try {
         const { status, companyId, specialization, machineId } = req.query;
         let rows = await TechnicianModel.listTechnicians({ status, companyId, specialization });
-        
+
+        const role = req.auth?.role;
+        if (role === 'conception' || role === 'concepteur') {
+            const userId = getAuthUserId(req.auth);
+            const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+            if (concepteur) {
+                const userConcepteurId = String(concepteur.id);
+                let allowedIds = [];
+                try { allowedIds = JSON.parse(concepteur.machineIds || '[]'); } catch (e) { }
+                const machines = await prisma.machine.findMany({
+                    where: {
+                        OR: [
+                            { concepteurId: userConcepteurId },
+                            { id: { in: allowedIds } }
+                        ]
+                    }
+                });
+                const machineIdsStr = machines.map(m => String(m.id));
+                const companyIds = [...new Set(machines.map(m => m.companyId).filter(Boolean))];
+                rows = rows.filter(t => {
+                    if (t.companyId && companyIds.includes(t.companyId)) return true;
+                    let tMachineIds = [];
+                    try { tMachineIds = JSON.parse(t.machineIds || '[]'); } catch (e) { }
+                    return tMachineIds.some(mId => machineIdsStr.includes(String(mId)));
+                });
+            } else {
+                rows = [];
+            }
+        }
+
         if (machineId) {
+            const targetMachine = await prisma.machine.findUnique({ where: { id: String(machineId) } });
+            const targetCompany = targetMachine?.companyId;
+
             rows = rows.filter(p => {
+                if (targetCompany && p.companyId === targetCompany) return true;
+
                 let mIds = [];
-                try { mIds = JSON.parse(p.machineIds || '[]'); } catch(e) {}
+                try { mIds = JSON.parse(p.machineIds || '[]'); } catch (e) { }
                 return mIds.includes(String(machineId));
             });
         }
-        
+
         res.set('Cache-Control', 'no-store');
         return res.json(rows.map(p => serializeTechnician(p.user, p)));
     } catch (err) {
@@ -61,18 +101,49 @@ async function listTechnicians(req, res) {
     }
 }
 
-/** GET /api/technicians/:id */
 async function getTechnician(req, res) {
     try {
         const row = await TechnicianModel.getTechnicianByIdOrCode(req.params.id);
         if (!row) return res.status(404).json({ error: 'Technicien introuvable' });
+
+        const role = req.auth?.role;
+        if (role === 'conception' || role === 'concepteur') {
+            const userId = getAuthUserId(req.auth);
+            const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+            if (concepteur) {
+                const userConcepteurId = String(concepteur.id);
+                let allowedIds = [];
+                try { allowedIds = JSON.parse(concepteur.machineIds || '[]'); } catch (e) { }
+                const machines = await prisma.machine.findMany({
+                    where: {
+                        OR: [
+                            { concepteurId: userConcepteurId },
+                            { id: { in: allowedIds } }
+                        ]
+                    }
+                });
+                const machineIdsStr = machines.map(m => String(m.id));
+                const companyIds = [...new Set(machines.map(m => m.companyId).filter(Boolean))];
+                let isLinked = false;
+                if (row.companyId && companyIds.includes(row.companyId)) isLinked = true;
+                let tMachineIds = [];
+                try { tMachineIds = JSON.parse(row.machineIds || '[]'); } catch (e) { }
+                if (tMachineIds.some(mId => machineIdsStr.includes(String(mId)))) isLinked = true;
+
+                if (!isLinked) {
+                    return res.status(403).json({ error: 'Accès interdit. Ce technicien n\'est pas lié à votre parc.' });
+                }
+            } else {
+                return res.status(403).json({ error: 'Accès interdit.' });
+            }
+        }
+
         return res.json(serializeTechnician(row.user, row));
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
 }
 
-/** POST /api/technicians */
 async function createTechnician(req, res) {
     let createdUserId = null;
     try {
@@ -98,30 +169,41 @@ async function createTechnician(req, res) {
         );
         createdUserId = user.id;
 
-        // ✉️ Envoyer l'e-mail de bienvenue (non bloquant : si l'email échoue, le compte est quand même créé)
-        try {
-            await sendWelcomeEmail({
-                to: email,
-                name: user.nom || `${firstName} ${lastName}`.trim() || email,
-                password, // mot de passe en clair (avant hachage)
-                role: 'Technicien',
-            });
-            console.log(`✉️  E-mail de bienvenue envoyé à ${email}`);
-        } catch (mailErr) {
-            console.warn(`⚠️  Impossible d'envoyer l'e-mail de bienvenue à ${email}:`, mailErr.message);
+        let credentialsEmail = { sent: false, reason: 'skipped_by_user' };
+        if (req.body.sendEmail !== false) {
+            try {
+                await sendWelcomeEmail({
+                    to: email,
+                    name: user.nom || `${firstName} ${lastName}`.trim() || email,
+                    password,
+                    role: 'Technicien',
+                });
+                console.log(`✉️  E-mail de bienvenue envoyé à ${email}`);
+                credentialsEmail = { sent: true, to: email };
+            } catch (mailErr) {
+                console.warn(`⚠️  Impossible d'envoyer l'e-mail de bienvenue à ${email}:`, mailErr.message);
+                credentialsEmail = {
+                    sent: false,
+                    reason: 'send_failed',
+                    detail: mailErr.message,
+                    to: email,
+                };
+            }
         }
 
-        return res.status(201).json(serializeTechnician(user, profile));
+        return res.status(201).json({
+            ...serializeTechnician(user, profile),
+            credentialsEmail,
+        });
 
     } catch (err) {
         if (createdUserId) {
-            try { await prisma.user.delete({ where: { id: createdUserId } }); } catch (_) {}
+            try { await prisma.user.delete({ where: { id: createdUserId } }); } catch (_) { }
         }
         return res.status(err.status || 500).json({ error: err.message });
     }
 }
 
-/** PUT /api/technicians/:id */
 async function updateTechnician(req, res) {
     try {
         const existing = await TechnicianModel.getTechnicianByIdOrCode(req.params.id);
@@ -130,9 +212,9 @@ async function updateTechnician(req, res) {
         const { email, password, name, firstName, lastName, address, companyId, specialization, status, machineIds } = req.body;
 
         const userData = {};
-        if (email)    userData.email    = email;
-        if (name)     userData.nom      = name;
-        if (address)  userData.adresse  = address;
+        if (email) userData.email = email;
+        if (name) userData.nom = name;
+        if (address) userData.adresse = address;
         if (password) userData.password = await hashPassword(password);
 
         const updatedUser = Object.keys(userData).length
@@ -140,12 +222,12 @@ async function updateTechnician(req, res) {
             : existing.user;
 
         const profileData = {};
-        if (firstName      !== undefined) profileData.firstName      = firstName;
-        if (lastName       !== undefined) profileData.lastName       = lastName;
-        if (companyId      !== undefined) profileData.companyId      = companyId;
+        if (firstName !== undefined) profileData.firstName = firstName;
+        if (lastName !== undefined) profileData.lastName = lastName;
+        if (companyId !== undefined) profileData.companyId = companyId;
         if (specialization !== undefined) profileData.specialization = specialization;
-        if (status         !== undefined) profileData.status         = status;
-        if (machineIds     !== undefined) profileData.machineIds     = JSON.stringify(Array.isArray(machineIds) ? machineIds : []);
+        if (status !== undefined) profileData.status = status;
+        if (machineIds !== undefined) profileData.machineIds = JSON.stringify(Array.isArray(machineIds) ? machineIds : []);
 
         const updatedProfile = Object.keys(profileData).length
             ? await TechnicianModel.updateTechnicianProfile(existing.id, profileData)
@@ -157,7 +239,6 @@ async function updateTechnician(req, res) {
     }
 }
 
-/** DELETE /api/technicians/:id */
 async function deleteTechnician(req, res) {
     try {
         const existing = await TechnicianModel.getTechnicianByIdOrCode(req.params.id);
@@ -218,8 +299,8 @@ async function updateMyProfile(req, res) {
         const { nom, adresse, firstName, lastName, password } = req.body;
 
         const userData = {};
-        if (nom)      userData.nom     = nom;
-        if (adresse)  userData.adresse = adresse;
+        if (nom) userData.nom = nom;
+        if (adresse) userData.adresse = adresse;
         if (password) userData.password = await hashPassword(password);
 
         const updatedUser = Object.keys(userData).length
@@ -228,7 +309,7 @@ async function updateMyProfile(req, res) {
 
         const profileData = {};
         if (firstName !== undefined) profileData.firstName = firstName;
-        if (lastName  !== undefined) profileData.lastName  = lastName;
+        if (lastName !== undefined) profileData.lastName = lastName;
 
         const updatedProfile = Object.keys(profileData).length
             ? await TechnicianModel.updateTechnicianProfile(profile.id, profileData)
@@ -250,11 +331,17 @@ async function getMyMachinesTelemetry(req, res) {
         if (!profile) return res.status(404).json({ error: 'Profil technicien introuvable' });
 
         let machineIds = [];
-        try { machineIds = JSON.parse(profile.machineIds || '[]'); } catch (_) {}
+        try { machineIds = JSON.parse(profile.machineIds || '[]'); } catch (_) { }
+
+        const assignedMachines = await prisma.machine.findMany({
+            select: { id: true }
+        });
+
+        const allMachineIds = [...new Set([...machineIds, ...assignedMachines.map(m => m.id)])];
 
         const results = await Promise.all(
-            machineIds.map(async (mid) => {
-                const machine   = await prisma.machine.findUnique({ where: { id: mid }, select: { id: true, name: true, status: true, type: true } });
+            allMachineIds.map(async (mid) => {
+                const machine = await prisma.machine.findUnique({ where: { id: mid }, select: { id: true, name: true, status: true, type: true } });
                 const telemetry = await prisma.telemetry.findFirst({ where: { machineId: mid }, orderBy: { timestamp: 'desc' } });
                 const mappedTelemetry = telemetry ? {
                     ...telemetry,

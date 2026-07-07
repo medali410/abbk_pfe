@@ -10,8 +10,10 @@ import 'maintenance_machine_hub_page.dart';
 import 'maintenance_mission_history_content.dart';
 import 'maintenance_profile_page.dart';
 import 'services/api_service.dart';
+import 'services/theme_service.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'machine_detail_ai_page.dart';
+import 'widgets/message_equipe_view.dart';
 
 class MaintenanceDashboardPage extends StatefulWidget {
   const MaintenanceDashboardPage({super.key});
@@ -27,17 +29,33 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
   final Map<String, DateTime> _lastToastTime = {};
   final Map<String, String> _machineLiveStates = {};
 
-  /// Vue shell : `dashboard` · `profile` · `machineDetail` · `missionHistory` · `aiAnalysis` (défaut : dashboard).
+  bool get _isDark => ThemeService().isDarkMode;
+  Color get _bg => _isDark ? const Color(0xFF10102B) : const Color(0xFFF4F6F8);
+  Color get _text => _isDark ? const Color(0xFFE2DFFF) : const Color(0xFF1E1E2D);
+  Color get _muted => _isDark ? const Color(0xFFE2BFB0) : const Color(0xFF7A7A8C);
+  static const _accent = Color(0xFFFF6E00);
+
+  void _onThemeChanged() {
+    if (mounted) setState(() {});
+  }
+
   String _shellNav = 'dashboard';
 
-  /// Incrémenté à chaque `_reload()` pour rafraîchir l’historique des missions.
   int _workspaceReloadNonce = 0;
 
   @override
   void initState() {
     super.initState();
+    ThemeService().addListener(_onThemeChanged);
     _future = ApiService.getMaintenanceWorkspace();
     _initSocket();
+  }
+
+  @override
+  void dispose() {
+    ThemeService().removeListener(_onThemeChanged);
+    _socket?.dispose();
+    super.dispose();
   }
 
   void _initSocket() {
@@ -104,7 +122,6 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
               if (isDanger) {
                 final now = DateTime.now();
                 final last = _lastToastTime[mId];
-                // Throttle to 1 toast every 2 minutes per machine
                 if (last == null || now.difference(last).inMinutes >= 2) {
                   _lastToastTime[mId] = now;
                   
@@ -225,9 +242,6 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
           final msg = data['message'];
           final author = (msg['authorName'] ?? 'Technicien').toString();
 
-          // Ne pas afficher si c'est nous (MAINTENANCE_AGENT) qui avons envoyé?
-          // En fait, c'est bien de voir la confirmation.
-
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text("MESSAGE DE $author : ${msg['content']}"),
@@ -262,12 +276,6 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
     } catch (e) {
       debugPrint('Dashboard Socket Error: $e');
     }
-  }
-
-  @override
-  void dispose() {
-    _socket?.dispose();
-    super.dispose();
   }
 
   void _reload() => setState(() {
@@ -517,13 +525,8 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    const bg = Color(0xFF10102B);
-    const text = Color(0xFFE2DFFF);
-    const muted = Color(0xFFE2BFB0);
-    const accent = Color(0xFFFF6E00);
-
     return Scaffold(
-      backgroundColor: bg,
+      backgroundColor: _bg,
       appBar: AppBar(
         title: Text(
           _shellNav == 'dashboard'
@@ -534,16 +537,37 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
                       ? 'Historique maintenance'
                       : _shellNav == 'aiAnalysis'
                           ? 'Analyse IA'
-                          : 'Profil',
+                          : _shellNav == 'messages'
+                              ? 'Messagerie d\'équipe'
+                              : 'Profil',
           style: GoogleFonts.inter(fontWeight: FontWeight.w700),
         ),
-        backgroundColor: bg,
-        foregroundColor: text,
+        backgroundColor: _bg,
+        foregroundColor: _text,
         automaticallyImplyLeading: false,
+        leading: _shellNav != 'dashboard'
+            ? IconButton(
+                tooltip: 'Retour au tableau de bord',
+                onPressed: () => setState(() => _shellNav = 'dashboard'),
+                icon: const Icon(Icons.arrow_back_ios_new_rounded),
+              )
+            : null,
         actions: [
           IconButton(
             onPressed: _reload,
             icon: const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
+            onPressed: () {
+              ThemeService().toggleTheme();
+              setState(() {});
+            },
+            icon: Icon(
+              ThemeService().isDarkMode ? Icons.wb_sunny_rounded : Icons.nightlight_round,
+              color: ThemeService().isDarkMode ? Colors.amber : const Color(0xFF7A4B29),
+              size: 22,
+            ),
+            tooltip: ThemeService().isDarkMode ? 'Mode Jour' : 'Mode Nuit',
           ),
           IconButton(
             onPressed: () async {
@@ -574,7 +598,7 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
                 builder: (context, snap) {
                   if (snap.connectionState == ConnectionState.waiting) {
                     return const Center(
-                      child: CircularProgressIndicator(color: accent),
+                      child: CircularProgressIndicator(color: _accent),
                     );
                   }
                   if (snap.hasError) {
@@ -591,7 +615,7 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
                           children: [
                             Text(
                               err,
-                              style: GoogleFonts.inter(color: muted),
+                              style: GoogleFonts.inter(color: _muted),
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 14),
@@ -605,7 +629,7 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
                                 child: Text(
                                   'Connexion maintenance',
                                   style: GoogleFonts.inter(
-                                    color: accent,
+                                    color: _accent,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -634,6 +658,20 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
                       onWorkspaceReload: _reload,
                     );
                   }
+                  if (_shellNav == 'messages') {
+                    final agent = (data['agent'] as Map?)?.cast<String, dynamic>() ?? {};
+                    final String agentName = (agent['fullName'] ?? agent['name'] ?? 'Agent').toString();
+                    final String agentId = (agent['id'] ?? agent['_id'] ?? '').toString();
+                    final String clientId = (agent['clientId'] ?? '').toString();
+                    return MessageEquipeView(
+                      technicianId: agentId,
+                      clientId: clientId,
+                      senderName: agentName,
+                      senderRole: 'maintenance',
+                      embedded: true,
+                      isDarkMode: ThemeService().isDarkMode,
+                    );
+                  }
                   if (_shellNav == 'missionHistory') {
                     return MaintenanceMissionHistoryContent(
                       key: ValueKey(_workspaceReloadNonce),
@@ -659,15 +697,15 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
             filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
             child: Container(
               decoration: BoxDecoration(
-                color: bg.withOpacity(0.6),
+                color: _bg.withOpacity(0.6),
                 border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
               ),
               child: BottomNavigationBar(
                 backgroundColor: Colors.transparent,
                 elevation: 0,
                 type: BottomNavigationBarType.fixed,
-                selectedItemColor: accent,
-                unselectedItemColor: muted.withOpacity(0.6),
+                selectedItemColor: _accent,
+                unselectedItemColor: _muted.withOpacity(0.6),
                 selectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 12),
                 unselectedLabelStyle: GoogleFonts.inter(fontWeight: FontWeight.w500, fontSize: 11),
                 currentIndex: _getTabIndex(_shellNav),
@@ -682,6 +720,11 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
                     icon: Icon(Icons.person_outline_rounded),
                     activeIcon: Icon(Icons.person_rounded),
                     label: 'Profil',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.forum_outlined),
+                    activeIcon: Icon(Icons.forum_rounded),
+                    label: 'Messagerie',
                   ),
                   BottomNavigationBarItem(
                     icon: Icon(Icons.analytics_outlined),
@@ -703,8 +746,10 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
         return 0;
       case 'profile':
         return 1;
-      case 'aiAnalysis':
+      case 'messages':
         return 2;
+      case 'aiAnalysis':
+        return 3;
       default:
         return 0;
     }
@@ -717,6 +762,8 @@ class _MaintenanceDashboardPageState extends State<MaintenanceDashboardPage> {
       case 1:
         return 'profile';
       case 2:
+        return 'messages';
+      case 3:
         return 'aiAnalysis';
       default:
         return 'dashboard';

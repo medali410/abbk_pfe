@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import 'services/api_service.dart';
+import 'services/theme_service.dart';
 import 'widgets/machine_control_calendar_panel.dart';
 
 enum _ControlPriority { urgent, high, normal, low, done }
@@ -36,16 +37,18 @@ class ControlCalendarPage extends StatefulWidget {
 }
 
 class _ControlCalendarPageState extends State<ControlCalendarPage> {
-  static const _bg = Color(0xFF10102B);
-  static const _surface = Color(0xFF1D1D38);
-  static const _surfaceHeader = Color(0xFF131422);
-  static const _accent = Color(0xFFFF6E00);
-  static const _muted = Color(0xFFA0A0B0);
+  bool get _isDark => ThemeService().isDarkMode;
+  Color get _bg => _isDark ? const Color(0xFF10102B) : const Color(0xFFF4F6F8);
+  Color get _surface => _isDark ? const Color(0xFF1D1D38) : const Color(0xFFFFFFFF);
+  Color get _surfaceHeader => _isDark ? const Color(0xFF131422) : const Color(0xFFE2E8F0);
+  Color get _accent => _isDark ? const Color(0xFFFF6E00) : const Color(0xFFCD7F32);
+  Color get _muted => _isDark ? const Color(0xFFA0A0B0) : const Color(0xFF7A7A8C);
   static const _ok = Color(0xFF43A047);
   static const _warn = Color(0xFFFBC02D);
   static const _warn2 = Color(0xFFFB8C00);
   static const _danger = Color(0xFFE53935);
-  static const _cyan = Color(0xFF75D1FF);
+  Color get _cyan => _isDark ? const Color(0xFF75D1FF) : const Color(0xFF0284C7);
+  Color get _onSurface => _isDark ? const Color(0xFFE2DFFF) : const Color(0xFF1E1E2D);
 
   /// Si aucune machine n’est passée en route/URL, on tente de résoudre une machine dont le nom contient cette chaîne (ex. « alfa »).
   static const String _defaultMachineNameHint = 'alfa';
@@ -790,7 +793,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: _surface,
-        title: Text('Assigner la mission', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w700)),
+        title: Text('Assigner la mission', style: GoogleFonts.spaceGrotesk(color: _onSurface, fontWeight: FontWeight.w700)),
         content: StatefulBuilder(
           builder: (ctx, setModalState) => DropdownButtonFormField<String>(
             value: selectedId,
@@ -800,7 +803,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
               final name = (t['name'] ?? t['fullName'] ?? t['technicianName'] ?? t['email'] ?? id).toString();
               return DropdownMenuItem<String>(
                 value: id,
-                child: Text(name, style: GoogleFonts.inter(color: Colors.white)),
+                child: Text(name, style: GoogleFonts.inter(color: _onSurface)),
               );
             }).toList(),
             onChanged: (v) => setModalState(() => selectedId = v),
@@ -1269,7 +1272,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
   }
 
   Widget _buildBody() {
-    if (_isLoading) return const Center(child: CircularProgressIndicator(color: _accent));
+    if (_isLoading) return Center(child: CircularProgressIndicator(color: _accent));
 
     if (_errorMessage != null) {
       return Center(
@@ -1280,7 +1283,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
             children: [
               const Icon(Icons.error_outline, color: _danger, size: 40),
               const SizedBox(height: 12),
-              Text(_errorMessage!, textAlign: TextAlign.center, style: GoogleFonts.inter(color: Colors.white)),
+              Text(_errorMessage!, textAlign: TextAlign.center, style: GoogleFonts.inter(color: _onSurface)),
               const SizedBox(height: 12),
               FilledButton(onPressed: _fetchControles, child: const Text('Réessayer')),
             ],
@@ -1312,7 +1315,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
                 children: [
                   const Icon(Icons.warning_amber_rounded, color: _danger),
                   const SizedBox(width: 8),
-                  Expanded(child: Text(_urgentAlert!, style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600))),
+                  Expanded(child: Text(_urgentAlert!, style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.w600))),
                 ],
               ),
             ),
@@ -1335,7 +1338,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
                     const SizedBox(width: 8),
                     Text(
                       'Contrôle routine (préventif)',
-                      style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+                      style: GoogleFonts.spaceGrotesk(color: _onSurface, fontWeight: FontWeight.w700, fontSize: 13),
                     ),
                   ],
                 ),
@@ -1365,7 +1368,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
                     panelColor: _surface,
                     accentOrange: _accent,
                     accentCyan: _cyan,
-                    textColor: Colors.white,
+                    textColor: _onSurface,
                     mutedColor: _muted,
                     showCalendar: true,
                     technicianId: _apiTechnicianId.isNotEmpty
@@ -1404,7 +1407,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
                 panelColor: _surface,
                 accentOrange: _accent,
                 accentCyan: _cyan,
-                textColor: Colors.white,
+                textColor: _onSurface,
                 mutedColor: _muted,
                 showCalendar: true,
                 technicianId: _apiTechnicianId.isNotEmpty
@@ -1432,7 +1435,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
                   Text(
                     'Aucune machine disponible pour le calendrier.',
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                    style: GoogleFonts.spaceGrotesk(color: _onSurface, fontSize: 16, fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -1453,20 +1456,20 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
                   onPressed: _openControlsHistory,
                   icon: const Icon(Icons.assignment_turned_in_outlined, size: 18),
                   label: const Text('Historique des contrôles'),
-                  style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+                  style: OutlinedButton.styleFrom(foregroundColor: _onSurface),
                 ),
                 OutlinedButton.icon(
                   onPressed: _openReportsHistory,
                   icon: const Icon(Icons.history, size: 18),
                   label: const Text('Historique rapports'),
-                  style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+                  style: OutlinedButton.styleFrom(foregroundColor: _onSurface),
                 ),
                 if (_managerMode)
                   OutlinedButton.icon(
                     onPressed: _openPreventiveHistoryGlobal,
                     icon: const Icon(Icons.fact_check_outlined, size: 18),
                     label: const Text('Historique préventif'),
-                    style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+                    style: OutlinedButton.styleFrom(foregroundColor: _onSurface),
                   ),
               ],
             ),
@@ -1487,7 +1490,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
                 _calendarMachineId.isNotEmpty
                     ? 'Vue liste — ${_calendarMachineDisplayName()} (${visible.length})'
                     : 'Vue liste des missions (${visible.length})',
-                style: GoogleFonts.spaceGrotesk(color: Colors.white70, fontWeight: FontWeight.w700),
+                style: GoogleFonts.spaceGrotesk(color: _onSurface.withOpacity(0.85), fontWeight: FontWeight.w700),
               ),
               subtitle: Text(
                 _calendarMachineId.isNotEmpty
@@ -1572,7 +1575,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
                 Expanded(
                   child: Text(
                     'Machines (${entries.length})',
-                    style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+                    style: GoogleFonts.spaceGrotesk(color: _onSurface, fontWeight: FontWeight.w700, fontSize: 13),
                   ),
                 ),
               ],
@@ -1599,7 +1602,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
                           maxLines: 3,
                           overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.inter(
-                            color: selected ? Colors.white : _muted,
+                            color: selected ? _onSurface : _muted,
                             fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                             fontSize: 13,
                             height: 1.25,
@@ -1622,7 +1625,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
                 Expanded(
                   child: Text(
                     'Saisies calendrier (base)',
-                    style: GoogleFonts.spaceGrotesk(color: Colors.white70, fontWeight: FontWeight.w700, fontSize: 11),
+                    style: GoogleFonts.spaceGrotesk(color: _onSurface.withOpacity(0.75), fontWeight: FontWeight.w700, fontSize: 11),
                   ),
                 ),
               ],
@@ -1635,9 +1638,9 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
               future: ApiService.getControlCalendrierJournal(_calendarMachineId),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
+                  return Center(
                     child: Padding(
-                      padding: EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(12),
                       child: CircularProgressIndicator(strokeWidth: 2, color: _accent),
                     ),
                   );
@@ -1718,7 +1721,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
                             txt,
                             maxLines: 5,
                             overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.inter(color: Colors.white, fontSize: 12, height: 1.3),
+                            style: GoogleFonts.inter(color: _onSurface, fontSize: 12, height: 1.3),
                           ),
                           if (tech.isNotEmpty)
                             Padding(
@@ -1749,7 +1752,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('STATISTIQUES', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.w700)),
+          Text('STATISTIQUES', style: GoogleFonts.spaceGrotesk(color: _onSurface, fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           _statLine('Urgents', stats[_ControlPriority.urgent] ?? 0, _danger),
           _statLine('Hautes', stats[_ControlPriority.high] ?? 0, _warn2),
@@ -1767,7 +1770,7 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
         children: [
           Icon(Icons.circle, size: 10, color: color),
           const SizedBox(width: 8),
-          Expanded(child: Text(label, style: GoogleFonts.inter(color: Colors.white))),
+          Expanded(child: Text(label, style: GoogleFonts.inter(color: _onSurface))),
           Text('$value', style: GoogleFonts.inter(color: color, fontWeight: FontWeight.w700)),
         ],
       ),
@@ -1780,8 +1783,8 @@ class _ControlCalendarPageState extends State<ControlCalendarPage> {
     required VoidCallback onTap,
   }) {
     final bg = selected ? _accent.withOpacity(0.22) : Colors.transparent;
-    final border = selected ? _accent : Colors.white24;
-    final fg = selected ? Colors.white : _muted;
+    final border = selected ? _accent : _onSurface.withOpacity(0.2);
+    final fg = selected ? _onSurface : _muted;
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: onTap,

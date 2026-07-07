@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'machine_detail_ai_page.dart';
 import 'maintenance_ai_chat_page.dart';
 import 'services/api_service.dart';
+import 'services/theme_service.dart';
 
 class MaintenanceHomeDashboardContent extends StatefulWidget {
   const MaintenanceHomeDashboardContent({
@@ -25,9 +26,10 @@ class MaintenanceHomeDashboardContent extends StatefulWidget {
 class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboardContent> {
   bool _showChat = false;
 
-  static const _surface = Color(0xFF1D1D38);
-  static const _textColor = Color(0xFFE2DFFF);
-  static const _mutedColor = Color(0xFFE2BFB0);
+  bool get _isDarkMode => ThemeService().isDarkMode;
+  Color get _surface => _isDarkMode ? const Color(0xFF1D1D38) : Colors.white;
+  Color get _textColor => _isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF1E1E2D);
+  Color get _mutedColor => _isDarkMode ? const Color(0xFFE2BFB0) : const Color(0xFF64748B);
   static const _accent = Color(0xFFFF6E00);
   static const _aiColor = Color(0xFFB388FF);
 
@@ -58,7 +60,6 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
 
       return Row(
         children: [
-          // ── LEFT: Dashboard ────────────────────────────────────────────────
           Expanded(
             child: RefreshIndicator(
               onRefresh: () async => widget.onWorkspaceReload(),
@@ -66,17 +67,22 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
                 children: [
-                  // ── Welcome Banner ────────────────────────────────────────
                   Container(
-                    padding: const EdgeInsets.all(22),
+                    padding: const EdgeInsets.all(32),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF2E1B4E), Color(0xFF13112E)],
+                      gradient: LinearGradient(
+                        colors: _isDarkMode
+                            ? [const Color(0xFF2E1B4E), const Color(0xFF13112E)]
+                            : [const Color(0xFFFFECE0), const Color(0xFFFFF6F0)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withOpacity(0.08)),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: _isDarkMode
+                            ? Colors.white.withValues(alpha: 0.08)
+                            : const Color(0xFFFF6E00).withValues(alpha: 0.15),
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -89,16 +95,18 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
                                 style: GoogleFonts.spaceGrotesk(
                                   fontSize: 22,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  color: _isDarkMode ? Colors.white : const Color(0xFF7A4B29),
                                 ),
                               ),
-                              const SizedBox(height: 6),
+                              const SizedBox(height: 8),
                               Text(
                                 'Voici l\'état actuel de votre parc de $totalMachines machine(s).',
                                 style: GoogleFonts.inter(
-                                  fontSize: 13,
-                                  color: _textColor.withOpacity(0.75),
-                                  height: 1.4,
+                                  fontSize: 15,
+                                  color: _isDarkMode
+                                      ? const Color(0xFFE2DFFF).withValues(alpha: 0.75)
+                                      : const Color(0xFF8C5A3C),
+                                  height: 1.5,
                                 ),
                               ),
                             ],
@@ -130,10 +138,10 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
                                 ),
                                 const SizedBox(width: 6),
                                 Text(
-                                  _showChat ? 'Fermer' : 'Assistant IA',
+                                  _showChat ? 'Fermer' : 'Coach IA',
                                   style: GoogleFonts.inter(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
                                     color: _aiColor,
                                   ),
                                 ),
@@ -186,11 +194,18 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
 
                   // ── Health bar ────────────────────────────────────────────
                   Container(
-                    padding: const EdgeInsets.all(18),
+                    padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
                       color: _surface,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white.withOpacity(0.06)),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: _isDarkMode ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _isDarkMode ? Colors.transparent : Colors.black.withValues(alpha: 0.02),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -198,16 +213,17 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
                         Text(
                           'Répartition de l\'état de santé',
                           style: GoogleFonts.spaceGrotesk(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
+                            color: _textColor,
                           ),
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 24),
                         ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(12),
                           child: SizedBox(
-                            height: 12,
+                            height: 16,
                             child: Row(
                               children: [
                                 if (criticalMachines > 0)
@@ -238,11 +254,18 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
 
                   // ── Machines list ─────────────────────────────────────────
                   Container(
-                    padding: const EdgeInsets.all(18),
+                    padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
                       color: _surface,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white.withOpacity(0.06)),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: _isDarkMode ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _isDarkMode ? Colors.transparent : Colors.black.withValues(alpha: 0.02),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -255,7 +278,7 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
                               style: GoogleFonts.spaceGrotesk(
                                 fontSize: 14,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                                color: _textColor,
                               ),
                             ),
                             Container(
@@ -307,7 +330,7 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
                             }
                             return Column(
                               children: [
-                                if (i > 0) Divider(height: 1, color: Colors.white.withOpacity(0.05)),
+                                 if (i > 0) Divider(height: 1, color: _isDarkMode ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05)),
                                 InkWell(
                                   onTap: () => Navigator.push(
                                     context,
@@ -342,7 +365,7 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
                                                 style: GoogleFonts.spaceGrotesk(
                                                   fontSize: 13,
                                                   fontWeight: FontWeight.bold,
-                                                  color: Colors.white,
+                                                  color: _textColor,
                                                 ),
                                               ),
                                               const SizedBox(height: 2),
@@ -365,7 +388,7 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
                                           ),
                                         ),
                                         const SizedBox(width: 8),
-                                        const Icon(Icons.chevron_right_rounded, color: Colors.white30, size: 18),
+                                        Icon(Icons.chevron_right_rounded, color: _isDarkMode ? Colors.white30 : Colors.black38, size: 18),
                                       ],
                                     ),
                                   ),
@@ -380,18 +403,25 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
 
                   // ── Quick shortcuts ───────────────────────────────────────
                   Container(
-                    padding: const EdgeInsets.all(18),
+                    padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
                       color: _surface,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white.withOpacity(0.06)),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: _isDarkMode ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _isDarkMode ? Colors.transparent : Colors.black.withValues(alpha: 0.02),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           'Raccourcis Rapides',
-                          style: GoogleFonts.spaceGrotesk(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                          style: GoogleFonts.spaceGrotesk(fontSize: 14, fontWeight: FontWeight.bold, color: _textColor),
                         ),
                         const SizedBox(height: 12),
                         _Shortcut(
@@ -401,7 +431,7 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
                           color: const Color(0xFF75D1FF),
                           onTap: () => widget.onTabSelect('missionHistory'),
                         ),
-                        const Divider(color: Colors.white10, height: 12),
+                        Divider(color: _isDarkMode ? Colors.white10 : Colors.black12, height: 12),
                         _Shortcut(
                           icon: Icons.analytics_outlined,
                           title: 'Analyses Prédictives IA',
@@ -425,7 +455,7 @@ class _MaintenanceHomeDashboardContentState extends State<MaintenanceHomeDashboa
             child: _showChat
                 ? Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0D0D1F),
+                      color: _isDarkMode ? const Color(0xFF0D0D1F) : const Color(0xFFF8FAFC),
                       border: Border(
                         left: BorderSide(color: _aiColor.withOpacity(0.2), width: 1.5),
                       ),
@@ -459,18 +489,24 @@ class _KpiCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = ThemeService().isDarkMode;
+    final cardBg = isDarkMode ? const Color(0xFF1D1D38) : Colors.white;
+    final cardBorder = isDarkMode ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.06);
+    final titleColor = isDarkMode ? Colors.white54 : const Color(0xFF64748B);
+    final valueColor = pulse ? color : (isDarkMode ? Colors.white : const Color(0xFF1E1E2D));
+
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF1D1D38),
-        borderRadius: BorderRadius.circular(16),
+        color: cardBg,
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: pulse ? color.withOpacity(0.5) : Colors.white.withOpacity(0.06),
+          color: pulse ? color.withValues(alpha: 0.5) : cardBorder,
           width: pulse ? 1.5 : 1,
         ),
         boxShadow: pulse
-            ? [BoxShadow(color: color.withOpacity(0.1), blurRadius: 12)]
-            : null,
+            ? [BoxShadow(color: color.withValues(alpha: 0.15), blurRadius: 18, offset: const Offset(0, 4))]
+            : [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -482,20 +518,28 @@ class _KpiCard extends StatelessWidget {
               Text(
                 title,
                 style: GoogleFonts.inter(
-                  fontSize: 10,
-                  color: Colors.white54,
-                  fontWeight: FontWeight.w500,
+                  fontSize: 12,
+                  color: titleColor,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              Icon(icon, color: color, size: 18),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: color, size: 22),
+              ),
             ],
           ),
           Text(
             value,
             style: GoogleFonts.spaceGrotesk(
-              fontSize: 28,
+              fontSize: 34,
               fontWeight: FontWeight.w800,
-              color: pulse ? color : Colors.white,
+              letterSpacing: -1,
+              color: valueColor,
             ),
           ),
         ],
@@ -516,6 +560,8 @@ class _StatusDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = ThemeService().isDarkMode;
+    final textColor = isDarkMode ? Colors.white70 : const Color(0xFF1E1E2D);
     final pct = total > 0 ? (count / total * 100).toStringAsFixed(0) : '0';
     return Column(
       children: [
@@ -524,7 +570,7 @@ class _StatusDot extends StatelessWidget {
           children: [
             Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
             const SizedBox(width: 5),
-            Text(label, style: GoogleFonts.inter(fontSize: 11, color: Colors.white70)),
+            Text(label, style: GoogleFonts.inter(fontSize: 11, color: textColor)),
           ],
         ),
         const SizedBox(height: 3),
@@ -556,6 +602,11 @@ class _Shortcut extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = ThemeService().isDarkMode;
+    final titleColor = isDarkMode ? Colors.white : const Color(0xFF1E1E2D);
+    final subtitleColor = isDarkMode ? Colors.white54 : const Color(0xFF64748B);
+    final chevronColor = isDarkMode ? Colors.white30 : Colors.black38;
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
@@ -576,12 +627,12 @@ class _Shortcut extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: GoogleFonts.spaceGrotesk(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
-                  Text(subtitle, style: GoogleFonts.inter(fontSize: 11, color: Colors.white54)),
+                  Text(title, style: GoogleFonts.spaceGrotesk(fontSize: 13, fontWeight: FontWeight.bold, color: titleColor)),
+                  Text(subtitle, style: GoogleFonts.inter(fontSize: 11, color: subtitleColor)),
                 ],
               ),
             ),
-            Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
+            Icon(Icons.arrow_forward_ios_rounded, color: chevronColor, size: 14),
           ],
         ),
       ),

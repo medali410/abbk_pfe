@@ -371,5 +371,65 @@
       }
     ],
     "createdAt": "2026-06-25T09:51:51.283Z"
+  },
+  {
+    "id": "1783444557693",
+    "machineId": "MAC-54326404",
+    "technicianId": "TEC-1C05C0",
+    "scenarioType": "DEFAULT",
+    "summary": "",
+    "status": "PENDING",
+    "messages": [],
+    "coordinationNotes": [
+      {
+        "id": "1783444557726",
+        "content": "[MISSION → lemjid hassine]\n\nhh",
+        "authorName": "Agent maintenance",
+        "isMission": true,
+        "missionStatus": "SENT",
+        "createdAt": "2026-07-07T17:15:57.726Z"
+      }
+    ],
+    "createdAt": "2026-07-07T17:15:57.693Z"
+  },
+  {
+    "id": "1783444580851",
+    "machineId": "MAC-54326404",
+    "technicianId": "TEC-10E3D3",
+    "scenarioType": "DEFAULT",
+    "summary": "",
+    "status": "PENDING",
+    "messages": [],
+    "coordinationNotes": [
+      {
+        "id": "1783444580881",
+        "content": "[MISSION → lemjid wissal]\n\nhh",
+        "authorName": "Agent maintenance",
+        "isMission": true,
+        "missionStatus": "SENT",
+        "createdAt": "2026-07-07T17:16:20.881Z"
+      }
+    ],
+    "createdAt": "2026-07-07T17:16:20.851Z"
+  },
+  {
+    "id": "1783457902319",
+    "machineId": "MAC-54326404",
+    "technicianId": "TEC-9E1908",
+    "scenarioType": "DEFAULT",
+    "summary": "",
+    "status": "PENDING",
+    "messages": [],
+    "coordinationNotes": [
+      {
+        "id": "1783457902342",
+        "content": "[MISSION → raifa]\n\nhhh",
+        "authorName": "Agent maintenance",
+        "isMission": true,
+        "missionStatus": "SENT",
+        "createdAt": "2026-07-07T20:58:22.342Z"
+      }
+    ],
+    "createdAt": "2026-07-07T20:58:22.319Z"
   }
 ]

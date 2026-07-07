@@ -251,7 +251,7 @@ class _AddConceptionPageState extends State<AddConceptionPage> with TickerProvid
               children: [
                 _sidebarItem(Icons.settings_outlined, 'Paramètres', false),
                 const SizedBox(height: 8),
-                _sidebarItem(Icons.logout, 'Déconnexion', false, colorOverride: _error),
+                _sidebarItem(Icons.logout, 'Déconnexion', false, colorOverride: _onSurfaceVariant),
               ],
             ),
           ),

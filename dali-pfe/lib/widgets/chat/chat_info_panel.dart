@@ -142,7 +142,7 @@ class ChatInfoPanel extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   _buildActionButton(isPinned ? Icons.push_pin : Icons.push_pin_outlined, isPinned ? 'Désépingler' : 'Épingler la discussion', theme.text, onTogglePin),
-                  _buildActionButton(Icons.delete_outline, 'Effacer l\'historique', theme.roleAdmin, onClearHistory),
+                  _buildActionButton(Icons.delete_outline, 'Effacer l\'historique', theme.text, onClearHistory),
                 ],
               ),
             ),

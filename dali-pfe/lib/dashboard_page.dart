@@ -16,7 +16,9 @@ import 'add_machine_page.dart';
 import 'widgets/message_equipe_view.dart';
 import 'all_missions_history_page.dart';
 import 'services/api_service.dart';
+import 'services/theme_service.dart';
 import 'mvc/controllers/dashboard_controller.dart';
+import 'widgets/animated_card.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -27,11 +29,12 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   int _currentPage = 0;
-  bool _isDarkMode = true;
 
   // ── Notification badge ────────────────────────────────────────
   int _unreadCount = 0;
   Timer? _notifTimer;
+
+  bool get _isDarkMode => ThemeService().isDarkMode;
 
   Color get tc => _isDarkMode ? Colors.white : const Color(0xFF1A1207);
   Color get subTc => _isDarkMode ? const Color(0xFFA7B1C6) : const Color(0xFF9A5B20);
@@ -317,7 +320,7 @@ class _DashboardPageState extends State<DashboardPage> {
     final logo = GestureDetector(
       onTap: () => Navigator.pushReplacementNamed(context, '/'),
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 180),
+        constraints: BoxConstraints(maxWidth: isDesktop ? 180 : 110),
         height: 44,
         margin: const EdgeInsets.only(left: 6),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -403,15 +406,14 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                   tooltip: _isDarkMode ? 'Mode Jour' : 'Mode Nuit',
                   onPressed: () {
-                    setState(() {
-                      _isDarkMode = !_isDarkMode;
-                    });
+                    ThemeService().toggleTheme();
+                    setState(() {});
                   },
                 ),
                 const SizedBox(width: 8),
                 _buildNotifBadge(),
                 const SizedBox(width: 4),
-                _buildLogoutButton(),
+                _buildLogoutButton(isDesktop: isDesktop),
                 const SizedBox(width: 16),
               ],
             ),
@@ -483,7 +485,8 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildLogoutButton() {
+  Widget _buildLogoutButton({bool isDesktop = true}) {
+    final logoutColor = _isDarkMode ? Colors.redAccent : _secondary;
     return Tooltip(
       message: 'Déconnexion',
       child: Material(
@@ -491,30 +494,35 @@ class _DashboardPageState extends State<DashboardPage> {
         child: InkWell(
           onTap: _logout,
           borderRadius: BorderRadius.circular(12),
-          hoverColor: Colors.redAccent.withOpacity(0.1),
+          hoverColor: logoutColor.withOpacity(0.1),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 16 : 10,
+              vertical: 10,
+            ),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              color: Colors.redAccent.withOpacity(0.05),
+              color: logoutColor.withOpacity(0.05),
               border: Border.all(
-                color: Colors.redAccent.withOpacity(0.3),
+                color: logoutColor.withOpacity(0.3),
                 width: 1.5,
               ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.logout_rounded, color: Colors.redAccent, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  'Quitter',
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.redAccent,
+                Icon(Icons.logout_rounded, color: logoutColor, size: 20),
+                if (isDesktop) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    'Quitter',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: logoutColor,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -652,8 +660,11 @@ class _DashboardPageState extends State<DashboardPage> {
       crossAxisSpacing: 16,
       childAspectRatio: isDesktop ? 1.55 : 1.0,
       children: [
-        GestureDetector(
+        AnimatedCard(
           onTap: () => _goTo(2),
+          padding: EdgeInsets.zero,
+          color: Colors.transparent,
+          elevation: 0,
           child: _KPICard(
               isDarkMode: _isDarkMode,
               icon: Icons.corporate_fare,
@@ -662,8 +673,11 @@ class _DashboardPageState extends State<DashboardPage> {
               title: 'Clients',
               color: const Color(0xFF75D1FF)),
         ),
-        GestureDetector(
-          onTap: () => _goTo(3), // Navigate to active machines page
+        AnimatedCard(
+          onTap: () => _goTo(3),
+          padding: EdgeInsets.zero,
+          color: Colors.transparent,
+          elevation: 0,
           child: _KPICard(
               isDarkMode: _isDarkMode,
               icon: Icons.precision_manufacturing,
@@ -674,11 +688,14 @@ class _DashboardPageState extends State<DashboardPage> {
               title: 'Machines',
               color: const Color(0xFF66BB6A)),
         ),
-        GestureDetector(
+        AnimatedCard(
           onTap: () {
             _concepteurEmbeddedReturnPage = 6;
             _goTo(6);
           },
+          padding: EdgeInsets.zero,
+          color: Colors.transparent,
+          elevation: 0,
           child: _KPICard(
             isDarkMode: _isDarkMode,
             icon: Icons.engineering_outlined,

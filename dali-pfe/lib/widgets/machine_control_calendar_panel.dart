@@ -352,7 +352,7 @@ class _MachineControlCalendarPanelState extends State<MachineControlCalendarPane
       decoration: BoxDecoration(
         color: widget.panelColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        border: Border.all(color: widget.textColor.withValues(alpha: 0.1)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -480,11 +480,11 @@ class _MachineControlCalendarPanelState extends State<MachineControlCalendarPane
                   hintText: 'Ex. : contrôle capteur effectué, tout est OK',
                   hintStyle: GoogleFonts.inter(color: widget.mutedColor.withValues(alpha: 0.8)),
                   filled: true,
-                  fillColor: Colors.black.withValues(alpha: 0.22),
+                  fillColor: widget.textColor.withValues(alpha: 0.05),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                    borderSide: BorderSide(color: widget.textColor.withValues(alpha: 0.12)),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
@@ -570,7 +570,7 @@ class _MachineControlCalendarPanelState extends State<MachineControlCalendarPane
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.2),
+        color: widget.textColor.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: col.withValues(alpha: 0.35)),
       ),
@@ -641,7 +641,7 @@ class _MachineControlCalendarPanelState extends State<MachineControlCalendarPane
                       ? (hasCapteur ? _controleAccentRed : widget.accentOrange)
                       : isToday
                           ? widget.accentCyan.withValues(alpha: 0.5)
-                          : Colors.white.withValues(alpha: 0.06);
+                          : widget.textColor.withValues(alpha: 0.06);
                   final selFill = isSel
                       ? (hasCapteur
                           ? _controleAccentRed.withValues(alpha: 0.14)

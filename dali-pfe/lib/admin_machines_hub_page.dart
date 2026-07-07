@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'active_machines_page.dart';
 import 'add_technician_page.dart';
 import 'machine_detail_ai_page.dart';
+import 'services/theme_service.dart';
 import 'widgets/machine_history_view.dart';
 
 /// Section Machines du dashboard admin : liste, terminal actif, onboarding technicien.
@@ -18,10 +19,25 @@ class AdminMachinesHubPage extends StatefulWidget {
 enum _MachinesSubview { list, detail, history }
 
 class _AdminMachinesHubPageState extends State<AdminMachinesHubPage> {
+  bool get _dark => ThemeService().isDarkMode;
   // Color getters based on isDarkMode flag
-  Color get _primary => widget.isDarkMode ? const Color(0xFFFF6E00) : const Color(0xFFB8860B);
-  Color get _onSurface => widget.isDarkMode ? const Color(0xFFE2DFFF) : const Color(0xFF332A21);
-  Color get _secondary => widget.isDarkMode ? const Color(0xFF75D1FF) : const Color(0xFF8B5E3C);
+  Color get _primary => _dark ? const Color(0xFFFF6E00) : const Color(0xFFB8860B);
+  Color get _onSurface => _dark ? const Color(0xFFE2DFFF) : const Color(0xFF332A21);
+  Color get _secondary => _dark ? const Color(0xFF75D1FF) : const Color(0xFF8B5E3C);
+
+  @override
+  void initState() {
+    super.initState();
+    ThemeService().addListener(_onThemeChange);
+  }
+
+  void _onThemeChange() => setState(() {});
+
+  @override
+  void dispose() {
+    ThemeService().removeListener(_onThemeChange);
+    super.dispose();
+  }
 
   _MachinesSubview _view = _MachinesSubview.list;
   String? _selectedMachineId;
@@ -70,7 +86,7 @@ class _AdminMachinesHubPageState extends State<AdminMachinesHubPage> {
           child: switch (_view) {
             _MachinesSubview.list => ActiveMachinesPage(
                 embedded: true,
-                isDarkMode: widget.isDarkMode,
+                isDarkMode: _dark,
                 onOpenMachine: _openDetail,
               ),
             _MachinesSubview.detail => MachineDetailAiPage(
@@ -86,7 +102,7 @@ class _AdminMachinesHubPageState extends State<AdminMachinesHubPage> {
               ),
             _MachinesSubview.history => MachineHistoryView(
                 isDesktop: isDesktop,
-                isDarkMode: widget.isDarkMode,
+                isDarkMode: _dark,
               ),
           },
         ),
@@ -100,7 +116,7 @@ class _AdminMachinesHubPageState extends State<AdminMachinesHubPage> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: widget.isDarkMode
+          colors: _dark
               ? [
                   const Color(0xFF1E2243).withOpacity(0.95),
                   const Color(0xFF131730).withOpacity(0.85),
@@ -114,14 +130,14 @@ class _AdminMachinesHubPageState extends State<AdminMachinesHubPage> {
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: widget.isDarkMode
+          color: _dark
               ? Colors.white.withOpacity(0.08)
               : const Color(0xFFCD7F32).withOpacity(0.3),
           width: 1.5,
         ),
         boxShadow: [
           BoxShadow(
-            color: widget.isDarkMode
+            color: _dark
                 ? Colors.black.withOpacity(0.3)
                 : const Color(0xFFB87333).withOpacity(0.08),
             blurRadius: 15,

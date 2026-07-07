@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'services/api_service.dart';
+import 'services/theme_service.dart';
 
 String _pickMaintenanceAgentPhotoRaw(Map<String, dynamic> agent) {
   const keys = <String>[
@@ -61,10 +62,27 @@ class MaintenanceProfilePage extends StatefulWidget {
 class _MaintenanceProfilePageState extends State<MaintenanceProfilePage> {
   late Future<Map<String, dynamic>> _future;
 
+  bool get _isDark => ThemeService().isDarkMode;
+  Color get _bg => _isDark ? const Color(0xFF10102B) : const Color(0xFFF4F6F8);
+  Color get _text => _isDark ? const Color(0xFFE2DFFF) : const Color(0xFF1E1E2D);
+  Color get _muted => _isDark ? const Color(0xFFE2BFB0) : const Color(0xFF7A7A8C);
+  static const _accent = Color(0xFFFF6E00);
+
+  void _onThemeChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
+    ThemeService().addListener(_onThemeChanged);
     _future = ApiService.getMaintenanceWorkspace();
+  }
+
+  @override
+  void dispose() {
+    ThemeService().removeListener(_onThemeChanged);
+    super.dispose();
   }
 
   void _reload() => setState(() {
@@ -73,24 +91,27 @@ class _MaintenanceProfilePageState extends State<MaintenanceProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    const bg = Color(0xFF10102B);
-    const text = Color(0xFFE2DFFF);
-    const muted = Color(0xFFE2BFB0);
-    const accent = Color(0xFFFF6E00);
-
     return Scaffold(
-      backgroundColor: bg,
+      backgroundColor: _bg,
       appBar: AppBar(
         title: Text(
           'Profil',
           style: GoogleFonts.inter(fontWeight: FontWeight.w700),
         ),
-        backgroundColor: bg,
-        foregroundColor: text,
+        backgroundColor: _bg,
+        foregroundColor: _text,
         actions: [
           IconButton(
             onPressed: _reload,
             icon: const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
+            onPressed: () => ThemeService().toggleTheme(),
+            icon: Icon(
+              ThemeService().isDarkMode ? Icons.wb_sunny_rounded : Icons.nightlight_round,
+              color: ThemeService().isDarkMode ? Colors.amber : const Color(0xFF7A4B29),
+            ),
+            tooltip: ThemeService().isDarkMode ? 'Mode Jour' : 'Mode Nuit',
           ),
         ],
       ),
@@ -98,8 +119,8 @@ class _MaintenanceProfilePageState extends State<MaintenanceProfilePage> {
         future: _future,
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(color: accent),
+            return Center(
+              child: CircularProgressIndicator(color: _accent),
             );
           }
           if (snap.hasError) {
@@ -116,7 +137,7 @@ class _MaintenanceProfilePageState extends State<MaintenanceProfilePage> {
                   children: [
                     Text(
                       err,
-                      style: GoogleFonts.inter(color: muted),
+                      style: GoogleFonts.inter(color: _muted),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 14),
@@ -130,7 +151,7 @@ class _MaintenanceProfilePageState extends State<MaintenanceProfilePage> {
                         child: Text(
                           'Connexion maintenance',
                           style: GoogleFonts.inter(
-                            color: accent,
+                            color: _accent,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -168,10 +189,11 @@ class MaintenanceProfileContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const surface = Color(0xFF1D1D38);
-    const surfaceHighlight = Color(0xFF272743);
-    const text = Color(0xFFE2DFFF);
-    const muted = Color(0xFFE2BFB0);
+    final isDark = ThemeService().isDarkMode;
+    final surface = isDark ? const Color(0xFF1D1D38) : Colors.white;
+    final surfaceHighlight = isDark ? const Color(0xFF272743) : const Color(0xFFF1F5F9);
+    final text = isDark ? const Color(0xFFE2DFFF) : const Color(0xFF1E1E2D);
+    final muted = isDark ? const Color(0xFFE2BFB0) : const Color(0xFF7A7A8C);
     const accent = Color(0xFFFF6E00);
 
     // Support both nested 'agent' object (legacy) and flat structure (SQL backend)
@@ -334,6 +356,7 @@ class MaintenanceProfileContent extends StatelessWidget {
                 color: accent,
                 surface: surface,
                 muted: muted,
+                text: text,
               ),
             ),
             const SizedBox(width: 16),
@@ -345,6 +368,7 @@ class MaintenanceProfileContent extends StatelessWidget {
                 color: const Color(0xFF75D1FF),
                 surface: surface,
                 muted: muted,
+                text: text,
               ),
             ),
           ],
@@ -432,6 +456,7 @@ class MaintenanceProfileContent extends StatelessWidget {
     required Color color,
     required Color surface,
     required Color muted,
+    required Color text,
   }) {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -457,7 +482,7 @@ class MaintenanceProfileContent extends StatelessWidget {
               Text(
                 value,
                 style: GoogleFonts.spaceGrotesk(
-                  color: Colors.white,
+                  color: text,
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
                 ),
@@ -546,16 +571,22 @@ Future<void> _openMaintenanceProfileEditor(
         return StatefulBuilder(
           builder: (context, setLocal) {
             final previewUrl = photoCtrl.text.trim();
+            final isDarkMode = ThemeService().isDarkMode;
+            final dialogBg = isDarkMode ? const Color(0xFF1D1D38) : Colors.white;
+            final dialogBorder = isDarkMode ? Colors.white10 : Colors.black12;
+            final dialogText = isDarkMode ? Colors.white : const Color(0xFF1E1E2D);
+            final inputStyle = TextStyle(color: isDarkMode ? Colors.white : const Color(0xFF1E1E2D));
+
             return AlertDialog(
-              backgroundColor: const Color(0xFF1D1D38),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Colors.white10)),
+              backgroundColor: dialogBg,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide(color: dialogBorder)),
               title: Row(
                 children: [
                   const Icon(Icons.edit_outlined, color: Color(0xFFFF6E00)),
                   const SizedBox(width: 8),
                   Text(
                     'Modifier le profil',
-                    style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700),
+                    style: GoogleFonts.inter(color: dialogText, fontWeight: FontWeight.w700),
                   ),
                 ],
               ),
@@ -627,50 +658,50 @@ Future<void> _openMaintenanceProfileEditor(
                       const SizedBox(height: 24),
                       TextField(
                         controller: photoCtrl,
-                        style: const TextStyle(color: Colors.white),
+                        style: inputStyle,
                         onChanged: (_) => setLocal(() {}),
                         decoration: _maintenanceDialogFieldDeco('Ou URL de la photo (Optionnel)'),
                       ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: firstCtrl,
-                        style: const TextStyle(color: Colors.white),
+                        style: inputStyle,
                         decoration: _maintenanceDialogFieldDeco('Prénom'),
                       ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: lastCtrl,
-                        style: const TextStyle(color: Colors.white),
+                        style: inputStyle,
                         decoration: _maintenanceDialogFieldDeco('Nom'),
                       ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: emailCtrl,
-                        style: const TextStyle(color: Colors.white),
+                        style: inputStyle,
                         keyboardType: TextInputType.emailAddress,
                         decoration: _maintenanceDialogFieldDeco('Email'),
                       ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: addressCtrl,
-                        style: const TextStyle(color: Colors.white),
+                        style: inputStyle,
                         maxLines: 2,
                         decoration: _maintenanceDialogFieldDeco('Adresse'),
                       ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: locationCtrl,
-                        style: const TextStyle(color: Colors.white),
+                        style: inputStyle,
                         decoration: _maintenanceDialogFieldDeco('Lieu / site d’intervention'),
                       ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: passwordCtrl,
                         obscureText: obscurePwd,
-                        style: const TextStyle(color: Colors.white),
+                        style: inputStyle,
                         decoration: _maintenanceDialogFieldDeco('Nouveau mot de passe (optionnel)').copyWith(
                           suffixIcon: IconButton(
-                            icon: Icon(obscurePwd ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: Colors.white54),
+                            icon: Icon(obscurePwd ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: isDarkMode ? Colors.white54 : Colors.black45),
                             onPressed: () => setLocal(() => obscurePwd = !obscurePwd),
                           ),
                         ),
@@ -682,7 +713,7 @@ Future<void> _openMaintenanceProfileEditor(
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
-                  child: Text('Annuler', style: GoogleFonts.inter(color: const Color(0xFFE2BFB0))),
+                  child: Text('Annuler', style: GoogleFonts.inter(color: isDarkMode ? const Color(0xFFE2BFB0) : const Color(0xFF7A7A8C))),
                 ),
                 FilledButton(
                   onPressed: isUploading ? null : () => Navigator.pop(ctx, true),
@@ -770,11 +801,12 @@ Future<void> _openMaintenanceProfileEditor(
 }
 
 InputDecoration _maintenanceDialogFieldDeco(String label) {
+  final isDarkMode = ThemeService().isDarkMode;
   return InputDecoration(
     labelText: label,
-    labelStyle: GoogleFonts.inter(color: const Color(0xFFE2BFB0)),
+    labelStyle: GoogleFonts.inter(color: isDarkMode ? const Color(0xFFE2BFB0) : const Color(0xFF7A7A8C)),
     filled: true,
-    fillColor: const Color(0xFF10102B),
+    fillColor: isDarkMode ? const Color(0xFF10102B) : const Color(0xFFF1F5F9),
     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
   );
 }
@@ -882,7 +914,7 @@ Widget _maintenanceProfileInfoTile(
     decoration: BoxDecoration(
       color: surface,
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: Colors.white.withOpacity(0.06)),
+      border: Border.all(color: ThemeService().isDarkMode ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.06)),
     ),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,

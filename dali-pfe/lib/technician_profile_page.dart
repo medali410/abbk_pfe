@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'services/api_service.dart';
+import 'services/theme_service.dart';
 import 'machine_detail_ai_page.dart';
 import 'mission_control_page.dart';
 import 'control_calendar_page.dart';
@@ -82,25 +83,31 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   Future<({List<String> ids, List<Map<String, dynamic>> machines})>? _analyseIaFuture;
   String _analyseIaFutureKey = '';
 
-  static const _bg = Color(0xFF10102B);
-  static const _surfaceContainerLow = Color(0xFF191934);
-  static const _surfaceContainer = Color(0xFF1D1D38);
-  static const _surfaceContainerHigh = Color(0xFF272743);
-  static const _surfaceContainerHighest = Color(0xFF32324E);
-  static const _primary = Color(0xFFFFB692);
-  static const _primaryContainer = Color(0xFFFF6E00);
-  static const _secondary = Color(0xFF75D1FF);
-  static const _tertiary = Color(0xFFEFB1F9);
-  static const _onSurface = Color(0xFFE2DFFF);
-  static const _onSurfaceVariant = Color(0xFFE2BFB0);
-  static const _outlineVariant = Color(0xFF594136);
-  static const _error = Color(0xFFFFB4AB);
-  static const _green = Color(0xFF66BB6A);
-  /// Photo locale lorsqu’aucune URL distante n’est fournie (OAuth / API).
   static const _defaultTechnicianImageAsset = 'asset:assets/images/technician_profile_photo.png';
+
+  bool get _isDark => ThemeService().isDarkMode;
+  Color get _bg => _isDark ? const Color(0xFF10102B) : const Color(0xFFF4F6F8);
+  Color get _surfaceContainerLow => _isDark ? const Color(0xFF191934) : const Color(0xFFFFFFFF);
+  Color get _surfaceContainer => _isDark ? const Color(0xFF1D1D38) : const Color(0xFFF1F5F9);
+  Color get _surfaceContainerHigh => _isDark ? const Color(0xFF272743) : const Color(0xFFE2E8F0);
+  Color get _surfaceContainerHighest => _isDark ? const Color(0xFF32324E) : const Color(0xFFCBD5E1);
+  Color get _primary => _isDark ? const Color(0xFFFFB692) : const Color(0xFFFF6E00);
+  Color get _primaryContainer => const Color(0xFFFF6E00);
+  Color get _secondary => _isDark ? const Color(0xFF75D1FF) : const Color(0xFF0284C7);
+  Color get _tertiary => _isDark ? const Color(0xFFEFB1F9) : const Color(0xFF9333EA);
+  Color get _onSurface => _isDark ? const Color(0xFFE2DFFF) : const Color(0xFF1E1E2D);
+  Color get _onSurfaceVariant => _isDark ? const Color(0xFFE2BFB0) : const Color(0xFF7A7A8C);
+  Color get _outlineVariant => _isDark ? const Color(0xFF594136) : const Color(0xFFCD7F32);
+  Color get _error => _isDark ? const Color(0xFFFFB4AB) : const Color(0xFFDC2626);
+  static const _green = Color(0xFF66BB6A);
+
+  void _onThemeChanged() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
+    ThemeService().removeListener(_onThemeChanged);
     _liveTelemetryTimer?.cancel();
     _chatInputController.dispose();
     _chatSocket?.dispose();
@@ -294,7 +301,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               const SizedBox(width: 4),
               IconButton(
                 onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
-                icon: const Icon(Icons.close, color: Colors.white70, size: 20),
+                icon: Icon(Icons.close, color: Colors.white70, size: 20),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
               ),
@@ -350,6 +357,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   @override
   void initState() {
     super.initState();
+    ThemeService().addListener(_onThemeChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncTechnicianProfileFromApiIfNeeded();
       // Seconde tentative : après OAuth web / restauration SharedPreferences, le jeton peut arriver un peu plus tard.
@@ -460,7 +468,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: Row(
           children: [
-            const Icon(Icons.logout, color: _error),
+            Icon(Icons.logout, color: _secondary),
             const SizedBox(width: 8),
             Text(
               'Déconnexion',
@@ -478,8 +486,8 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             child: Text('Annuler', style: GoogleFonts.inter(color: _onSurfaceVariant)),
           ),
           FilledButton.icon(
-            style: FilledButton.styleFrom(backgroundColor: _error, foregroundColor: Colors.white),
-            icon: const Icon(Icons.logout, size: 18),
+            style: FilledButton.styleFrom(backgroundColor: _secondary, foregroundColor: Colors.white),
+            icon: Icon(Icons.logout, size: 18),
             label: Text('Se déconnecter', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
             onPressed: () => Navigator.of(ctx).pop(true),
           ),
@@ -520,11 +528,11 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
     if (raw == null) return [];
     if (raw is List) {
       for (final e in raw) {
-        addOne(e.toString());
+        addOne(e.toString().replaceAll(RegExp(r'[\[\]"\\ ]'), ''));
       }
       return out.toList();
     }
-    final str = raw.toString().trim();
+    final str = raw.toString().replaceAll(RegExp(r'[\[\]"\\ ]'), '').trim();
     if (str.isEmpty) return [];
     if (str.contains(',')) {
       for (final part in str.split(',')) {
@@ -590,7 +598,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: _primaryContainer, width: 1.5),
+          borderSide: BorderSide(color: _primaryContainer, width: 1.5),
         ),
       );
     }
@@ -606,7 +614,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Colors.white10)),
               title: Row(
                 children: [
-                  const Icon(Icons.edit_outlined, color: _primaryContainer),
+                  Icon(Icons.edit_outlined, color: _primaryContainer),
                   const SizedBox(width: 8),
                   Text(
                     'Modifier le profil',
@@ -654,7 +662,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                   color: Colors.black54,
                                   borderRadius: BorderRadius.circular(50),
                                 ),
-                                child: const Center(
+                                child: Center(
                                   child: CircularProgressIndicator(color: _primaryContainer),
                                 ),
                               ),
@@ -701,11 +709,11 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                   setLocal(() => isUploading = false);
                                 }
                               },
-                        icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                        icon: Icon(Icons.photo_camera_outlined, size: 18),
                         label: Text('Importer une photo', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: _primaryContainer,
-                          side: const BorderSide(color: _primaryContainer),
+                          side: BorderSide(color: _primaryContainer),
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
@@ -1347,7 +1355,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.precision_manufacturing, color: Color(0xFF75D1FF), size: 20),
+                  Icon(Icons.precision_manufacturing, color: Color(0xFF75D1FF), size: 20),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -1366,7 +1374,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             // Type de contrôle
             Row(
               children: [
-                const Icon(Icons.build_circle_outlined, color: Color(0xFFFFB692), size: 18),
+                Icon(Icons.build_circle_outlined, color: Color(0xFFFFB692), size: 18),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -1380,7 +1388,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             // Priorité
             Row(
               children: [
-                const Icon(Icons.flag_outlined, size: 18, color: Color(0xFFFFB4AB)),
+                Icon(Icons.flag_outlined, size: 18, color: Color(0xFFFFB4AB)),
                 const SizedBox(width: 8),
                 Text(
                   'Priorité : $prioriteLabel',
@@ -1400,7 +1408,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             child: Text('Ignorer', style: GoogleFonts.inter(color: _onSurfaceVariant)),
           ),
           ElevatedButton.icon(
-            icon: const Icon(Icons.calendar_month_outlined, size: 18),
+            icon: Icon(Icons.calendar_month_outlined, size: 18),
             label: Text('Voir calendrier', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFFF6E00),
@@ -1444,7 +1452,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
         ),
         title: Row(
           children: [
-            const Icon(Icons.warning_rounded, color: Colors.redAccent, size: 28),
+            Icon(Icons.warning_rounded, color: Colors.redAccent, size: 28),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
@@ -1472,7 +1480,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.precision_manufacturing, color: Colors.redAccent, size: 20),
+                  Icon(Icons.precision_manufacturing, color: Colors.redAccent, size: 20),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -1490,7 +1498,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             const SizedBox(height: 14),
             Row(
               children: [
-                const Icon(Icons.build_circle, color: Colors.redAccent, size: 18),
+                Icon(Icons.build_circle, color: Colors.redAccent, size: 18),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -1503,7 +1511,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             const SizedBox(height: 8),
             Row(
               children: [
-                const Icon(Icons.flag, size: 18, color: Colors.redAccent),
+                Icon(Icons.flag, size: 18, color: Colors.redAccent),
                 const SizedBox(width: 8),
                 Text(
                   'Priorité : URGENTE 🔴',
@@ -1523,7 +1531,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             child: Text('Plus tard', style: GoogleFonts.inter(color: Colors.white38)),
           ),
           ElevatedButton.icon(
-            icon: const Icon(Icons.check_circle_outline, size: 18),
+            icon: Icon(Icons.check_circle_outline, size: 18),
             label: Text('Prendre en charge', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.redAccent,
@@ -1583,7 +1591,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Colors.redAccent, width: 3)),
         title: Row(
           children: [
-            const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 32),
+            Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 32),
             const SizedBox(width: 12),
             Text('NOUVELLE MISSION CRITIQUE', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18)),
           ],
@@ -1605,7 +1613,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.precision_manufacturing, color: _secondary, size: 20),
+                  Icon(Icons.precision_manufacturing, color: _secondary, size: 20),
                   const SizedBox(width: 10),
                   Text(machineId, style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
                 ],
@@ -1770,7 +1778,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.lock_outline, color: _error, size: 36),
+                Icon(Icons.lock_outline, color: _error, size: 36),
                 const SizedBox(height: 12),
                 Text(
                   'Accès réservé',
@@ -1794,7 +1802,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                 const SizedBox(height: 18),
                 ElevatedButton.icon(
                   onPressed: () => Navigator.maybePop(context),
-                  icon: const Icon(Icons.arrow_back),
+                  icon: Icon(Icons.arrow_back),
                   label: const Text('Retour'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _primaryContainer,
@@ -1874,27 +1882,13 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                             )
                           : _embedPanel == _TechnicianEmbedPanel.chat
                           ? ClipRect(
-                              child: Column(
-                                children: [
-                                  _buildTopHeader(args),
-                                  Expanded(
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(left: 24, top: 24, right: 24, bottom: 110),
-                                      child: Center(
-                                        child: Container(
-                                          constraints: const BoxConstraints(maxWidth: 1200),
-                                          child: MessageEquipeView(
-                                            technicianId: id,
-                                            clientId: _clientId,
-                                            senderName: name,
-                                            senderRole: 'technician',
-                                            embedded: true,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                              child: MessageEquipeView(
+                                technicianId: id,
+                                clientId: _clientId,
+                                senderName: name,
+                                senderRole: 'technician',
+                                embedded: true,
+                                isDarkMode: ThemeService().isDarkMode,
                               ),
                             )
                           : _embedPanel == _TechnicianEmbedPanel.machines
@@ -1963,7 +1957,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: IconButton(
-                          icon: const Icon(Icons.arrow_back, color: Color(0xFF1A1A1A)),
+                          icon: Icon(Icons.arrow_back, color: Color(0xFF1A1A1A)),
                           onPressed: () => Navigator.maybePop(context),
                         ),
                       ),
@@ -1992,7 +1986,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
             children: [
-              const Icon(Icons.precision_manufacturing_outlined, color: _secondary, size: 26),
+              Icon(Icons.precision_manufacturing_outlined, color: _secondary, size: 26),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -2048,7 +2042,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                           color: _surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(Icons.precision_manufacturing, color: _secondary, size: 22),
+                        child: Icon(Icons.precision_manufacturing, color: _secondary, size: 22),
                       ),
                       title: Text(
                         machineName,
@@ -2107,7 +2101,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
             children: [
-              const Icon(Icons.precision_manufacturing, color: _secondary, size: 22),
+              Icon(Icons.precision_manufacturing, color: _secondary, size: 22),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -2195,7 +2189,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                         Expanded(
                           child: Text(
                             value,
-                            style: GoogleFonts.inter(color: Colors.white, fontSize: 12),
+                            style: GoogleFonts.inter(color: _onSurface, fontSize: 12),
                           ),
                         ),
                       ],
@@ -2401,7 +2395,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               SelectableText(
                 value,
                 style: GoogleFonts.spaceGrotesk(
-                  color: Colors.white,
+                  color: _onSurface,
                   fontSize: isDesktop ? 22 : 18,
                   fontWeight: FontWeight.bold,
                 ),
@@ -2499,7 +2493,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             // Name and Details
             Text(
               name,
-              style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
+              style: GoogleFonts.spaceGrotesk(color: _onSurface, fontSize: 26, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 6),
             Text(
@@ -2559,22 +2553,38 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                       currentImageUrl: imageUrl.startsWith('asset:') ? '' : imageUrl,
                     );
                   },
-                  icon: const Icon(Icons.edit, size: 18),
+                  icon: Icon(Icons.edit, size: 18),
                   label: const Text('Modifier le profil'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _surfaceContainerHigh,
-                    foregroundColor: Colors.white,
+                    foregroundColor: _onSurface,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    ThemeService().toggleTheme();
+                  },
+                  icon: Icon(
+                    ThemeService().isDarkMode ? Icons.wb_sunny_rounded : Icons.nightlight_round,
+                    size: 18,
+                  ),
+                  label: Text(ThemeService().isDarkMode ? 'Mode Jour' : 'Mode Nuit'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _onSurfaceVariant,
+                    side: BorderSide(color: _onSurfaceVariant.withOpacity(0.5)),
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
                 OutlinedButton.icon(
                   onPressed: _logoutTechnician,
-                  icon: const Icon(Icons.logout, size: 18),
+                  icon: Icon(Icons.logout, size: 18),
                   label: const Text('Déconnexion'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: _error,
-                    side: const BorderSide(color: _error),
+                    foregroundColor: _secondary,
+                    side: BorderSide(color: _secondary),
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
@@ -2585,7 +2595,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
               const SizedBox(height: 16),
               TextButton.icon(
                 onPressed: () {},
-                icon: const Icon(Icons.admin_panel_settings, size: 16),
+                icon: Icon(Icons.admin_panel_settings, size: 16),
                 label: const Text('Gérer ce compte (Admin)'),
                 style: TextButton.styleFrom(foregroundColor: _onSurfaceVariant),
               ),
@@ -2601,7 +2611,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: _surfaceContainerLow,
-        title: Text('Supprimer $name ?', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: Text('Supprimer $name ?', style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.bold)),
         content: Text('Cette action est irréversible. Voulez-vous continuer ?', style: GoogleFonts.spaceGrotesk(color: _onSurfaceVariant)),
         actions: [
           TextButton(
@@ -2870,7 +2880,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.event_note_outlined, color: _secondary, size: 22),
+                  Icon(Icons.event_note_outlined, color: _secondary, size: 22),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -3020,7 +3030,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                     padding: const EdgeInsets.only(bottom: 14),
                     child: Row(
                       children: [
-                        const Icon(Icons.hub_outlined, color: _secondary, size: 22),
+                        Icon(Icons.hub_outlined, color: _secondary, size: 22),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -3136,7 +3146,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           title: Row(
             children: [
-              const Icon(Icons.stop_circle_outlined, color: _error),
+              Icon(Icons.stop_circle_outlined, color: _error),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -3157,7 +3167,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             ),
             FilledButton.icon(
               style: FilledButton.styleFrom(backgroundColor: _error, foregroundColor: Colors.white),
-              icon: const Icon(Icons.stop_circle_outlined, size: 18),
+              icon: Icon(Icons.stop_circle_outlined, size: 18),
               label: Text('Arrêter', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
               onPressed: () => Navigator.pop(ctx, true),
             ),
@@ -3239,7 +3249,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             ),
             child: Row(
               children: [
-                const Icon(Icons.warning_amber_rounded, color: _error, size: 20),
+                Icon(Icons.warning_amber_rounded, color: _error, size: 20),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -3623,7 +3633,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             future: _loadCompletedControlesHistory(calendarTechId),
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
-                return const Padding(
+                return Padding(
                   padding: EdgeInsets.symmetric(vertical: 10),
                   child: Center(
                     child: SizedBox(
@@ -3662,7 +3672,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                       children: [
                         Text(
                           mname,
-                          style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+                          style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.w700, fontSize: 13),
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -3831,7 +3841,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                   color: _secondary.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.forum_outlined, color: _secondary, size: 20),
+                child: Icon(Icons.forum_outlined, color: _secondary, size: 20),
               ),
               const SizedBox(width: 12),
               Column(
@@ -4157,7 +4167,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                               Text(
                                                 text,
                                                 style: GoogleFonts.inter(
-                                                  color: Colors.white,
+                                                  color: _onSurface,
                                                   fontSize: 12.5,
                                                   height: 1.35,
                                                 ),
@@ -4190,7 +4200,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                   ),
                   child: TextField(
                     controller: _chatInputController,
-                    style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
+                    style: GoogleFonts.inter(color: _onSurface, fontSize: 13),
                     onSubmitted: (_) => _sendTechnicianMessage(),
                     decoration: InputDecoration(
                       hintText: 'Écrire un message à $activePartnerName (${activePartnerRole.toLowerCase()})...',
@@ -4216,7 +4226,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.send_outlined, size: 16, color: Colors.white),
+                        Icon(Icons.send_outlined, size: 16, color: Colors.white),
                         const SizedBox(width: 8),
                         Text(
                           'Envoyer',
@@ -4336,7 +4346,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                   height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54),
                 )
-              : const Icon(Icons.play_circle_outline, size: 20),
+              : Icon(Icons.play_circle_outline, size: 20),
           label: Text(
             running ? 'Actualiser début de session' : 'Machine en marche',
             style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700, fontSize: 12),
@@ -4364,7 +4374,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
                   )
-                : const Icon(Icons.stop_circle_outlined, size: 20),
+                : Icon(Icons.stop_circle_outlined, size: 20),
             label: Text(
               stopping ? 'Arrêt en cours…' : 'Machine en stop',
               style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700, fontSize: 12),
@@ -4379,7 +4389,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             padding: const EdgeInsets.symmetric(vertical: 10),
           ),
           onPressed: onViewDetails,
-          icon: const Icon(Icons.open_in_new, size: 18),
+          icon: Icon(Icons.open_in_new, size: 18),
           label: Text(
             'Voir le détail machine',
             style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700, fontSize: 12),
@@ -4393,7 +4403,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             padding: const EdgeInsets.symmetric(vertical: 10),
           ),
           onPressed: onMissionMessage,
-          icon: const Icon(Icons.chat_bubble_outline, size: 18),
+          icon: Icon(Icons.chat_bubble_outline, size: 18),
           label: Text(
             'Message mission',
             style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700, fontSize: 12),
@@ -4508,7 +4518,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             const SizedBox(height: 8),
             Row(
               children: [
-                const Icon(Icons.mark_email_unread_outlined, color: _error, size: 14),
+                Icon(Icons.mark_email_unread_outlined, color: _error, size: 14),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -4523,7 +4533,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
             const SizedBox(height: 6),
             Row(
               children: [
-                const Icon(Icons.notifications_active, color: _error, size: 14),
+                Icon(Icons.notifications_active, color: _error, size: 14),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -4585,7 +4595,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white10, style: BorderStyle.none), // dashed in CSS
               ),
-              child: const Icon(Icons.add, color: _onSurfaceVariant, size: 32),
+              child: Icon(Icons.add, color: _onSurfaceVariant, size: 32),
             ),
             const SizedBox(height: 12),
             const Text('Assigner Nouvelle Machine', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -4670,7 +4680,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                           color: Colors.white.withOpacity(0.12),
                           borderRadius: BorderRadius.circular(20),
                         ),
-                        child: const Icon(Icons.person, color: Colors.white, size: 20),
+                        child: Icon(Icons.person, color: Colors.white, size: 20),
                       ),
                       const SizedBox(height: 4),
                       Text('Profile', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
@@ -4721,16 +4731,30 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   }
 
   Widget _buildAnalyseIaPanel(List<String> assignedMachineIds, String clientId) {
-    final cacheKey = '$clientId|${assignedMachineIds.join(",")}';
+    final cacheKey = assignedMachineIds.isEmpty ? 'api_ia|$clientId' : '$clientId|${assignedMachineIds.join(",")}';
     if (_analyseIaFuture == null || _analyseIaFutureKey != cacheKey) {
       _analyseIaFutureKey = cacheKey;
-      _analyseIaFuture = _loadMachinesForProfileSection(assignedMachineIds, clientId, null);
+      if (assignedMachineIds.isEmpty) {
+        // Fetch from backend API when no machine IDs in profile
+        _analyseIaFuture = () async {
+          List<Map<String, dynamic>> machines;
+          try {
+            machines = await ApiService.getMyTechnicianMachines();
+          } catch (_) {
+            machines = await ApiService.getMachines();
+          }
+          final ids = machines.map((m) => (m['id'] ?? m['_id'] ?? '').toString()).toList();
+          return (ids: ids, machines: machines);
+        }();
+      } else {
+        _analyseIaFuture = _loadMachinesForProfileSection(assignedMachineIds, clientId, null);
+      }
     }
     return FutureBuilder<({List<String> ids, List<Map<String, dynamic>> machines})>(
       future: _analyseIaFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: _secondary));
+          return Center(child: CircularProgressIndicator(color: _secondary));
         }
         if (snapshot.hasError || snapshot.data == null) {
           return Center(
@@ -4760,18 +4784,30 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
   }
 
    Widget _buildMachinesMappingDetailsPanel(List<String> assignedMachineIds, String clientId) {
-    // Build a cache key so the future is only recreated when the set of
-    // assigned machines or the client actually changes.
-    final cacheKey = '$clientId|${assignedMachineIds.join(",")}';
+    // Use '*' as key when no machine IDs passed — means load from API
+    final cacheKey = assignedMachineIds.isEmpty ? 'api|$clientId' : '$clientId|${assignedMachineIds.join(",")}';
     if (_machinesMappingFuture == null || _machinesMappingFutureKey != cacheKey) {
       _machinesMappingFutureKey = cacheKey;
       _machinesMappingFuture = () async {
-        final machinesData = await _loadMachinesForProfileSection(assignedMachineIds, clientId, null);
+        // If no assigned machine IDs in profile, fetch from backend API
+        List<Map<String, dynamic>> machines;
+        if (assignedMachineIds.isEmpty) {
+          try {
+            machines = await ApiService.getMyTechnicianMachines();
+          } catch (_) {
+            machines = await ApiService.getMachines();
+          }
+        } else {
+          final machinesData = await _loadMachinesForProfileSection(assignedMachineIds, clientId, null);
+          machines = machinesData.machines;
+        }
         final clients = await ApiService.getClients();
         final concepteurs = await ApiService.getConcepteurs();
-        final maintenanceAgents = await ApiService.getMaintenanceAgentsForClient(clientId);
+        final maintenanceAgents = clientId.isNotEmpty
+            ? await ApiService.getMaintenanceAgentsForClient(clientId)
+            : <Map<String, dynamic>>[];
         return {
-          'machines': machinesData.machines,
+          'machines': machines,
           'clients': clients,
           'concepteurs': concepteurs,
           'maintenance': maintenanceAgents,
@@ -4792,7 +4828,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                   future: _machinesMappingFuture,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator(color: _secondary));
+                      return Center(child: CircularProgressIndicator(color: _secondary));
                     }
                     if (snapshot.hasError) {
                       return Center(
@@ -4831,7 +4867,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                         Text(
                           'CARTOGRAPHIE DES MACHINES ET ACTEURS',
                           style: GoogleFonts.spaceGrotesk(
-                            color: Colors.white,
+                            color: _onSurface,
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 1.2,
@@ -4886,7 +4922,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                             decoration: BoxDecoration(
                               color: _surfaceContainerLow,
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.white.withOpacity(0.08)),
+                              border: Border.all(color: _onSurface.withOpacity(0.08)),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -4900,7 +4936,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                         color: _secondary.withOpacity(0.1),
                                         shape: BoxShape.circle,
                                       ),
-                                      child: const Icon(Icons.precision_manufacturing, color: _secondary, size: 28),
+                                      child: Icon(Icons.precision_manufacturing, color: _secondary, size: 28),
                                     ),
                                     const SizedBox(width: 16),
                                     Expanded(
@@ -4910,7 +4946,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                           Text(
                                             mName,
                                             style: GoogleFonts.spaceGrotesk(
-                                              color: Colors.white,
+                                              color: _onSurface,
                                               fontSize: 18,
                                               fontWeight: FontWeight.bold,
                                             ),
@@ -5003,7 +5039,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                               const SizedBox(height: 4),
                                               Text(
                                                 aiNotification,
-                                                style: GoogleFonts.inter(color: Colors.white.withOpacity(0.9), fontSize: 13, height: 1.4),
+                                                style: GoogleFonts.inter(color: _onSurface.withOpacity(0.9), fontSize: 13, height: 1.4),
                                               ),
                                             ],
                                           ),
@@ -5013,7 +5049,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                   ),
                                 ],
                                 const SizedBox(height: 24),
-                                const Divider(color: Colors.white10),
+                                const Divider(color: Colors.black12),
                                 const SizedBox(height: 16),
                                 LayoutBuilder(
                                   builder: (context, constraints) {
@@ -5067,13 +5103,13 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                               ],
                                             ),
                                             const SizedBox(height: 10),
-                                            const Divider(color: Colors.white10, height: 1),
+                                            const Divider(color: Colors.black12, height: 1),
                                             const SizedBox(height: 10),
                                             // Name
                                             Text(
                                               name,
                                               style: GoogleFonts.inter(
-                                                color: Colors.white,
+                                                color: _onSurface,
                                                 fontSize: 13,
                                                 fontWeight: FontWeight.w700,
                                                 height: 1.4,
@@ -5328,7 +5364,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                                   borderRadius: BorderRadius.circular(4),
                                                   child: LinearProgressIndicator(
                                                     value: riskPercent / 100.0,
-                                                    backgroundColor: Colors.white.withValues(alpha: 0.08),
+                                                    backgroundColor: _onSurface.withValues(alpha: 0.08),
                                                     valueColor: AlwaysStoppedAnimation<Color>(color),
                                                     minHeight: 4,
                                                   ),
@@ -5482,7 +5518,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                                     borderRadius: BorderRadius.circular(4),
                                                     child: LinearProgressIndicator(
                                                       value: overallRisk / 100.0,
-                                                      backgroundColor: Colors.white.withValues(alpha: 0.06),
+                                                      backgroundColor: _onSurface.withValues(alpha: 0.06),
                                                       valueColor: AlwaysStoppedAnimation<Color>(overallColor),
                                                       minHeight: 5,
                                                     ),
@@ -5520,7 +5556,7 @@ class _TechnicianProfilePageState extends State<TechnicianProfilePage> {
                                         ),
                                       );
                                     },
-                                    icon: const Icon(Icons.analytics_outlined, size: 18, color: Colors.black87),
+                                    icon: Icon(Icons.analytics_outlined, size: 18, color: Colors.black87),
                                     label: Text(
                                       'AFFICHER LES DÉTAILS',
                                       style: GoogleFonts.spaceGrotesk(

@@ -95,7 +95,10 @@ model Machine {
   location    String   @default("")
   imageUrl    String   @default("")
   isPublic    Boolean  @default(true)
-  concepteurId String   @default("")
+  concepteurId       String   @default("")
+  clientId           String   @default("")
+  technicianId       String   @default("")
+  maintenanceAgentId String   @default("")
   model3dUrl  String   @default("")
   modele3dId  Int?
   createdAt   DateTime @default(now())
@@ -109,6 +112,7 @@ model Machine {
   predictions       Prediction[]
   securityIncidents SecurityIncident[]
   instances         MachineInstance[]
+
 }
 
 /// Instance physique unique d'une machine (1 machine physique = 1 MachineInstance)

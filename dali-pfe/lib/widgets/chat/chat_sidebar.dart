@@ -33,9 +33,8 @@ class ChatSidebar extends StatelessWidget {
     final _text = theme.text;
     final _muted = theme.muted;
     final _active = theme.activeItem;
-    final _border = Theme.of(context).brightness == Brightness.dark ? Colors.white.withOpacity(0.05) : const Color(0xFFCD7F32).withOpacity(0.2);
-    final _inputBg = theme.inputDecoration.color ?? const Color(0xFFF5F0E8);
-    final _divider = Theme.of(context).brightness == Brightness.dark ? Colors.white10 : const Color(0xFFCD7F32).withOpacity(0.15);
+    final _border = Theme.of(context).brightness == Brightness.dark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFCD7F32).withValues(alpha: 0.2);
+    final _divider = Theme.of(context).brightness == Brightness.dark ? Colors.white10 : const Color(0xFFCD7F32).withValues(alpha: 0.15);
 
     return Container(
       color: _bg,
@@ -43,27 +42,26 @@ class ChatSidebar extends StatelessWidget {
         children: [
           // En-tête
           Container(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
+            padding: const EdgeInsets.fromLTRB(24, 32, 24, 20),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Messages', style: GoogleFonts.inter(color: _text, fontSize: 24, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 4),
+                    Text('Messages', style: theme.titleStyle),
+                    const SizedBox(height: 6),
                     Text('${conversations.where((c) => c['isSectionHeader'] != true).length} conversations',
-                        style: GoogleFonts.inter(color: _muted, fontSize: 13, fontWeight: FontWeight.w500)),
+                        style: theme.subtitleStyle),
                   ],
                 ),
-                Row(
-                  children: [
-                    IconButton(
-                      icon: Icon(Icons.edit_square, color: _text, size: 20),
-                      onPressed: onNewDiscussion ?? () {},
-                      tooltip: 'Nouvelle discussion',
-                    ),
-                  ],
+                FloatingActionButton.small(
+                  elevation: 0,
+                  backgroundColor: theme.myBubble.withValues(alpha: 0.1),
+                  foregroundColor: theme.myBubble,
+                  onPressed: onNewDiscussion ?? () {},
+                  tooltip: 'Nouvelle discussion',
+                  child: const Icon(Icons.edit_square, size: 20),
                 ),
               ],
             ),
@@ -71,26 +69,23 @@ class ChatSidebar extends StatelessWidget {
 
           // Barre de recherche
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
             child: Container(
-              height: 40,
-              decoration: BoxDecoration(
-                color: _inputBg,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: _border),
-              ),
+              height: 48,
+              decoration: theme.inputDecoration,
               child: TextField(
                 controller: searchController,
                 onChanged: onSearchChanged,
-                style: TextStyle(color: _text, fontSize: 14),
+                style: TextStyle(color: _text, fontSize: 15, fontWeight: FontWeight.w500),
                 decoration: InputDecoration(
-                  hintText: '🔍 Rechercher un contact...',
-                  hintStyle: TextStyle(color: _muted.withOpacity(0.6), fontSize: 13),
+                  prefixIcon: Icon(Icons.search, color: _muted),
+                  hintText: 'Rechercher un contact...',
+                  hintStyle: TextStyle(color: _muted.withValues(alpha: 0.6), fontSize: 14),
                   border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                   suffixIcon: isSearching
                     ? IconButton(
-                        icon: Icon(Icons.close, color: _muted, size: 16),
+                        icon: Icon(Icons.close, color: _muted, size: 18),
                         onPressed: onClearSearch,
                       )
                     : null,
@@ -99,9 +94,9 @@ class ChatSidebar extends StatelessWidget {
             ),
           ),
 
-
-
+          const SizedBox(height: 4),
           Divider(color: _divider, height: 1),
+          const SizedBox(height: 8),
 
           // Liste des contacts
           Expanded(
@@ -111,14 +106,14 @@ class ChatSidebar extends StatelessWidget {
                 final c = conversations[index];
                 if (c['isSectionHeader'] == true) {
                   return Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+                    padding: const EdgeInsets.fromLTRB(28, 24, 20, 8),
                     child: Row(
                       children: [
-                        Icon(_getIconForSection(c['sectionIcon']), size: 14, color: _getColorForSection(context, c['sectionColor'])),
+                        Icon(_getIconForSection(c['sectionIcon']), size: 16, color: _getColorForSection(context, c['sectionColor']).withValues(alpha: 0.8)),
                         const SizedBox(width: 8),
                         Text(
                           (c['sectionLabel'] ?? '').toString().toUpperCase(),
-                          style: GoogleFonts.inter(color: _getColorForSection(context, c['sectionColor']), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                          style: GoogleFonts.inter(color: _getColorForSection(context, c['sectionColor']), fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2),
                         ),
                       ],
                     ),
@@ -132,87 +127,94 @@ class ChatSidebar extends StatelessWidget {
                 final unread = (c['unreadCount'] ?? 0) as int;
                 final role = (c['roleLabel'] ?? '').toString();
 
-                return InkWell(
-                  onTap: () => onSelectConversation(c['roomId'], c),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    color: active ? _active : Colors.transparent,
-                    child: Row(
-                      children: [
-                        Stack(
-                          children: [
-                            CircleAvatar(
-                              radius: 22,
-                              backgroundColor: theme.myBubble.withOpacity(0.2),
-                              child: Text(name.isNotEmpty ? name[0].toUpperCase() : 'C', style: TextStyle(color: theme.myBubble, fontWeight: FontWeight.bold)),
-                            ),
-                            Positioned(
-                              right: 0,
-                              bottom: 0,
-                              child: Container(
-                                width: 12,
-                                height: 12,
-                                decoration: BoxDecoration(
-                                  color: theme.online,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: _bg, width: 2),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                  child: InkWell(
+                    onTap: () => onSelectConversation(c['roomId'], c),
+                    borderRadius: BorderRadius.circular(16),
+                    hoverColor: active ? _active : theme.otherBubble.withValues(alpha: 0.3),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: active ? _active : Colors.transparent,
+                        borderRadius: BorderRadius.circular(16),
+                        border: active ? Border.all(color: theme.myBubble.withValues(alpha: 0.3)) : Border.all(color: Colors.transparent),
+                      ),
+                      child: Row(
+                        children: [
+                          Stack(
                             children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(name, style: GoogleFonts.inter(color: _text, fontSize: 15, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                  ),
-                                  if (c['isPinned'] == true)
-                                    Padding(
-                                      padding: const EdgeInsets.only(right: 4),
-                                      child: Icon(Icons.push_pin, color: theme.accent, size: 14),
-                                    ),
-                                  if (c['isMuted'] == true)
-                                    Padding(
-                                      padding: const EdgeInsets.only(right: 4),
-                                      child: Icon(Icons.volume_off, color: _muted, size: 14),
-                                    ),
-                                  if (time.isNotEmpty)
-                                    Text(time, style: GoogleFonts.inter(color: _muted, fontSize: 11)),
-                                ],
+                              CircleAvatar(
+                                radius: 24,
+                                backgroundColor: theme.myBubble.withValues(alpha: 0.15),
+                                child: Text(name.isNotEmpty ? name[0].toUpperCase() : 'C', style: GoogleFonts.inter(color: theme.myBubble, fontWeight: FontWeight.bold, fontSize: 16)),
                               ),
-                              const SizedBox(height: 2),
-                              if (role.isNotEmpty)
-                                Text(role, style: GoogleFonts.inter(color: theme.accent, fontSize: 10, fontWeight: FontWeight.w600)),
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      lastText,
-                                      style: GoogleFonts.inter(color: unread > 0 ? _text : _muted, fontSize: 13, fontStyle: unread > 0 ? FontStyle.normal : FontStyle.italic),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: Container(
+                                  width: 14,
+                                  height: 14,
+                                  decoration: BoxDecoration(
+                                    color: theme.online,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: active ? theme.myBubble.withValues(alpha: 0.2) : _bg, width: 2.5),
                                   ),
-                                  if (unread > 0)
-                                    Container(
-                                      margin: const EdgeInsets.only(left: 8),
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(color: theme.unread, borderRadius: BorderRadius.circular(10)),
-                                      child: Text(unread.toString(), style: GoogleFonts.inter(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                                    ),
-                                ],
+                                ),
                               ),
                             ],
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(name, style: theme.nameStyle, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    ),
+                                    if (c['isPinned'] == true)
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 6),
+                                        child: Icon(Icons.push_pin, color: theme.accent, size: 14),
+                                      ),
+                                    if (c['isMuted'] == true)
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 6),
+                                        child: Icon(Icons.volume_off, color: _muted, size: 14),
+                                      ),
+                                    if (time.isNotEmpty)
+                                      Text(time, style: theme.timeStyle),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        lastText,
+                                        style: GoogleFonts.inter(color: unread > 0 ? _text : _muted, fontSize: 13, fontStyle: unread > 0 ? FontStyle.normal : FontStyle.normal, fontWeight: unread > 0 ? FontWeight.w600 : FontWeight.w400),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    if (unread > 0)
+                                      Container(
+                                        margin: const EdgeInsets.only(left: 8),
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(color: theme.unread, borderRadius: BorderRadius.circular(12)),
+                                        child: Text(unread.toString(), style: GoogleFonts.inter(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 );

@@ -170,8 +170,11 @@ class _ChatMainAreaState extends State<ChatMainArea> {
                           ],
                         ),
                       ),
-                      IconButton(icon: Icon(Icons.videocam_outlined, color: theme.muted), onPressed: widget.onVideoCall ?? () {}),
-                      IconButton(icon: Icon(Icons.call_outlined, color: theme.muted), onPressed: widget.onVoiceCall ?? () {}),
+                      IconButton(
+                        icon: Icon(Icons.groups, color: theme.muted),
+                        onPressed: widget.onVideoCall,
+                        tooltip: 'Demander réunion Teams',
+                      ),
                       IconButton(
                         icon: Icon(Icons.search, color: theme.muted),
                         onPressed: () {
@@ -236,72 +239,73 @@ class _ChatMainAreaState extends State<ChatMainArea> {
           ),
 
           // Input Bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: theme.header,
-              border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
-            ),
-            child: widget.isRecording
-                ? Row(
-                    children: [
-                      const Icon(Icons.mic, color: Colors.redAccent),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text('Enregistrement en cours... ${widget.recordingDuration}', style: TextStyle(color: theme.text, fontSize: 15)),
-                      ),
-                      IconButton(icon: Icon(Icons.delete, color: theme.muted), onPressed: widget.onCancelRecording),
-                      const SizedBox(width: 8),
-                      FloatingActionButton(
-                        mini: true,
-                        backgroundColor: theme.myBubble,
-                        onPressed: widget.onStopRecording,
-                        child: const Icon(Icons.send, color: Colors.white, size: 20),
-                      ),
-                    ],
-                  )
-                : Row(
-                    children: [
-                      IconButton(icon: Icon(Icons.attach_file, color: theme.muted), onPressed: widget.onPickFile),
-                      IconButton(
-                        icon: Icon(
-                          widget.showEmojiPicker ? Icons.keyboard : Icons.emoji_emotions_outlined,
-                          color: widget.showEmojiPicker ? theme.accent : theme.muted,
+          SafeArea(
+            bottom: true,
+            child: Container(
+              margin: EdgeInsets.fromLTRB(16, 0, 16, 16),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+              decoration: theme.glassDecoration.copyWith(
+                borderRadius: BorderRadius.circular(30),
+              ),
+              child: widget.isRecording
+                  ? Row(
+                      children: [
+                        const Icon(Icons.mic, color: Colors.redAccent),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text('Enregistrement en cours... ${widget.recordingDuration}', style: TextStyle(color: theme.text, fontSize: 15)),
                         ),
-                        onPressed: widget.onToggleEmojiPicker ?? () {},
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Container(
-                          decoration: theme.inputDecoration,
-                          child: TextField(
-                            controller: widget.inputController,
-                            onChanged: widget.onInputChanged,
-                            style: TextStyle(color: theme.text),
-                            minLines: 1,
-                            maxLines: 5,
-                            decoration: InputDecoration(
-                              hintText: 'Tapez un message...',
-                              hintStyle: TextStyle(color: theme.muted),
-                              border: InputBorder.none,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      if (widget.inputController.text.trim().isEmpty)
-                        IconButton(icon: Icon(Icons.mic, color: theme.muted), onPressed: widget.onStartRecording)
-                      else
+                        IconButton(icon: Icon(Icons.delete, color: theme.muted), onPressed: widget.onCancelRecording),
+                        const SizedBox(width: 8),
                         FloatingActionButton(
                           mini: true,
                           backgroundColor: theme.myBubble,
-                          elevation: 0,
-                          onPressed: widget.onSendMessage,
+                          onPressed: widget.onStopRecording,
                           child: const Icon(Icons.send, color: Colors.white, size: 20),
                         ),
-                    ],
-                  ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        IconButton(icon: Icon(Icons.attach_file, color: theme.muted), onPressed: widget.onPickFile),
+                        IconButton(
+                          icon: Icon(
+                            widget.showEmojiPicker ? Icons.keyboard : Icons.emoji_emotions_outlined,
+                            color: widget.showEmojiPicker ? theme.accent : theme.muted,
+                          ),
+                          onPressed: widget.onToggleEmojiPicker ?? () {},
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Container(
+                            decoration: theme.inputDecoration,
+                            child: TextField(
+                              controller: widget.inputController,
+                              onChanged: widget.onInputChanged,
+                              style: TextStyle(color: theme.text),
+                              minLines: 1,
+                              maxLines: 5,
+                              decoration: InputDecoration(
+                                hintText: 'Tapez un message...',
+                                hintStyle: TextStyle(color: theme.muted.withValues(alpha: 0.6), fontWeight: FontWeight.w500),
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FloatingActionButton(
+                          mini: true,
+                          backgroundColor: theme.myBubble,
+                          elevation: 4,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          onPressed: widget.onSendMessage,
+                          child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                        ),
+                      ],
+                    ),
+            ),
           ),
 
           // Emoji Picker
@@ -346,30 +350,71 @@ class _ChatMainAreaState extends State<ChatMainArea> {
     return Container(
       color: theme.bg,
       child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                color: theme.myBubble.withOpacity(0.1),
-                shape: BoxShape.circle,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 40),
+          padding: const EdgeInsets.all(40),
+          decoration: BoxDecoration(
+            color: theme.header.withValues(alpha: 0.8),
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(color: theme.muted.withValues(alpha: 0.1)),
+            boxShadow: [
+              BoxShadow(
+                color: theme.myBubble.withValues(alpha: 0.05),
+                blurRadius: 40,
+                spreadRadius: 10,
+              )
+            ]
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 140,
+                height: 140,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      theme.myBubble.withValues(alpha: 0.15),
+                      theme.myBubble.withValues(alpha: 0.02)
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: theme.myBubble.withValues(alpha: 0.15), width: 2),
+                ),
+                child: Icon(Icons.maps_ugc_rounded, size: 70, color: theme.myBubble.withValues(alpha: 0.9)),
               ),
-              child: Icon(Icons.forum_outlined, size: 60, color: theme.myBubble),
-            ),
-            const SizedBox(height: 24),
-            Text('Bienvenue dans votre messagerie', style: GoogleFonts.inter(color: theme.text, fontSize: 24, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: 400,
-              child: Text(
-                'Sélectionnez un contact pour commencer une conversation ou utilisez la recherche pour trouver un membre de votre équipe.',
-                style: GoogleFonts.inter(color: theme.muted, fontSize: 14, height: 1.5),
-                textAlign: TextAlign.center,
+              const SizedBox(height: 32),
+              Text(
+                'Bienvenue dans votre messagerie', 
+                style: GoogleFonts.inter(color: theme.text, fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.5)
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+              SizedBox(
+                width: 480,
+                child: Text(
+                  'Sélectionnez un contact dans la liste pour commencer une conversation, ou utilisez la barre de recherche pour trouver un membre de votre équipe.',
+                  style: GoogleFonts.inter(color: theme.muted, fontSize: 15, height: 1.6, fontWeight: FontWeight.w500),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 32),
+              FilledButton.icon(
+                onPressed: () {}, // Handled by search interaction
+                icon: const Icon(Icons.search),
+                label: const Text('Rechercher un contact'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: theme.myBubble,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  textStyle: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+              )
+            ],
+          ),
         ),
       ),
     );

@@ -9,6 +9,7 @@ import 'login_page.dart';
 import 'machine_detail_ai_page.dart';
 import 'ai_analysis_page.dart';
 import 'services/api_service.dart';
+import 'services/theme_service.dart';
 import 'utils/catalog_list_utils.dart';
 import 'utils/client_auth_gate.dart';
 import 'widgets/hero_looping_video_background.dart';
@@ -202,6 +203,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
   @override
   void initState() {
     super.initState();
+    ThemeService().addListener(_onThemeChanged);
     _consumeGoogleOAuthReturnIfPresent();
     _shimmerController = AnimationController(
       vsync: this,
@@ -470,6 +472,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
 
   @override
   void dispose() {
+    ThemeService().removeListener(_onThemeChanged);
     _controlTicker?.cancel();
     _machinesAutoRefreshTimer?.cancel();
     _shimmerController.dispose();
@@ -654,22 +657,27 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     });
   }
 
-  // ——— Colour tokens (mirror Tailwind config) ———
-  static const _bg = Color(0xFF0F0F1E);
-  static const _surfaceContainerLowest = Color(0xFF0B0B1A);
-  static const _surfaceContainerLow = Color(0xFF161626);
-  static const _surfaceContainer = Color(0xFF1D1D38);
-  static const _surfaceContainerHigh = Color(0xFF272743);
-  static const _surfaceContainerHighest = Color(0xFF32324E);
-  static const _primary = Color(0xFFFF6E00);
-  static const _primaryContainer = Color(0xFF4A2A1A);
-  static const _primaryLight = Color(0xFFFFB692);
-  static const _secondary = Color(0xFF75D1FF);
-  static const _error = Color(0xFFFFB4AB);
-  static const _onSurface = Color(0xFFE2DFFF);
-  static const _onSurfaceVariant = Color(0xFFE2BFB0);
-  static const _outlineVariant = Color(0xFF594136);
+  // ——— Colour tokens (day/night aware) ———
+  bool get _isDark => ThemeService().isDarkMode;
+  Color get _bg => _isDark ? const Color(0xFF0F0F1E) : const Color(0xFFF9FAFB);
+  Color get _surfaceContainerLowest => _isDark ? const Color(0xFF0B0B1A) : const Color(0xFFFFFFFF);
+  Color get _surfaceContainerLow => _isDark ? const Color(0xFF161626) : const Color(0xFFF1F5F9);
+  Color get _surfaceContainer => _isDark ? const Color(0xFF1D1D38) : const Color(0xFFFFFFFF);
+  Color get _surfaceContainerHigh => _isDark ? const Color(0xFF272743) : const Color(0xFFE2E8F0);
+  Color get _surfaceContainerHighest => _isDark ? const Color(0xFF32324E) : const Color(0xFFCBD5E1);
+  Color get _primary => _isDark ? const Color(0xFFFF6E00) : const Color(0xFFCD7F32);
+  Color get _primaryContainer => _isDark ? const Color(0xFF4A2A1A) : const Color(0xFFFFF7ED);
+  Color get _primaryLight => _isDark ? const Color(0xFFFFB692) : const Color(0xFFFF6E00);
+  Color get _secondary => _isDark ? const Color(0xFF75D1FF) : const Color(0xFF0284C7);
+  Color get _error => _isDark ? const Color(0xFFFFB4AB) : const Color(0xFFDC2626);
+  Color get _onSurface => _isDark ? const Color(0xFFE2DFFF) : const Color(0xFF1F2937);
+  Color get _onSurfaceVariant => _isDark ? const Color(0xFFE2BFB0) : const Color(0xFF7A4B29);
+  Color get _outlineVariant => _isDark ? const Color(0xFF594136) : const Color(0xFFCD7F32);
   static const _green = Color(0xFF66BB6A);
+
+  void _onThemeChanged() {
+    if (mounted) setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -719,22 +727,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       return _buildClientPublicCatalog(isDesktop);
     }
     if (_navIndex == 1) {
-      if (_machineSelectedMachine != null) {
-        return _buildMachineTelemetryDetailSection(
-          isDesktop,
-        );
-      }
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildAIHeader(),
-          const SizedBox(height: 24),
-          _buildKPIRow(isDesktop),
-          const SizedBox(height: 32),
-          _buildMachineListSection(isDesktop),
-          const SizedBox(height: 80),
-        ],
-      );
+      return _buildMessagesSection(isDesktop);
     }
     if (_navIndex == 2) {
       return _buildAnalyseIaSection(isDesktop);
@@ -764,6 +757,32 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
     }
     // Fallback.
     return _buildMachineListSection(isDesktop);
+  }
+
+  Widget _buildMessagesSection(bool isDesktop) {
+    if (!mounted) return const SizedBox();
+    
+    final cId = (widget.clientId ?? widget.clientData?['clientId'] ?? widget.clientData?['id'] ?? ApiService.savedClientId ?? '').toString().trim();
+    final cName = widget.clientName ?? _currentClientName;
+
+    return Container(
+      height: MediaQuery.of(context).size.height - (isDesktop ? 120 : 60),
+      decoration: BoxDecoration(
+        color: _surfaceContainerLow.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _outlineVariant.withOpacity(0.15)),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: MessageEquipeView(
+          embedded: true,
+          clientId: cId.isEmpty ? '0' : cId,
+          senderName: cName.isEmpty ? 'Client' : cName,
+          senderRole: 'client',
+          isDarkMode: _isDark,
+        ),
+      ),
+    );
   }
 
   /// Bouton action compact (icône + label) pour les cartes technicien
@@ -1547,7 +1566,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                         value: mid,
                         dropdownColor: _surfaceContainerHigh,
                         style: GoogleFonts.inter(color: _onSurface, fontWeight: FontWeight.w600),
-                        icon: const Icon(Icons.arrow_drop_down, color: _secondary),
+                        icon: Icon(Icons.arrow_drop_down, color: _secondary),
                         items: machines.map((m) {
                           final id = _clientMachineId(m);
                           final name = _clientMachineName(m);
@@ -2203,7 +2222,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       children: [
         IconButton(
           onPressed: onBack,
-          icon: const Icon(Icons.arrow_back, color: _secondary),
+          icon: Icon(Icons.arrow_back, color: _secondary),
           tooltip: 'Retour',
         ),
         const SizedBox(width: 8),
@@ -2313,7 +2332,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                               color: _secondary.withOpacity(0.12),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Icon(
+                            child: Icon(
                               Icons.precision_manufacturing,
                               color: _secondary,
                             ),
@@ -2385,7 +2404,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         children: [
           Row(
             children: [
-              const Icon(Icons.info_outline, color: _secondary, size: 22),
+              Icon(Icons.info_outline, color: _secondary, size: 22),
               const SizedBox(width: 10),
               Text(
                 title,
@@ -2471,7 +2490,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 color: _secondary.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.history_rounded, color: _secondary, size: 20),
+              child: Icon(Icons.history_rounded, color: _secondary, size: 20),
             ),
             const SizedBox(width: 12),
             Column(
@@ -2505,7 +2524,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 color: _secondary.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.picture_as_pdf_rounded, color: _secondary, size: 20),
+              child: Icon(Icons.picture_as_pdf_rounded, color: _secondary, size: 20),
             ),
             const SizedBox(width: 12),
             Column(
@@ -3115,11 +3134,10 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 children: [
                   _navItem(Icons.dashboard, 'Home', 0),
                   _navItem(Icons.person_outline, 'Profil', 5),
-                  _navItem(Icons.precision_manufacturing, 'Mes Machines', 1),
+                  _navItem(Icons.chat_bubble_outline, 'Messagerie', 1),
                   _navItem(Icons.auto_awesome, 'Analyse IA', 2),
                   _navItem(Icons.groups, 'Équipe', 3),
                   _navItem(Icons.description, 'Documents', 4),
-                  _navItem(Icons.chat_bubble_outline, 'Messages', 6),
                 ],
               ),
             ),
@@ -3271,17 +3289,19 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 ),
                 const Spacer(),
                 // Icons
-                _iconBtn(Icons.notifications_outlined),
-                const SizedBox(width: 8),
-                _iconBtn(Icons.settings_outlined),
+                IconButton(
+                  icon: const Icon(Icons.light_mode_outlined),
+                  onPressed: () => ThemeService().toggleTheme(),
+                  color: _onSurfaceVariant,
+                ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
                   onPressed: _logoutClient,
                   icon: const Icon(Icons.logout, size: 16),
                   label: const Text('Déconnexion'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: _error,
-                    side: BorderSide(color: _error.withOpacity(0.45)),
+                    foregroundColor: _secondary,
+                    side: BorderSide(color: _secondary.withOpacity(0.45)),
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     textStyle: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600),
                   ),
@@ -3640,6 +3660,18 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             tooltip: 'Notifications',
           ),
           IconButton(
+            onPressed: () {
+              ThemeService().toggleTheme();
+              setState(() {});
+            },
+            icon: Icon(
+              ThemeService().isDarkMode ? Icons.wb_sunny_rounded : Icons.nightlight_round,
+              color: ThemeService().isDarkMode ? Colors.amber : const Color(0xFF7A4B29),
+              size: 22,
+            ),
+            tooltip: ThemeService().isDarkMode ? 'Mode Jour' : 'Mode Nuit',
+          ),
+          IconButton(
             onPressed: _openProfileSettingsDialog,
             icon: const Icon(Icons.settings_outlined),
             color: _onSurfaceVariant,
@@ -3648,7 +3680,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           IconButton(
             onPressed: _logoutClient,
             icon: const Icon(Icons.logout),
-            color: _error,
+            color: _secondary,
             tooltip: 'Quitter',
           ),
         ],
@@ -3709,7 +3741,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                     color: _surfaceContainerLowest,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.manage_accounts_outlined,
                     size: 18,
                     color: _primaryLight,
@@ -3937,7 +3969,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Padding(
+                        Padding(
                           padding: EdgeInsets.only(top: 2),
                           child: Icon(
                             Icons.notifications_active_outlined,
@@ -4084,7 +4116,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                         color: _secondary.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.psychology, color: _secondary, size: 26),
+                      child: Icon(Icons.psychology, color: _secondary, size: 26),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -4135,7 +4167,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           const SizedBox(height: 20),
           Row(
             children: [
-              const Icon(Icons.info_outline, color: _secondary, size: 16),
+              Icon(Icons.info_outline, color: _secondary, size: 16),
               const SizedBox(width: 8),
               Expanded(
                 child: RichText(
@@ -4186,7 +4218,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         children: [
           Row(
             children: [
-              const Icon(Icons.event_repeat, color: _primaryLight, size: 16),
+              Icon(Icons.event_repeat, color: _primaryLight, size: 16),
               const SizedBox(width: 8),
               Text(
                 'MAINTENANCE PRÉDICTIVE',
@@ -4226,27 +4258,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             ),
           ),
           const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: () {},
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: _primaryLight.withOpacity(0.3)),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-              ),
-              child: Text(
-                'PLANIFIER MAINTENANT',
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: _primaryLight,
-                  letterSpacing: 1.5,
-                ),
-              ),
-            ),
-          ),
+          const SizedBox.shrink(),
         ],
       ),
     );
@@ -4270,15 +4282,15 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
               builder: (context, snapshot) {
                 final count = snapshot.hasData ? snapshot.data!.length : 0;
                 return _kpiCard(Icons.precision_manufacturing, 'Total Machines', count.toString().padLeft(2, '0'),
-                    _primary, const Color(0xFF161626));
+                    _primary, _surfaceContainerLow);
               }
             ),
             _kpiCard(Icons.groups, 'Techniciens Connectés', _isLoadingStats ? '..' : _techCount.toString().padLeft(2, '0'), _secondary,
-                const Color(0xFF161626)),
+                _surfaceContainerLow),
             _kpiCard(Icons.warning, 'Alertes Actives', '01', _error,
-                const Color(0xFF161626)),
+                _surfaceContainerLow),
             _kpiCard(Icons.check_circle, 'Disponibilité Site', '100%', _green,
-                const Color(0xFF161626)),
+                _surfaceContainerLow),
           ],
         );
       },
@@ -4341,7 +4353,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           backgroundColor: _surfaceContainerHigh,
           title: Row(
             children: [
-              const Icon(Icons.developer_board_rounded, color: _primary),
+              Icon(Icons.developer_board_rounded, color: _primary),
               const SizedBox(width: 10),
               Text(
                 'Cartes ESP32 Connectées',
@@ -4512,7 +4524,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           future: _machinesFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: Padding(padding: EdgeInsets.symmetric(vertical: 40), child: CircularProgressIndicator(color: _secondary)));
+              return Center(child: Padding(padding: EdgeInsets.symmetric(vertical: 40), child: CircularProgressIndicator(color: _secondary)));
             }
             if (snapshot.hasError) {
               return Container(padding: const EdgeInsets.all(24), decoration: BoxDecoration(color: _error.withOpacity(0.1), borderRadius: BorderRadius.circular(12)), child: Text('Erreur reseau: ${snapshot.error}', style: TextStyle(color: _error)));
@@ -4610,7 +4622,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           future: _techniciansFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(
+              return Center(
                 child: Padding(
                   padding: EdgeInsets.symmetric(vertical: 40),
                   child: CircularProgressIndicator(color: _secondary),
@@ -4626,7 +4638,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                 ),
                 child: Text(
                   'Erreur chargement équipe: ${snapshot.error}',
-                  style: const TextStyle(color: _error),
+                  style: TextStyle(color: _error),
                 ),
               );
             }
@@ -4939,7 +4951,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                               color: _primary.withOpacity(0.18),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Icon(
+                            child: Icon(
                               Icons.engineering_rounded,
                               color: _primary,
                               size: 22,
@@ -4972,7 +4984,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                           IconButton(
                             tooltip: 'Fermer',
                             onPressed: () => Navigator.of(ctx).pop(false),
-                            icon: const Icon(Icons.close_rounded, color: _onSurfaceVariant),
+                            icon: Icon(Icons.close_rounded, color: _onSurfaceVariant),
                           ),
                         ],
                       ),
@@ -5304,7 +5316,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: _primary, width: 1.4),
+              borderSide: BorderSide(color: _primary, width: 1.4),
             ),
           ),
         ),
@@ -6401,7 +6413,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
 
       if (ssid.isEmpty || pass.isEmpty || newId.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text('L\'ID, le SSID et le mot de passe sont obligatoires.'),
             backgroundColor: _error,
           ),
@@ -6412,7 +6424,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (ctx) => const Center(child: CircularProgressIndicator(color: _primary)),
+        builder: (ctx) => Center(child: CircularProgressIndicator(color: _primary)),
       );
 
       try {
@@ -6624,7 +6636,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
           mainAxisSize: MainAxisSize.min,
           children: [
             if (isRisk) ...[
-              const Icon(Icons.psychology, size: 12, color: _secondary),
+              Icon(Icons.psychology, size: 12, color: _secondary),
               const SizedBox(width: 4),
             ],
             Text(
@@ -6703,7 +6715,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
                     color: _error),
               ),
               const SizedBox(width: 4),
-              const Icon(Icons.trending_up, size: 14, color: _error),
+              Icon(Icons.trending_up, size: 14, color: _error),
             ],
           ),
         ],
@@ -6736,7 +6748,7 @@ class _ClientDashboardPageState extends State<ClientDashboardPage>
         borderRadius: BorderRadius.circular(10),
         child: Container(
           padding: const EdgeInsets.all(12),
-          child: const Icon(Icons.warning, size: 20, color: _error),
+          child: Icon(Icons.warning, size: 20, color: _error),
         ),
       ),
     );
@@ -6766,11 +6778,13 @@ class _ClientPublicMachineCard extends StatelessWidget {
     required this.machine,
     required this.onBuy,
     this.onRequireLogin,
+    this.isDarkMode = true,
   });
 
   final Map<String, dynamic> machine;
   final VoidCallback onBuy;
   final Future<void> Function()? onRequireLogin;
+  final bool isDarkMode;
 
   Future<void> _runIfAuthenticated(
     BuildContext context,
@@ -6842,17 +6856,17 @@ class _ClientPublicMachineCard extends StatelessWidget {
 
   Widget _fallbackBanner() {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF2B365A), Color(0xFF222B49)],
+          colors: isDarkMode ? const [Color(0xFF2B365A), Color(0xFF222B49)] : const [Color(0xFFE3E9F4), Color(0xFFD0DAEC)],
         ),
       ),
-      child: const Center(
+      child: Center(
         child: Icon(
           Icons.precision_manufacturing_rounded,
-          color: Color(0xFFC7D4F0),
+          color: isDarkMode ? const Color(0xFFC7D4F0) : const Color(0xFF5A75A6),
           size: 34,
         ),
       ),
@@ -6875,15 +6889,26 @@ class _ClientPublicMachineCard extends StatelessWidget {
           .toString(),
     );
 
+    final bgColors = isDarkMode
+        ? const [Color(0xFF1A2340), Color(0xFF0F1526)]
+        : const [Color(0xFFF7F9FF), Color(0xFFE8EEF9)];
+    final overlayGradient = isDarkMode
+        ? const [Color(0xFF0F1526), Colors.transparent]
+        : const [Color(0xFFE8EEF9), Colors.transparent];
+    final textColor = isDarkMode ? Colors.white : const Color(0xFF1A2340);
+    final borderColor = isDarkMode ? Colors.white.withOpacity(0.12) : const Color(0xFF1A2340).withOpacity(0.15);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
       child: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFF1A2340), Color(0xFF0F1526)],
+            colors: bgColors,
           ),
+          border: Border.all(color: borderColor),
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -6892,7 +6917,7 @@ class _ClientPublicMachineCard extends StatelessWidget {
             Stack(
               children: [
                 SizedBox(
-                  height: 110,
+                  height: 140,
                   width: double.infinity,
                   child: imageUrl.isEmpty
                       ? _fallbackBanner()
@@ -6913,11 +6938,11 @@ class _ClientPublicMachineCard extends StatelessWidget {
                   left: 0, right: 0, bottom: 0,
                   child: Container(
                     height: 40,
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.bottomCenter,
                         end: Alignment.topCenter,
-                        colors: [Color(0xFF0F1526), Colors.transparent],
+                        colors: overlayGradient,
                       ),
                     ),
                   ),
@@ -6968,7 +6993,7 @@ class _ClientPublicMachineCard extends StatelessWidget {
             // ── Content body ─────────────────────────────────
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -6977,18 +7002,18 @@ class _ClientPublicMachineCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.inter(
-                        color: Colors.white,
-                        fontSize: 12,
+                        color: textColor,
+                        fontSize: 14,
                         fontWeight: FontWeight.w700,
                         height: 1.25,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
                     Text(
                       priceLabel,
                       style: GoogleFonts.inter(
                         color: const Color(0xFFFF9040),
-                        fontSize: 13,
+                        fontSize: 15,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -7007,18 +7032,18 @@ class _ClientPublicMachineCard extends StatelessWidget {
                               );
                             }),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 7),
+                              padding: const EdgeInsets.symmetric(vertical: 9),
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.07),
+                                color: isDarkMode ? Colors.white.withOpacity(0.07) : const Color(0xFF1A2340).withOpacity(0.05),
                                 borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.white.withOpacity(0.12)),
+                                border: Border.all(color: isDarkMode ? Colors.white.withOpacity(0.12) : const Color(0xFF1A2340).withOpacity(0.15)),
                               ),
                               child: Center(
                                 child: Text(
                                   'Détails',
                                   style: GoogleFonts.inter(
-                                    color: const Color(0xFFD7E7FF),
-                                    fontSize: 10,
+                                    color: isDarkMode ? const Color(0xFFD7E7FF) : const Color(0xFF1A2340),
+                                    fontSize: 11,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -7031,7 +7056,7 @@ class _ClientPublicMachineCard extends StatelessWidget {
                           child: GestureDetector(
                             onTap: () => _runIfAuthenticated(context, onBuy),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 7),
+                              padding: const EdgeInsets.symmetric(vertical: 9),
                               decoration: BoxDecoration(
                                 gradient: const LinearGradient(
                                   colors: [Color(0xFFFF6E00), Color(0xFFFF9500)],
@@ -7050,7 +7075,7 @@ class _ClientPublicMachineCard extends StatelessWidget {
                                   'Acheter',
                                   style: GoogleFonts.inter(
                                     color: Colors.white,
-                                    fontSize: 10,
+                                    fontSize: 11,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -7097,176 +7122,32 @@ class _ConcepteurMachineGrid extends StatefulWidget {
 }
 
 class _ConcepteurMachineGridState extends State<_ConcepteurMachineGrid> {
-  static const double _cardH = 240.0;
-  static const double _cardW = 200.0;
-  static const double _gap   = 12.0;
-  late final ScrollController _ctrl;
-  bool _canLeft  = false;
-  bool _canRight = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = ScrollController();
-    _ctrl.addListener(_onScroll);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _onScroll());
-  }
-
-  void _onScroll() {
-    if (!_ctrl.hasClients) return;
-    final pos = _ctrl.position;
-    final nl = pos.pixels > 4;
-    final nr = pos.pixels < pos.maxScrollExtent - 4;
-    if (nl != _canLeft || nr != _canRight) setState(() { _canLeft = nl; _canRight = nr; });
-  }
-
-  @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
-
-  void _scrollBy(double d) {
-    _ctrl.animateTo(
-      (_ctrl.offset + d).clamp(0.0, _ctrl.position.maxScrollExtent),
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeOutCubic,
-    );
-  }
-
-  Widget _scrollEdge({required bool isLeft, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: SizedBox(
-        width: 68,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // ── Full-height gradient fade ──────────────────────────────
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: isLeft ? Alignment.centerRight : Alignment.centerLeft,
-                  end:   isLeft ? Alignment.centerLeft  : Alignment.centerRight,
-                  colors: [
-                    Colors.transparent,
-                    const Color(0xFF060C1A).withOpacity(0.80),
-                  ],
-                ),
-              ),
-            ),
-
-            // ── Full-height glassmorphism strip ──────────────────────
-            Positioned(
-              top: 0, bottom: 0,
-              left: isLeft ? 0 : null,
-              right: isLeft ? null : 0,
-              child: Container(
-                width: 52,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.horizontal(
-                    left: isLeft ? Radius.zero : const Radius.circular(14),
-                    right: isLeft ? const Radius.circular(14) : Radius.zero,
-                  ),
-                  // Frosted glass gradient
-                  gradient: LinearGradient(
-                    begin: isLeft ? Alignment.centerLeft : Alignment.centerRight,
-                    end:   isLeft ? Alignment.centerRight : Alignment.centerLeft,
-                    colors: [
-                      const Color(0xFFFF6E00).withOpacity(0.06),
-                      Colors.white.withOpacity(0.03),
-                    ],
-                  ),
-                  border: Border(
-                    left:  isLeft ? BorderSide.none : BorderSide(color: const Color(0xFFFF6E00).withOpacity(0.22), width: 1),
-                    right: isLeft ? BorderSide(color: const Color(0xFFFF6E00).withOpacity(0.22), width: 1) : BorderSide.none,
-                    top:   BorderSide(color: const Color(0xFFFF6E00).withOpacity(0.10), width: 0.8),
-                    bottom: BorderSide(color: const Color(0xFFFF6E00).withOpacity(0.10), width: 0.8),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFFF6E00).withOpacity(0.14),
-                      blurRadius: 18,
-                      spreadRadius: -2,
-                      offset: isLeft ? const Offset(4, 0) : const Offset(-4, 0),
-                    ),
-                  ],
-                ),
-                // ── Simple double arrow centered vertically ──────────────────
-                child: Center(
-                  child: Icon(
-                    isLeft ? Icons.keyboard_double_arrow_left : Icons.keyboard_double_arrow_right,
-                    color: Colors.white,
-                    size: 32,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
+  static const double _cardH = 280.0;
+  static const double _cardW = 340.0;
+  static const double _gap   = 16.0;
 
   @override
   Widget build(BuildContext context) {
-    final row1 = <Map<String, dynamic>>[];
-    final row2 = <Map<String, dynamic>>[];
-    for (int i = 0; i < widget.machines.length; i++) {
-      if (i % 2 == 0) row1.add(widget.machines[i]);
-      else row2.add(widget.machines[i]);
+    if (widget.machines.isEmpty) {
+      return const SizedBox.shrink();
     }
-    final totalH = row2.isEmpty ? _cardH : _cardH * 2 + _gap;
-
-    Widget card(Map<String, dynamic> m) {
-      final mid = (m['machineId'] ?? m['_id'] ?? m['id'] ?? '').toString();
-      return SizedBox(
-        width: _cardW, height: _cardH,
-        child: Container(
-          margin: const EdgeInsets.only(right: _gap),
+    final isDark = ThemeService().isDarkMode;
+    return Wrap(
+      spacing: _gap,
+      runSpacing: _gap,
+      children: widget.machines.map((m) {
+        final mid = (m['machineId'] ?? m['_id'] ?? m['id'] ?? '').toString();
+        return SizedBox(
+          width: _cardW,
+          height: _cardH,
           child: _ClientPublicMachineCard(
             machine: m,
             onRequireLogin: widget.onRequireLogin,
             onBuy: () => widget.onBuy(mid, m),
+            isDarkMode: isDark,
           ),
-        ),
-      );
-    }
-
-    return SizedBox(
-      height: totalH,
-      child: Stack(
-        children: [
-          SingleChildScrollView(
-            controller: _ctrl,
-            scrollDirection: Axis.horizontal,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(height: _cardH, child: Row(children: row1.map(card).toList())),
-                if (row2.isNotEmpty) ...[
-                  const SizedBox(height: _gap),
-                  SizedBox(height: _cardH, child: Row(children: row2.map(card).toList())),
-                ],
-              ],
-            ),
-          ),
-          if (_canLeft)
-            Positioned(
-              left: 0, top: 0, bottom: 0,
-              child: _scrollEdge(
-                isLeft: true,
-                onTap: () => _scrollBy(-(_cardW + _gap) * 2),
-              ),
-            ),
-          if (_canRight)
-            Positioned(
-              right: 0, top: 0, bottom: 0,
-              child: _scrollEdge(
-                isLeft: false,
-                onTap: () => _scrollBy((_cardW + _gap) * 2),
-              ),
-            ),
-        ],
-      ),
+        );
+      }).toList(),
     );
   }
 }

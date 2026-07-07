@@ -1936,6 +1936,26 @@ class ApiService {
     _throwApiError(response, 'Erreur lors de l\'envoi du message');
   }
 
+  static Future<void> addRoomParticipant({
+    required String roomId,
+    required dynamic userId,
+    required String role,
+    required String userName,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/chat/room/${Uri.encodeComponent(roomId)}/participants'),
+      headers: await jsonHeadersAuthorized(),
+      body: json.encode({
+        'userId': userId.toString(),
+        'role': role,
+        'userName': userName,
+      }),
+    );
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      _throwApiError(response, 'Impossible d\'ajouter le participant au groupe');
+    }
+  }
+
   static Future<List<Map<String, dynamic>>> getTechnicianConversations(
     String technicianId,
   ) async {

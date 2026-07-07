@@ -9,13 +9,13 @@ const { sendWelcomeEmail } = require('../services/emailService');
 
 async function loadMachineData(profile) {
     let machineIds = [];
-    try { machineIds = JSON.parse(profile.machineIds || '[]'); } catch (_) {}
+    try { machineIds = JSON.parse(profile.machineIds || '[]'); } catch (_) { }
 
     const machines = machineIds.length
         ? await prisma.machine.findMany({
-              where: { id: { in: machineIds } },
-              select: { id: true, name: true, type: true, status: true, location: true, motorType: true },
-          })
+            where: { id: { in: machineIds } },
+            select: { id: true, name: true, type: true, status: true, location: true, motorType: true },
+        })
         : [];
 
     const telemetryMap = {};
@@ -43,7 +43,38 @@ async function loadMachineData(profile) {
 async function listMaintenanceAgents(req, res) {
     try {
         const { clientId } = req.query;
-        const rows = await AgentModel.listMaintenanceAgents({ clientId });
+        let rows = await AgentModel.listMaintenanceAgents({ clientId });
+
+        const role = req.auth?.role;
+        if (role === 'conception' || role === 'concepteur') {
+            const userId = getAuthUserId(req.auth);
+            const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+            if (concepteur) {
+                const userConcepteurId = String(concepteur.id);
+                let allowedIds = [];
+                try { allowedIds = JSON.parse(concepteur.machineIds || '[]'); } catch (e) { }
+                const machines = await prisma.machine.findMany({
+                    where: {
+                        OR: [
+                            { concepteurId: userConcepteurId },
+                            { id: { in: allowedIds } }
+                        ]
+                    }
+                });
+                const machineIdsStr = machines.map(m => String(m.id));
+                const companyIds = [...new Set(machines.map(m => m.companyId).filter(Boolean))];
+                rows = rows.filter(a => {
+                    if (a.clientId && companyIds.includes(a.clientId)) return true;
+                    if (a.companyId && companyIds.includes(a.companyId)) return true;
+                    let aMachineIds = [];
+                    try { aMachineIds = JSON.parse(a.machineIds || '[]'); } catch (e) { }
+                    return aMachineIds.some(mId => machineIdsStr.includes(String(mId)));
+                });
+            } else {
+                rows = [];
+            }
+        }
+
         res.set('Cache-Control', 'no-store');
         return res.json(rows.map(a => serializeMaintenanceAgent(a.user, a)));
     } catch (err) {
@@ -56,6 +87,40 @@ async function getMaintenanceAgent(req, res) {
     try {
         const row = await AgentModel.getAgentByIdOrCode(req.params.id);
         if (!row) return res.status(404).json({ error: 'Agent de maintenance introuvable' });
+
+        const role = req.auth?.role;
+        if (role === 'conception' || role === 'concepteur') {
+            const userId = getAuthUserId(req.auth);
+            const concepteur = await prisma.concepteur.findUnique({ where: { userId } });
+            if (concepteur) {
+                const userConcepteurId = String(concepteur.id);
+                let allowedIds = [];
+                try { allowedIds = JSON.parse(concepteur.machineIds || '[]'); } catch (e) { }
+                const machines = await prisma.machine.findMany({
+                    where: {
+                        OR: [
+                            { concepteurId: userConcepteurId },
+                            { id: { in: allowedIds } }
+                        ]
+                    }
+                });
+                const machineIdsStr = machines.map(m => String(m.id));
+                const companyIds = [...new Set(machines.map(m => m.companyId).filter(Boolean))];
+                let isLinked = false;
+                if (row.clientId && companyIds.includes(row.clientId)) isLinked = true;
+                if (row.companyId && companyIds.includes(row.companyId)) isLinked = true;
+                let aMachineIds = [];
+                try { aMachineIds = JSON.parse(row.machineIds || '[]'); } catch (e) { }
+                if (aMachineIds.some(mId => machineIdsStr.includes(String(mId)))) isLinked = true;
+
+                if (!isLinked) {
+                    return res.status(403).json({ error: 'Accès interdit. Cet agent de maintenance n\'est pas lié à votre parc.' });
+                }
+            } else {
+                return res.status(403).json({ error: 'Accès interdit.' });
+            }
+        }
+
         return res.json(serializeMaintenanceAgent(row.user, row));
     } catch (err) {
         return res.status(500).json({ error: err.message });
@@ -86,24 +151,36 @@ async function createMaintenanceAgent(req, res) {
         );
         createdUserId = user.id;
 
-        // ✉️ Envoyer l'e-mail de bienvenue (non bloquant : si l'email échoue, le compte est quand même créé)
-        try {
-            await sendWelcomeEmail({
-                to: email,
-                name: user.nom || `${firstName} ${lastName}`.trim() || email,
-                password, // mot de passe en clair (avant hachage)
-                role: 'Agent de Maintenance',
-            });
-            console.log(`✉️  E-mail de bienvenue envoyé à ${email}`);
-        } catch (mailErr) {
-            console.warn(`⚠️  Impossible d'envoyer l'e-mail de bienvenue à ${email}:`, mailErr.message);
+        let credentialsEmail = { sent: false, reason: 'skipped_by_user' };
+        if (req.body.sendEmail !== false) {
+            try {
+                await sendWelcomeEmail({
+                    to: email,
+                    name: user.nom || `${firstName} ${lastName}`.trim() || email,
+                    password,
+                    role: 'Agent de Maintenance',
+                });
+                console.log(`✉️  E-mail de bienvenue envoyé à ${email}`);
+                credentialsEmail = { sent: true, to: email };
+            } catch (mailErr) {
+                console.warn(`⚠️  Impossible d'envoyer l'e-mail de bienvenue à ${email}:`, mailErr.message);
+                credentialsEmail = {
+                    sent: false,
+                    reason: 'send_failed',
+                    detail: mailErr.message,
+                    to: email,
+                };
+            }
         }
 
-        return res.status(201).json(serializeMaintenanceAgent(user, profile));
+        return res.status(201).json({
+            ...serializeMaintenanceAgent(user, profile),
+            credentialsEmail,
+        });
 
     } catch (err) {
         if (createdUserId) {
-            try { await prisma.user.delete({ where: { id: createdUserId } }); } catch (_) {}
+            try { await prisma.user.delete({ where: { id: createdUserId } }); } catch (_) { }
         }
         return res.status(err.status || 500).json({ error: err.message });
     }
@@ -118,9 +195,9 @@ async function updateMaintenanceAgent(req, res) {
         const { email, password, name, firstName, lastName, address, clientId, machineIds } = req.body;
 
         const userData = {};
-        if (email)    userData.email    = email;
-        if (name)     userData.nom      = name;
-        if (address)  userData.adresse  = address;
+        if (email) userData.email = email;
+        if (name) userData.nom = name;
+        if (address) userData.adresse = address;
         if (password) userData.password = await hashPassword(password);
 
         const updatedUser = Object.keys(userData).length
@@ -128,9 +205,9 @@ async function updateMaintenanceAgent(req, res) {
             : existing.user;
 
         const profileData = {};
-        if (firstName  !== undefined) profileData.firstName  = firstName;
-        if (lastName   !== undefined) profileData.lastName   = lastName;
-        if (clientId   !== undefined) profileData.clientId   = clientId;
+        if (firstName !== undefined) profileData.firstName = firstName;
+        if (lastName !== undefined) profileData.lastName = lastName;
+        if (clientId !== undefined) profileData.clientId = clientId;
         if (machineIds !== undefined) profileData.machineIds = JSON.stringify(Array.isArray(machineIds) ? machineIds : []);
 
         const updatedProfile = Object.keys(profileData).length
@@ -187,10 +264,10 @@ async function getMyProfile(req, res) {
 
         const purchaseRequests = profile.clientId
             ? await prisma.purchaseRequest.findMany({
-                  where: { linkedClientId: profile.clientId },
-                  orderBy: { createdAt: 'desc' },
-                  take: 10,
-              })
+                where: { linkedClientId: profile.clientId },
+                orderBy: { createdAt: 'desc' },
+                take: 10,
+            })
             : [];
 
         res.set('Cache-Control', 'no-store');
@@ -214,8 +291,8 @@ async function updateMyProfile(req, res) {
         const { nom, adresse, firstName, lastName, password } = req.body;
 
         const userData = {};
-        if (nom)      userData.nom     = nom;
-        if (adresse)  userData.adresse = adresse;
+        if (nom) userData.nom = nom;
+        if (adresse) userData.adresse = adresse;
         if (password) userData.password = await hashPassword(password);
 
         const updatedUser = Object.keys(userData).length
@@ -224,7 +301,7 @@ async function updateMyProfile(req, res) {
 
         const profileData = {};
         if (firstName !== undefined) profileData.firstName = firstName;
-        if (lastName  !== undefined) profileData.lastName  = lastName;
+        if (lastName !== undefined) profileData.lastName = lastName;
 
         const updatedProfile = Object.keys(profileData).length
             ? await AgentModel.updateAgentProfile(profile.id, profileData)
@@ -246,11 +323,11 @@ async function getMyMachinesTelemetry(req, res) {
         if (!profile) return res.status(404).json({ error: 'Profil agent de maintenance introuvable' });
 
         let machineIds = [];
-        try { machineIds = JSON.parse(profile.machineIds || '[]'); } catch (_) {}
+        try { machineIds = JSON.parse(profile.machineIds || '[]'); } catch (_) { }
 
         const results = await Promise.all(
             machineIds.map(async (mid) => {
-                const machine   = await prisma.machine.findUnique({ where: { id: mid }, select: { id: true, name: true, status: true, type: true } });
+                const machine = await prisma.machine.findUnique({ where: { id: mid }, select: { id: true, name: true, status: true, type: true } });
                 const telemetry = await prisma.telemetry.findFirst({ where: { machineId: mid }, orderBy: { timestamp: 'desc' } });
                 const mappedTelemetry = telemetry ? {
                     ...telemetry,
@@ -286,16 +363,16 @@ async function submitPurchaseRequest(req, res) {
         const pr = await prisma.purchaseRequest.create({
             data: {
                 machineId,
-                machineName:    machine.name,
+                machineName: machine.name,
                 linkedClientId: profile.clientId || '',
-                requesterName:  requesterName || profile.user.nom,
+                requesterName: requesterName || profile.user.nom,
                 requesterEmail,
                 requesterPhone,
                 location,
                 googleMapsUrl,
                 note,
-                status:         'PENDING',
-                requestType:    'MAINTENANCE',
+                status: 'PENDING',
+                requestType: 'MAINTENANCE',
             },
         });
         return res.status(201).json(pr);

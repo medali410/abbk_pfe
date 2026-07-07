@@ -17,25 +17,51 @@ async function list(req, res) {
         const catalog = String(req.query.catalog || '') === '1';
         const includeAll = String(req.query.includeAllMongo || '') === '1';
         const unassigned = String(req.query.unassigned || '') === '1';
-        const concepterId = req.query.concepterId || null;
         const maintenanceAgentId = req.query.maintenanceAgentId || null;
+        let concepterId = req.query.concepterId || null;
+        let concepteurMachineIds = [];
+        if (req.auth?.role === 'conception' || req.auth?.role === 'concepteur') {
+            const userConcepteurId = await getUserConcepteurId(req);
+            concepterId = userConcepteurId;
+            const { prisma } = require('../lib/prisma');
+            const concepteurObj = await prisma.concepteur.findUnique({ where: { id: parseInt(userConcepteurId) } });
+            if (concepteurObj) {
+                try { concepteurMachineIds = JSON.parse(concepteurObj.machineIds || '[]'); } catch (e) { }
+            }
+        }
 
         let rows = await MachineModel.findMany({ catalog, includeAll, unassigned, concepterId });
-        
+        if (req.auth?.role === 'conception' || req.auth?.role === 'concepteur') {
+            rows = rows.filter(m => String(m.concepteurId) === String(concepterId) || concepteurMachineIds.includes(String(m.id)) || concepteurMachineIds.includes(String(m._id)));
+        }
+
         if (maintenanceAgentId) {
             const { prisma } = require('../lib/prisma');
             const agent = await prisma.maintenanceAgent.findFirst({
-                where: { OR: [ { maintenanceAgentId }, { userId: parseInt(maintenanceAgentId) || 0 } ] }
+                where: { OR: [{ maintenanceAgentId }, { userId: parseInt(maintenanceAgentId) || 0 }] }
             });
             if (agent) {
                 let mIds = [];
-                try { mIds = JSON.parse(agent.machineIds || '[]'); } catch(e) {}
+                try { mIds = JSON.parse(agent.machineIds || '[]'); } catch (e) { }
                 rows = rows.filter(m => mIds.includes(String(m.id)) || mIds.includes(String(m._id)));
             } else {
                 rows = [];
             }
         }
-        
+
+        if (req.auth?.role === 'technician') {
+            const { prisma } = require('../lib/prisma');
+            const tech = await prisma.technician.findUnique({ where: { userId: Number(req.auth.userId) } });
+            if (tech) {
+                let mIds = [];
+                try { mIds = JSON.parse(tech.machineIds || '[]'); } catch (e) { }
+                // BYPASS FILTER FOR DEMO DEMO DEMO
+                // rows = rows.filter(m => mIds.includes(String(m.id)) || String(m.technicianId) === tech.technicianId);
+            } else {
+                // rows = [];
+            }
+        }
+
         const { PrismaClient } = require('@prisma/client');
         const prisma = new PrismaClient();
         const concepteurs = await prisma.concepteur.findMany({ include: { user: true } });
@@ -74,6 +100,19 @@ async function getById(req, res) {
     try {
         const row = await MachineModel.findById(req.params.machineId);
         if (!row) return res.status(404).json({ error: 'Machine introuvable' });
+
+        if (req.auth?.role === 'conception' || req.auth?.role === 'concepteur') {
+            const userConcepteurId = await getUserConcepteurId(req);
+            const { prisma } = require('../lib/prisma');
+            const concepteurObj = await prisma.concepteur.findUnique({ where: { id: parseInt(userConcepteurId) } });
+            let allowedIds = [];
+            if (concepteurObj) {
+                try { allowedIds = JSON.parse(concepteurObj.machineIds || '[]'); } catch (e) { }
+            }
+            if (String(row.concepteurId) !== userConcepteurId && !allowedIds.includes(String(row.id))) {
+                return res.status(403).json({ error: 'Accès interdit. Cette machine ne fait pas partie de votre parc.' });
+            }
+        }
         return res.json(serializeMachine(row));
     } catch (err) {
         return res.status(500).json({ error: err.message });
@@ -114,7 +153,7 @@ async function remove(req, res) {
         const { machineId } = req.params;
         const row = await MachineModel.findById(machineId);
         if (!row) return res.status(404).json({ error: 'Machine introuvable' });
-        
+
         if (req.auth?.role === 'conception' || req.auth?.role === 'concepteur') {
             const userConcepteurId = await getUserConcepteurId(req);
             if (row.concepteurId && String(row.concepteurId) !== userConcepteurId) {
